@@ -6,6 +6,7 @@ import type {
   RoundStatus,
   SlashingMonitorConfig,
   SlashAction,
+  RoundInfo,
 } from '@/types/slashing'
 
 interface DetailedRoundCache {
@@ -297,6 +298,8 @@ export class SlashingDetector {
     const slashingPeriodSize = executionDelay + lifetime + 1n // +1 for current round
     const slashingPeriodStart = currentRound - slashingPeriodSize + 1n
 
+    console.log(`[Detection] Scanning rounds: current=${currentRound}, period size=${slashingPeriodSize}`)
+
     // 1. Collect all rounds we want to check in the active slashing period
     const roundsToCheck: bigint[] = []
 
@@ -321,12 +324,24 @@ export class SlashingDetector {
     }
 
     // 2. Batch fetch all round info using multicall
+    console.log(`[Detection] Fetching ${roundsToCheck.length} rounds via multicall`)
     const roundInfoMap = await this.l1Monitor.getRounds(roundsToCheck)
 
-    // 3. Process all rounds in parallel
-    const detectionPromises = roundsToCheck.map(async (round) => {
+    // 3. First pass: determine which rounds need details and check cache
+    interface RoundToProcess {
+      round: bigint
+      roundInfo: RoundInfo
+      status: RoundStatus
+      hasQuorum: boolean
+    }
+
+    const roundsNeedingDetails: RoundToProcess[] = []
+    const roundsWithDetails: Map<bigint, DetectedSlashing> = new Map()
+    const simpleRounds: DetectedSlashing[] = []
+
+    for (const round of roundsToCheck) {
       const roundInfo = roundInfoMap.get(round)
-      if (!roundInfo) return null
+      if (!roundInfo) continue
 
       const hasQuorum = roundInfo.voteCount >= this.config.quorum
       const status = this.calculateRoundStatus(round, currentRound, currentSlot, roundInfo.isExecuted, hasQuorum)
@@ -347,84 +362,140 @@ export class SlashingDetector {
 
       if (!shouldComputeDetails) {
         // Only include if it has votes (for early warning)
-        return roundInfo.voteCount > 0n ? detected : null
+        if (roundInfo.voteCount > 0n) {
+          simpleRounds.push(detected)
+        }
+        continue
       }
 
       // Check cache first
       const cachedDetails = this.getCachedDetails(round, roundInfo.voteCount)
-
-      let committees: Address[][]
-      let slashActions: SlashAction[]
-      let payloadAddress: Address
-      let isVetoed: boolean
-
       if (cachedDetails) {
-        committees = cachedDetails.committees
-        slashActions = cachedDetails.slashActions
-        payloadAddress = cachedDetails.payloadAddress
-        isVetoed = cachedDetails.isVetoed
+        // Use cached data immediately
+        const executableSlot = this.calculateExecutableSlot(round)
+        const expirySlot = this.calculateExpirySlot(round)
+        const secondsUntilExecutable = this.calculateSecondsUntilSlot(executableSlot, currentSlot)
+        const secondsUntilExpires = this.calculateSecondsUntilSlot(expirySlot, currentSlot)
+        const totalSlashAmount = cachedDetails.slashActions.reduce((sum, action) => sum + action.slashAmount, 0n)
+        const targetEpochs = this.getTargetEpochs(round)
+
+        roundsWithDetails.set(round, {
+          ...detected,
+          committees: cachedDetails.committees,
+          slashActions: cachedDetails.slashActions,
+          payloadAddress: cachedDetails.payloadAddress,
+          isVetoed: cachedDetails.isVetoed,
+          slotWhenExecutable: executableSlot,
+          slotWhenExpires: expirySlot,
+          secondsUntilExecutable,
+          secondsUntilExpires,
+          targetEpochs,
+          totalSlashAmount,
+          affectedValidatorCount: cachedDetails.slashActions.length,
+        })
       } else {
-        // Fetch details
-        try {
-          committees = await this.l1Monitor.getSlashTargetCommittees(round)
-          slashActions = await this.l1Monitor.getTally(round, committees)
+        roundsNeedingDetails.push({ round, roundInfo, status, hasQuorum })
+      }
+    }
 
-          if (slashActions.length === 0) {
-            return null
-          }
+    // 4. Batch fetch ALL details for all uncached rounds using multicalls
+    if (roundsNeedingDetails.length > 0) {
+      console.log(`[Detection] Batch fetching details for ${roundsNeedingDetails.length} rounds (uncached)`)
 
-          payloadAddress = await this.l1Monitor.getPayloadAddress(round, slashActions)
-          isVetoed = await this.l1Monitor.isPayloadVetoed(payloadAddress)
+      try {
+        // Step 1: Batch fetch committees for all rounds (1 multicall)
+        const allCommittees = await this.l1Monitor.batchGetSlashTargetCommittees(
+          roundsNeedingDetails.map(r => r.round)
+        )
 
-          // Cache the details
-          this.setCachedDetails(round, {
-            voteCount: roundInfo.voteCount,
-            committees,
-            slashActions,
-            payloadAddress,
-            isVetoed,
-            timestamp: Date.now(),
+        // Step 2: Batch fetch tallies for all rounds (1 multicall)
+        const roundsWithCommittees = roundsNeedingDetails.map((r, i) => ({
+          round: r.round,
+          committees: allCommittees[i],
+        }))
+        const allTallies = await this.l1Monitor.batchGetTally(roundsWithCommittees)
+
+        // Filter out rounds with no slash actions
+        const roundsWithActions = roundsNeedingDetails
+          .map((r, i) => ({
+            roundData: r,
+            committees: allCommittees[i],
+            slashActions: allTallies[i],
+            index: i,
+          }))
+          .filter(item => item.slashActions.length > 0)
+
+        if (roundsWithActions.length === 0) {
+          console.log('[Detection] No rounds with slash actions found')
+          // No further processing needed
+        } else {
+          // Step 3: Batch fetch payload addresses for rounds with actions (1 multicall)
+          const allPayloadAddresses = await this.l1Monitor.batchGetPayloadAddress(
+            roundsWithActions.map(item => ({
+              round: item.roundData.round,
+              actions: item.slashActions,
+            }))
+          )
+
+          // Step 4: Batch fetch veto status for all payloads (1 multicall)
+          const allVetoStatuses = await this.l1Monitor.batchIsPayloadVetoed(allPayloadAddresses)
+
+          // Step 5: Process all results
+          roundsWithActions.forEach((item, resultIndex) => {
+            const { roundData, committees, slashActions } = item
+            const { round, roundInfo, status } = roundData
+            const payloadAddress = allPayloadAddresses[resultIndex]
+            const isVetoed = allVetoStatuses[resultIndex]
+
+            // Cache the details
+            this.setCachedDetails(round, {
+              voteCount: roundInfo.voteCount,
+              committees,
+              slashActions,
+              payloadAddress,
+              isVetoed,
+              timestamp: Date.now(),
+            })
+
+            // Calculate timing
+            const executableSlot = this.calculateExecutableSlot(round)
+            const expirySlot = this.calculateExpirySlot(round)
+            const secondsUntilExecutable = this.calculateSecondsUntilSlot(executableSlot, currentSlot)
+            const secondsUntilExpires = this.calculateSecondsUntilSlot(expirySlot, currentSlot)
+            const totalSlashAmount = slashActions.reduce((sum, action) => sum + action.slashAmount, 0n)
+            const targetEpochs = this.getTargetEpochs(round)
+
+            roundsWithDetails.set(round, {
+              round,
+              status,
+              voteCount: roundInfo.voteCount,
+              isExecuted: roundInfo.isExecuted,
+              isVetoed,
+              committees,
+              slashActions,
+              payloadAddress,
+              slotWhenExecutable: executableSlot,
+              slotWhenExpires: expirySlot,
+              secondsUntilExecutable,
+              secondsUntilExpires,
+              targetEpochs,
+              totalSlashAmount,
+              affectedValidatorCount: slashActions.length,
+            })
           })
-        } catch (error) {
-          console.error(`Error fetching details for round ${round}:`, error)
-          return null
+
+          console.log(`[Detection] Successfully processed ${roundsWithActions.length} rounds with details`)
         }
+      } catch (error) {
+        console.error('Error batch fetching details:', error)
       }
+    }
 
-      // Calculate timing
-      const executableSlot = this.calculateExecutableSlot(round)
-      const expirySlot = this.calculateExpirySlot(round)
-      const secondsUntilExecutable = this.calculateSecondsUntilSlot(executableSlot, currentSlot)
-      const secondsUntilExpires = this.calculateSecondsUntilSlot(expirySlot, currentSlot)
-
-      // Calculate totals
-      const totalSlashAmount = slashActions.reduce((sum, action) => sum + action.slashAmount, 0n)
-      const affectedValidatorCount = slashActions.length
-
-      // Get target epochs
-      const targetEpochs = this.getTargetEpochs(round)
-
-      return {
-        ...detected,
-        committees,
-        slashActions,
-        payloadAddress,
-        isVetoed,
-        slotWhenExecutable: executableSlot,
-        slotWhenExpires: expirySlot,
-        secondsUntilExecutable,
-        secondsUntilExpires,
-        targetEpochs,
-        totalSlashAmount,
-        affectedValidatorCount,
-      }
-    })
-
-    // Wait for all detections to complete
-    const allDetections = await Promise.all(detectionPromises)
-
-    // Filter out nulls and sort by round (descending)
-    const validDetections = allDetections.filter((d): d is DetectedSlashing => d !== null)
+    // Combine all results
+    const validDetections = [
+      ...simpleRounds,
+      ...Array.from(roundsWithDetails.values()),
+    ]
 
     // 4. Find up to 3 most recent executed rounds
     //    Limit scan to a reasonable window (10 rounds before the slashing period)

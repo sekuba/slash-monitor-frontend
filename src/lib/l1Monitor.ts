@@ -257,6 +257,26 @@ export class L1Monitor {
   }
 
   /**
+   * Batch get committees for multiple rounds using multicall
+   */
+  async batchGetSlashTargetCommittees(rounds: bigint[]): Promise<Address[][][]> {
+    if (rounds.length === 0) return []
+
+    const calls = rounds.map((round) =>
+      createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'getSlashTargetCommittees', [round])
+    )
+
+    const results = await multicall(this.publicClient, calls)
+
+    return results.map((result) => {
+      if (result.success && result.data) {
+        return result.data as Address[][]
+      }
+      return []
+    })
+  }
+
+  /**
    * Get the tally (slash actions) for a round
    */
   async getTally(round: bigint, committees: Address[][]): Promise<SlashAction[]> {
@@ -272,6 +292,29 @@ export class L1Monitor {
       validator: action.validator as Address,
       slashAmount: action.slashAmount as bigint,
     }))
+  }
+
+  /**
+   * Batch get tallies for multiple rounds using multicall
+   */
+  async batchGetTally(roundsWithCommittees: Array<{ round: bigint; committees: Address[][] }>): Promise<SlashAction[][]> {
+    if (roundsWithCommittees.length === 0) return []
+
+    const calls = roundsWithCommittees.map(({ round, committees }) =>
+      createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'getTally', [round, committees])
+    )
+
+    const results = await multicall(this.publicClient, calls)
+
+    return results.map((result) => {
+      if (result.success && result.data) {
+        return (result.data as any[]).map((action) => ({
+          validator: action.validator as Address,
+          slashAmount: action.slashAmount as bigint,
+        }))
+      }
+      return []
+    })
   }
 
   /**
@@ -293,6 +336,49 @@ export class L1Monitor {
   }
 
   /**
+   * Batch get payload addresses for multiple rounds using multicall
+   */
+  async batchGetPayloadAddress(roundsWithActions: Array<{ round: bigint; actions: SlashAction[] }>): Promise<Address[]> {
+    if (roundsWithActions.length === 0) return []
+
+    const calls = roundsWithActions.map(({ round, actions }) => {
+      if (actions.length === 0) {
+        // Return null call for empty actions - we'll handle this below
+        return null
+      }
+      return createCall(
+        this.config.tallySlashingProposerAddress,
+        tallySlashingProposerAbi,
+        'getPayloadAddress',
+        [round, actions as readonly { validator: Address; slashAmount: bigint }[]]
+      )
+    })
+
+    // Filter out null calls and track indices
+    const validCalls: ReturnType<typeof createCall>[] = []
+    const validIndices: number[] = []
+    calls.forEach((call, i) => {
+      if (call) {
+        validCalls.push(call)
+        validIndices.push(i)
+      }
+    })
+
+    const results = validCalls.length > 0 ? await multicall(this.publicClient, validCalls) : []
+
+    // Map results back to original indices
+    const addresses: Address[] = new Array(roundsWithActions.length).fill('0x0000000000000000000000000000000000000000')
+    results.forEach((result, i) => {
+      const originalIndex = validIndices[i]
+      if (result.success && result.data) {
+        addresses[originalIndex] = result.data as Address
+      }
+    })
+
+    return addresses
+  }
+
+  /**
    * Check if a payload has been vetoed
    */
   async isPayloadVetoed(payloadAddress: Address): Promise<boolean> {
@@ -303,6 +389,26 @@ export class L1Monitor {
       args: [payloadAddress],
     })
     return vetoed as boolean
+  }
+
+  /**
+   * Batch check if multiple payloads have been vetoed using multicall
+   */
+  async batchIsPayloadVetoed(payloadAddresses: Address[]): Promise<boolean[]> {
+    if (payloadAddresses.length === 0) return []
+
+    const calls = payloadAddresses.map((address) =>
+      createCall(this.config.slasherAddress, slasherAbi, 'vetoedPayloads', [address])
+    )
+
+    const results = await multicall(this.publicClient, calls)
+
+    return results.map((result) => {
+      if (result.success && result.data !== undefined) {
+        return result.data as boolean
+      }
+      return false
+    })
   }
 
   /**
