@@ -115,7 +115,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
           <div className="mt-4 space-y-3">
             {slashing.status === 'quorum-reached' && slashing.secondsUntilExecutable !== undefined && (
               <>
-                <div className="flex items-center gap-3 bg-brand-black border-3 border-whisper-white p-3">
+                <div className="flex items-center gap-3 bg-brand-black border-3 border-whisper-white p-3 animate-pulse">
                   <svg className="w-6 h-6 text-orchid stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path
                       strokeLinecap="square"
@@ -137,7 +137,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
             )}
             {(slashing.status === 'in-veto-window' || slashing.status === 'executable') &&
               slashing.secondsUntilExpires !== undefined && (
-                <div className="flex items-center gap-3 bg-brand-black border-3 border-vermillion p-3">
+                <div className="flex items-center gap-3 bg-brand-black border-3 border-vermillion p-3 animate-pulse">
                   <svg className="w-6 h-6 text-vermillion stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path
                       strokeLinecap="square"
