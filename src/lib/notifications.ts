@@ -39,24 +39,24 @@ export function notifySlashingDetected(slashing: DetectedSlashing): void {
   const validatorCount = slashing.affectedValidatorCount ?? 0
   const roundNum = slashing.round.toString()
 
-  let title = '⚠️ Slashing Round Detected!'
+  let title = 'SLASHING ROUND DETECTED'
   let body = `Round ${roundNum}: ${validatorCount} validator${validatorCount !== 1 ? 's' : ''} will be slashed`
 
   // Customize based on status
   if (slashing.status === 'quorum-reached') {
-    title = '🔔 Early Warning: Slashing Quorum Reached!'
+    title = 'SLASHING QUORUM REACHED'
     const daysUntilExecutable = slashing.secondsUntilExecutable
       ? Math.ceil(slashing.secondsUntilExecutable / 86400)
       : '?'
-    body += `\n\n⏰ Executable in ~${daysUntilExecutable} days`
-    body += '\n✓ You can veto NOW (no need to wait!)'
+    body += `\n\nExecutable in ~${daysUntilExecutable} days`
+    body += '\nVeto available now'
   } else if (slashing.status === 'in-veto-window') {
-    title = '🚨 Slashing Now Executable!'
-    body += '\n\n⚡ URGENT: Slashing can be executed at any time'
-    body += '\n✓ Review and veto immediately if needed'
+    title = 'SLASHING NOW EXECUTABLE'
+    body += '\n\nSlashing can be executed at any time'
+    body += '\nReview and veto if needed'
   } else if (slashing.status === 'executable') {
-    title = '⚡ Slashing Ready to Execute!'
-    body += '\n\nAction required: This slashing can now be executed'
+    title = 'SLASHING READY TO EXECUTE'
+    body += '\n\nThis slashing can now be executed'
   }
 
   // Add total slash amount if available
@@ -93,7 +93,7 @@ export function notifySlashingDisabled(): void {
   }
 
   try {
-    const notification = new Notification('🛑 Slashing Disabled', {
+    const notification = new Notification('SLASHING DISABLED', {
       body: 'Slashing has been disabled by the VETOER. No slashings will be executed.',
       icon: '/favicon.ico',
       badge: '/favicon.ico',
@@ -118,8 +118,8 @@ export function notifySlashingEnabled(): void {
   }
 
   try {
-    const notification = new Notification('✅ Slashing Enabled', {
-      body: 'Slashing has been re-enabled. Monitoring will resume.',
+    const notification = new Notification('SLASHING ENABLED', {
+      body: 'Slashing has been re-enabled. Monitoring resumed.',
       icon: '/favicon.ico',
       badge: '/favicon.ico',
       tag: 'slashing-enabled',

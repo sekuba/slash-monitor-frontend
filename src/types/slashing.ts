@@ -79,6 +79,7 @@ export interface DetectedSlashing {
   slotWhenExpires?: bigint
   secondsUntilExecutable?: number
   secondsUntilExpires?: number
+  lastUpdatedTimestamp?: number // Timestamp when timing info was calculated (for real-time countdown)
 
   // Metadata
   targetEpochs?: bigint[]

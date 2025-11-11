@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { DetectedSlashing } from '@/types/slashing'
 import { useSlashingStore } from '@/store/slashingStore'
 import {
@@ -19,9 +19,28 @@ interface RoundCardProps {
 
 export function RoundCard({ slashing }: RoundCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
+  const [currentTime, setCurrentTime] = useState(Date.now())
   const { offenses } = useSlashingStore()
 
   const isActionable = isActionableStatus(slashing.status)
+
+  // Update current time every second for real-time countdown
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(Date.now())
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Calculate adjusted time remaining accounting for elapsed time since last poll
+  const getAdjustedSecondsRemaining = (baseSeconds: number | undefined): number | undefined => {
+    if (baseSeconds === undefined || slashing.lastUpdatedTimestamp === undefined) {
+      return baseSeconds
+    }
+    const elapsedSeconds = Math.floor((currentTime - slashing.lastUpdatedTimestamp) / 1000)
+    const adjustedSeconds = baseSeconds - elapsedSeconds
+    return Math.max(0, adjustedSeconds) // Don't go negative
+  }
 
   const getBorderStyle = () => {
     if (!isActionable) return 'border-brand-black shadow-brutal'
@@ -59,12 +78,6 @@ export function RoundCard({ slashing }: RoundCardProps) {
             <div className={`px-4 py-2 border-3 text-sm font-black uppercase tracking-wider ${getStatusColor(slashing.status)}`}>
               {getStatusText(slashing.status)}
             </div>
-
-            {slashing.isVetoed && (
-              <div className="px-4 py-2 border-3 bg-aubergine text-orchid border-orchid text-sm font-black uppercase tracking-wider">
-                VETOED
-              </div>
-            )}
           </div>
 
           <div className="flex items-center gap-4">
@@ -102,7 +115,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
           <div className="mt-4 space-y-3">
             {slashing.status === 'quorum-reached' && slashing.secondsUntilExecutable !== undefined && (
               <>
-                <div className="flex items-center gap-3 bg-brand-black border-3 border-whisper-white p-3">
+                <div className="flex items-center gap-3 bg-brand-black border-3 border-whisper-white p-3 animate-pulse">
                   <svg className="w-6 h-6 text-orchid stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path
                       strokeLinecap="square"
@@ -113,7 +126,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
                   </svg>
                   <div>
                     <div className="text-orchid font-black uppercase text-sm">
-                      EXECUTABLE IN {formatTimeRemaining(slashing.secondsUntilExecutable)}
+                      EXECUTABLE IN {formatTimeRemaining(getAdjustedSecondsRemaining(slashing.secondsUntilExecutable) ?? 0)}
                     </div>
                     <div className="text-whisper-white/70 text-xs font-bold uppercase mt-1">
                       Veto now to prevent execution
@@ -124,7 +137,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
             )}
             {(slashing.status === 'in-veto-window' || slashing.status === 'executable') &&
               slashing.secondsUntilExpires !== undefined && (
-                <div className="flex items-center gap-3 bg-brand-black border-3 border-vermillion p-3">
+                <div className="flex items-center gap-3 bg-brand-black border-3 border-vermillion p-3 animate-pulse">
                   <svg className="w-6 h-6 text-vermillion stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path
                       strokeLinecap="square"
@@ -134,21 +147,35 @@ export function RoundCard({ slashing }: RoundCardProps) {
                     />
                   </svg>
                   <div className="text-vermillion font-black uppercase text-sm">
-                    EXPIRES IN {formatTimeRemaining(slashing.secondsUntilExpires)}
+                    EXPIRES IN {formatTimeRemaining(getAdjustedSecondsRemaining(slashing.secondsUntilExpires) ?? 0)}
                   </div>
                 </div>
               )}
-            <div className="flex items-center gap-3 bg-brand-black border-3 border-chartreuse p-3">
-              <svg className="w-6 h-6 text-chartreuse stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  strokeLinecap="square"
-                  strokeLinejoin="miter"
-                  strokeWidth={3}
-                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              <div className="text-chartreuse font-black uppercase text-sm">VETO AVAILABLE NOW</div>
-            </div>
+            {slashing.isVetoed ? (
+              <div className="flex items-center gap-3 bg-brand-black border-3 border-orchid p-3">
+                <svg className="w-6 h-6 text-orchid stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="square"
+                    strokeLinejoin="miter"
+                    strokeWidth={3}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+                <div className="text-orchid font-black uppercase text-sm">VETOED</div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 bg-brand-black border-3 border-chartreuse p-3">
+                <svg className="w-6 h-6 text-chartreuse stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="square"
+                    strokeLinejoin="miter"
+                    strokeWidth={3}
+                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+                <div className="text-chartreuse font-black uppercase text-sm">VETO AVAILABLE NOW</div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -209,6 +236,15 @@ export function RoundCard({ slashing }: RoundCardProps) {
                     >
                       <div className="flex items-center gap-3 flex-1 min-w-0">
                         <span className="font-mono text-sm text-whisper-white font-bold truncate">{formatAddress(action.validator)}</span>
+                        <button
+                          onClick={() => navigator.clipboard.writeText(action.validator)}
+                          className="flex-shrink-0 bg-whisper-white border-3 border-brand-black p-1 hover:translate-x-1 hover:-translate-y-1 transition-transform shadow-brutal"
+                          title="Copy validator address"
+                        >
+                          <svg className="w-4 h-4 text-brand-black stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                          </svg>
+                        </button>
                         {offense && (
                           <span className={`px-2 py-1 border-3 text-xs font-black uppercase whitespace-nowrap ${getOffenseTypeColor(offense.offenseType)}`}>
                             {getOffenseTypeName(offense.offenseType)}

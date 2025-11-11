@@ -15,9 +15,19 @@ export class NodeRpcClient {
    * Make a JSON RPC call
    */
   private async rpcCall<T>(url: string, method: string, params: unknown[] = []): Promise<T> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+
+    // Add API key if configured (for proxied requests)
+    const apiKey = import.meta.env.VITE_API_KEY
+    if (apiKey) {
+      headers['x-api-key'] = apiKey
+    }
+
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         jsonrpc: '2.0',
         method,

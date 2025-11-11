@@ -133,8 +133,12 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
           slashing.status === 'in-veto-window' ||
           slashing.status === 'executable'
 
-        if (!isFirstScanRef.current && isNewNotification && isCriticalStatus && slashing.slashActions && slashing.slashActions.length > 0) {
-          notifySlashingDetected(slashing)
+        // Mark as notified to prevent duplicate notifications
+        if (isCriticalStatus && slashing.slashActions && slashing.slashActions.length > 0) {
+          if (!isFirstScanRef.current && isNewNotification) {
+            notifySlashingDetected(slashing)
+          }
+          // Always add to notified set, even on first scan, to prevent notifications on subsequent polls
           notifiedSlashingsRef.current.add(slashingKey)
         }
 
