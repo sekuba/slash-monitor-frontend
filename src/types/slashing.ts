@@ -97,10 +97,20 @@ export interface DetectedSlashing {
  */
 export enum OffenseType {
   UNKNOWN = 0,
-  DOUBLE_PROPOSE = 1,
-  INVALID_BLOCK = 2,
+  /** The data for proving an epoch was not publicly available, we slash its committee */
+  DATA_WITHHOLDING = 1,
+  /** An epoch was not successfully proven in time, we slash its committee */
+  VALID_EPOCH_PRUNED = 2,
+  /** A proposer failed to attest or propose during an epoch according to the Sentinel */
   INACTIVITY = 3,
-  VALID_EPOCH_PRUNED = 4,
+  /** A proposer sent an invalid block proposal over the p2p network to the committee */
+  BROADCASTED_INVALID_BLOCK_PROPOSAL = 4,
+  /** A proposer pushed to L1 a block with insufficient committee attestations */
+  PROPOSED_INSUFFICIENT_ATTESTATIONS = 5,
+  /** A proposer pushed to L1 a block with incorrect committee attestations (ie signature from a non-committee member) */
+  PROPOSED_INCORRECT_ATTESTATIONS = 6,
+  /** A committee member attested to a block that was built as a descendent of an invalid block (as in a block with invalid attestations) */
+  ATTESTED_DESCENDANT_OF_INVALID = 7,
 }
 
 /**
