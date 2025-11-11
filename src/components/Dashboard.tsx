@@ -56,7 +56,7 @@ export function Dashboard() {
     <div className="min-h-screen">
       <Header />
 
-      <main className="container mx-auto px-4 py-8">
+      <main className="max-w-7xl mx-auto px-4 py-8">
         {/* Stats Panel */}
         <StatsPanel />
 
