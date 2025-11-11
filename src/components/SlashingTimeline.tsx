@@ -178,7 +178,7 @@ export function SlashingTimeline() {
                         {phase.name}
                         {isCurrent && (
                           <span className="ml-3 inline-flex items-center px-3 py-1 border-3 border-brand-black bg-chartreuse text-xs font-black uppercase text-brand-black">
-                            ⚡ ACTIVE
+                            ACTIVE
                           </span>
                         )}
                       </h3>

@@ -141,7 +141,7 @@ export function Dashboard() {
         {/* Active Slashings Section */}
         <div className="mb-8">
           <h2 className="text-3xl font-black text-whisper-white mb-6 flex items-center gap-4">
-            <span className="inline-flex items-center justify-center w-12 h-12 bg-vermillion border-5 border-brand-black text-brand-black font-black shadow-brutal">
+            <span className="inline-flex items-center justify-center w-12 h-12 bg-chartreuse border-5 border-brand-black text-brand-black font-black shadow-brutal">
               {activeSlashings.length}
             </span>
             ACTIVE SLASHING ROUNDS

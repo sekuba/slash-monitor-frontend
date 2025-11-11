@@ -23,7 +23,7 @@ export function VetoInstructions({ payloadAddress }: VetoInstructionsProps) {
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1">
           <h3 className="text-lg font-black text-chartreuse mb-3 uppercase tracking-wider">
-            ⚡ Veto Instructions
+            Veto Instructions
           </h3>
           <p className="text-sm text-whisper-white font-bold mb-4">
             To veto this slashing, call <code className="bg-brand-black px-2 py-1 border-3 border-chartreuse text-chartreuse font-bold">vetoPayload(address)</code> on the Slasher contract{' '}
@@ -45,7 +45,7 @@ export function VetoInstructions({ payloadAddress }: VetoInstructionsProps) {
                 title="Copy payload address"
               >
                 {copied ? (
-                  <span className="text-brand-black">✓ COPIED</span>
+                  <span className="text-brand-black">COPIED</span>
                 ) : (
                   <span className="text-brand-black">COPY</span>
                 )}

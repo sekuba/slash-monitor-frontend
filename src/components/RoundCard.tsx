@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import type { DetectedSlashing } from '@/types/slashing'
-import { VetoInstructions } from './VetoInstructions'
 import { useSlashingStore } from '@/store/slashingStore'
 import {
   formatAddress,
@@ -26,8 +25,8 @@ export function RoundCard({ slashing }: RoundCardProps) {
 
   const getBorderStyle = () => {
     if (!isActionable) return 'border-brand-black shadow-brutal'
-    if (slashing.status === 'quorum-reached') return 'border-aqua shadow-brutal-aqua animate-pulse'
-    return 'border-chartreuse shadow-brutal-chartreuse animate-pulse'
+    if (slashing.status === 'quorum-reached') return 'border-aqua shadow-brutal-aqua'
+    return 'border-chartreuse shadow-brutal-chartreuse'
   }
 
   const getBackgroundStyle = () => {
@@ -39,7 +38,12 @@ export function RoundCard({ slashing }: RoundCardProps) {
   }
 
   return (
-    <div className={`${getBackgroundStyle()} border-5 ${getBorderStyle()} transition-all hover:-translate-y-1 hover:translate-x-1`}>
+    <div className={`${getBackgroundStyle()} border-5 ${getBorderStyle()} transition-all hover:-translate-y-1 hover:translate-x-1 relative`}>
+      {/* Pulsing indicator for actionable rounds */}
+      {isActionable && (
+        <div className="absolute top-4 right-4 w-3 h-3 bg-chartreuse rounded-full animate-pulse shadow-brutal"></div>
+      )}
+
       {/* Header */}
       <div
         className="p-6 cursor-pointer"
@@ -58,7 +62,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
 
             {slashing.isVetoed && (
               <div className="px-4 py-2 border-3 bg-aubergine text-orchid border-orchid text-sm font-black uppercase tracking-wider">
-                ✓ VETOED
+                VETOED
               </div>
             )}
           </div>
@@ -130,11 +134,11 @@ export function RoundCard({ slashing }: RoundCardProps) {
                     />
                   </svg>
                   <div className="text-vermillion font-black uppercase text-sm">
-                    ⚠ EXPIRES IN {formatTimeRemaining(slashing.secondsUntilExpires)}
+                    EXPIRES IN {formatTimeRemaining(slashing.secondsUntilExpires)}
                   </div>
                 </div>
               )}
-            <div className="flex items-center gap-3 bg-malachite border-3 border-chartreuse p-3">
+            <div className="flex items-center gap-3 bg-brand-black border-3 border-chartreuse p-3">
               <svg className="w-6 h-6 text-chartreuse stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path
                   strokeLinecap="square"
@@ -143,7 +147,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
                   d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
                 />
               </svg>
-              <div className="text-chartreuse font-black uppercase text-sm">✓ VETO AVAILABLE NOW</div>
+              <div className="text-chartreuse font-black uppercase text-sm">VETO AVAILABLE NOW</div>
             </div>
           </div>
         )}
@@ -156,11 +160,11 @@ export function RoundCard({ slashing }: RoundCardProps) {
           {slashing.payloadAddress && (
             <div>
               <div className="text-xs text-whisper-white font-black uppercase tracking-wider mb-2">Payload Address</div>
-              <div className="font-mono text-sm text-whisper-white bg-brand-black px-4 py-3 border-3 border-whisper-white flex items-center justify-between">
+              <div className="font-mono text-sm text-whisper-white bg-brand-black px-4 py-3 border-3 border-chartreuse flex items-center justify-between">
                 <span>{slashing.payloadAddress}</span>
                 <button
                   onClick={() => navigator.clipboard.writeText(slashing.payloadAddress!)}
-                  className="bg-chartreuse border-3 border-brand-black p-2 hover:translate-x-1 hover:-translate-y-1 transition-transform"
+                  className="bg-chartreuse border-3 border-brand-black p-2 hover:translate-x-1 hover:-translate-y-1 transition-transform shadow-brutal"
                   title="Copy address"
                 >
                   <svg className="w-5 h-5 text-brand-black stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -219,20 +223,15 @@ export function RoundCard({ slashing }: RoundCardProps) {
             </div>
           )}
 
-          {/* Veto Instructions */}
-          {isActionable && slashing.payloadAddress && !slashing.isVetoed && (
-            <VetoInstructions payloadAddress={slashing.payloadAddress} />
-          )}
-
           {/* Metadata */}
-          <div className="grid grid-cols-2 gap-4 text-sm pt-4 border-t-3 border-brand-black">
-            <div className="bg-aubergine border-3 border-orchid px-4 py-3">
-              <div className="text-orchid font-black uppercase text-xs mb-1">Vote Count</div>
+          <div className="grid grid-cols-2 gap-4 text-sm pt-4 border-t-3 border-chartreuse">
+            <div className="bg-malachite border-3 border-chartreuse px-4 py-3">
+              <div className="text-chartreuse font-black uppercase text-xs mb-1">Vote Count</div>
               <div className="text-whisper-white font-black text-xl">{slashing.voteCount.toString()}</div>
             </div>
             {slashing.slotWhenExecutable !== undefined && (
-              <div className="bg-lapis border-3 border-aqua px-4 py-3">
-                <div className="text-aqua font-black uppercase text-xs mb-1">Executable Slot</div>
+              <div className="bg-malachite border-3 border-chartreuse px-4 py-3">
+                <div className="text-chartreuse font-black uppercase text-xs mb-1">Executable Slot</div>
                 <div className="text-whisper-white font-black text-xl">{slashing.slotWhenExecutable.toString()}</div>
               </div>
             )}
