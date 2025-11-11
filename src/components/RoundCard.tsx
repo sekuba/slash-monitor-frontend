@@ -79,7 +79,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
               <div className="bg-brand-black border-3 border-vermillion px-4 py-3">
                 <div className="text-xs text-vermillion font-black uppercase tracking-wider">Slash Total</div>
                 <div className="text-2xl font-black text-vermillion">
-                  {formatEther(slashing.totalSlashAmount)} ETH
+                  {parseInt(formatEther(slashing.totalSlashAmount), 10)} FEE
                 </div>
               </div>
             )}
@@ -102,8 +102,8 @@ export function RoundCard({ slashing }: RoundCardProps) {
           <div className="mt-4 space-y-3">
             {slashing.status === 'quorum-reached' && slashing.secondsUntilExecutable !== undefined && (
               <>
-                <div className="flex items-center gap-3 bg-brand-black border-3 border-aqua p-3">
-                  <svg className="w-6 h-6 text-aqua stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <div className="flex items-center gap-3 bg-brand-black border-3 border-whisper-white p-3">
+                  <svg className="w-6 h-6 text-orchid stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path
                       strokeLinecap="square"
                       strokeLinejoin="miter"
@@ -112,7 +112,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
                     />
                   </svg>
                   <div>
-                    <div className="text-aqua font-black uppercase text-sm">
+                    <div className="text-orchid font-black uppercase text-sm">
                       EXECUTABLE IN {formatTimeRemaining(slashing.secondsUntilExecutable)}
                     </div>
                     <div className="text-whisper-white/70 text-xs font-bold uppercase mt-1">
@@ -215,7 +215,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
                           </span>
                         )}
                       </div>
-                      <span className="text-vermillion font-black text-lg whitespace-nowrap">{formatEther(action.slashAmount)} ETH</span>
+                      <span className="text-vermillion font-black text-lg whitespace-nowrap">{parseInt(formatEther(action.slashAmount), 10)} FEE</span>
                     </div>
                   )
                 })}

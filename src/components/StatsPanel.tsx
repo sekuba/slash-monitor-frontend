@@ -96,8 +96,8 @@ export function StatsPanel() {
       ),
     },
     {
-      label: 'TOTAL ETH',
-      value: `${formatEther(stats.totalSlashAmount)}`,
+      label: 'TOTAL FEE',
+    value: `${parseInt(formatEther(stats.totalSlashAmount), 10)}`,
       bgColor: 'bg-oxblood',
       textColor: 'text-vermillion',
       borderColor: 'border-vermillion',
