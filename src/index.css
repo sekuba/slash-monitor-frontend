@@ -1,15 +1,18 @@
+/* Import Space Grotesk font for neo-brutalist aesthetic */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+  font-family: 'Space Grotesk', 'Inter', system-ui, -apple-system, sans-serif;
+  line-height: 1.4;
+  font-weight: 600;
 
   color-scheme: dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #030712;
+  color: #F2EEE1;
+  background-color: #001f18;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -21,8 +24,33 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  background: linear-gradient(135deg, #001f18 0%, #00122e 50%, #2e0026 100%);
+  background-attachment: fixed;
 }
 
 * {
   box-sizing: border-box;
+}
+
+/* Neo-brutalist Typography */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+}
+
+/* Neo-brutalist Button Reset */
+button {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Hard shadows, no blur */
+.shadow-sm,
+.shadow,
+.shadow-md,
+.shadow-lg,
+.shadow-xl {
+  box-shadow: none;
 }

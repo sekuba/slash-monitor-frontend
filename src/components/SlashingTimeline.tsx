@@ -80,7 +80,7 @@ export function SlashingTimeline() {
       }
     }
 
-    return phases.filter((p) => p.status !== 'past' || p.status === 'current')
+    return phases.filter((p) => p.status !== 'past')
   }, [config, currentRound, currentSlot, currentEpoch])
 
   if (!config || currentRound === null || currentSlot === null || currentEpoch === null) {
@@ -113,49 +113,52 @@ export function SlashingTimeline() {
     if (isCurrent) {
       switch (color) {
         case 'blue':
-          return 'bg-blue-900/40 border-blue-600 text-blue-300'
+          return 'bg-lapis border-aqua text-aqua shadow-brutal-aqua'
         case 'red':
-          return 'bg-red-900/40 border-red-600 text-red-300'
+          return 'bg-oxblood border-vermillion text-vermillion shadow-brutal-vermillion'
         case 'orange':
-          return 'bg-orange-900/40 border-orange-600 text-orange-300'
+          return 'bg-malachite border-chartreuse text-chartreuse shadow-brutal-chartreuse'
         default:
-          return 'bg-gray-800/40 border-gray-600 text-gray-300'
+          return 'bg-malachite/30 border-brand-black text-whisper-white shadow-brutal'
       }
     }
-    return 'bg-gray-900/40 border-gray-700 text-gray-400'
+    return 'bg-malachite/20 border-brand-black text-whisper-white/70 shadow-brutal'
   }
 
   return (
     <div className="mb-8">
-      <h2 className="text-2xl font-bold text-white mb-4 flex items-center gap-3">
-        <svg className="w-7 h-7 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-          />
-        </svg>
+      <h2 className="text-3xl font-black text-whisper-white mb-6 flex items-center gap-4 uppercase">
+        <div className="bg-aqua border-3 border-brand-black p-2">
+          <svg className="w-8 h-8 text-brand-black stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path
+              strokeLinecap="square"
+              strokeLinejoin="miter"
+              strokeWidth={3}
+              d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+            />
+          </svg>
+        </div>
         Slashing Timeline
       </h2>
 
-      <div className="bg-gray-900 rounded-lg border border-gray-800 p-6">
-        <div className="mb-4 text-sm text-gray-400">
-          <div className="flex items-center gap-4 flex-wrap">
-            <div>
-              <span className="font-semibold text-gray-300">Current Slot:</span> {currentSlot.toString()}
-            </div>
-            <div>
-              <span className="font-semibold text-gray-300">Current Epoch:</span> {currentEpoch.toString()}
-            </div>
-            <div>
-              <span className="font-semibold text-gray-300">Current Round:</span> {currentRound.toString()}
-            </div>
+      <div className="bg-brand-black border-5 border-whisper-white p-6 shadow-brutal">
+        <div className="mb-6 flex items-center gap-4 flex-wrap">
+          <div className="bg-lapis border-3 border-aqua px-4 py-2">
+            <span className="font-black text-aqua text-xs uppercase tracking-wider">Slot:</span>{' '}
+            <span className="font-black text-whisper-white text-lg">{currentSlot.toString()}</span>
+          </div>
+          <div className="bg-aubergine border-3 border-orchid px-4 py-2">
+            <span className="font-black text-orchid text-xs uppercase tracking-wider">Epoch:</span>{' '}
+            <span className="font-black text-whisper-white text-lg">{currentEpoch.toString()}</span>
+          </div>
+          <div className="bg-malachite border-3 border-chartreuse px-4 py-2">
+            <span className="font-black text-chartreuse text-xs uppercase tracking-wider">Round:</span>{' '}
+            <span className="font-black text-whisper-white text-lg">{currentRound.toString()}</span>
           </div>
         </div>
 
         <div className="space-y-3">
-          {timeline.map((phase, index) => {
+          {timeline.map((phase) => {
             const isCurrent = phase.status === 'current'
             const timeUntilStart = formatSlotToTime(phase.startSlot)
             const timeUntilEnd = formatSlotToTime(phase.endSlot)
@@ -163,45 +166,45 @@ export function SlashingTimeline() {
             return (
               <div
                 key={`${phase.round}-${phase.name}`}
-                className={`relative p-4 rounded-lg border-2 transition-all ${getColorClasses(
+                className={`relative p-5 border-5 transition-all ${getColorClasses(
                   phase.color,
                   isCurrent
-                )} ${isCurrent ? 'shadow-lg ring-2 ring-white/10' : ''}`}
+                )} ${isCurrent ? 'animate-pulse' : ''}`}
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <h3 className="font-semibold text-base">
+                    <div className="flex items-center gap-3 mb-3">
+                      <h3 className="font-black text-lg uppercase tracking-tight">
                         {phase.name}
                         {isCurrent && (
-                          <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-white/10">
+                          <span className="ml-3 inline-flex items-center px-3 py-1 border-3 border-brand-black bg-chartreuse text-xs font-black uppercase text-brand-black">
                             ACTIVE
                           </span>
                         )}
                       </h3>
                     </div>
-                    <p className="text-sm opacity-90 mb-3">{phase.description}</p>
-                    <div className="flex items-center gap-4 text-xs opacity-75">
+                    <p className="text-sm font-bold mb-3">{phase.description}</p>
+                    <div className="flex items-center gap-4 text-xs font-bold uppercase">
                       <div>
-                        <span className="font-medium">Slots:</span> {phase.startSlot.toString()} →{' '}
+                        <span className="opacity-75">Slots:</span> {phase.startSlot.toString()} →{' '}
                         {phase.endSlot.toString()}
                       </div>
                       <div>
-                        <span className="font-medium">Target Epochs:</span> {phase.targetEpochStart.toString()}{' '}
+                        <span className="opacity-75">Epochs:</span> {phase.targetEpochStart.toString()}{' '}
                         → {phase.targetEpochEnd.toString()}
                       </div>
                     </div>
                   </div>
                   <div className="text-right flex-shrink-0">
                     {phase.status === 'current' ? (
-                      <div className="text-sm font-medium">
-                        <div className="opacity-75 mb-1">Ends in</div>
-                        <div className="text-lg font-bold">{timeUntilEnd}</div>
+                      <div className="bg-brand-black border-3 border-current px-4 py-2">
+                        <div className="opacity-75 mb-1 text-xs font-black uppercase">Ends In</div>
+                        <div className="text-2xl font-black">{timeUntilEnd}</div>
                       </div>
                     ) : phase.status === 'future' ? (
-                      <div className="text-sm font-medium">
-                        <div className="opacity-75 mb-1">Starts in</div>
-                        <div className="text-lg font-bold">{timeUntilStart}</div>
+                      <div className="bg-brand-black border-3 border-current px-4 py-2">
+                        <div className="opacity-75 mb-1 text-xs font-black uppercase">Starts In</div>
+                        <div className="text-2xl font-black">{timeUntilStart}</div>
                       </div>
                     ) : null}
                   </div>
@@ -209,8 +212,8 @@ export function SlashingTimeline() {
 
                 {/* Progress bar for current phase */}
                 {isCurrent && (
-                  <div className="mt-3 pt-3 border-t border-white/10">
-                    <div className="flex items-center gap-2 text-xs opacity-75 mb-1">
+                  <div className="mt-4 pt-4 border-t-3 border-brand-black">
+                    <div className="flex items-center gap-2 text-xs font-black uppercase mb-2">
                       <span>Progress</span>
                       <span className="ml-auto">
                         {Math.round(
@@ -221,9 +224,9 @@ export function SlashingTimeline() {
                         %
                       </span>
                     </div>
-                    <div className="w-full bg-gray-800 rounded-full h-2 overflow-hidden">
+                    <div className="w-full bg-brand-black border-3 border-current h-4 overflow-hidden">
                       <div
-                        className="bg-gradient-to-r from-blue-500 to-blue-400 h-2 transition-all duration-500"
+                        className="bg-chartreuse h-full transition-all duration-500"
                         style={{
                           width: `${Math.min(
                             100,
@@ -244,8 +247,8 @@ export function SlashingTimeline() {
         </div>
 
         {timeline.length === 0 && (
-          <div className="text-center text-gray-500 py-8">
-            <p>No upcoming slashing phases to display</p>
+          <div className="text-center text-whisper-white/70 py-8">
+            <p className="font-black uppercase">No Upcoming Phases</p>
           </div>
         )}
       </div>
