@@ -59,12 +59,6 @@ export function RoundCard({ slashing }: RoundCardProps) {
             <div className={`px-4 py-2 border-3 text-sm font-black uppercase tracking-wider ${getStatusColor(slashing.status)}`}>
               {getStatusText(slashing.status)}
             </div>
-
-            {slashing.isVetoed && (
-              <div className="px-4 py-2 border-3 bg-aubergine text-orchid border-orchid text-sm font-black uppercase tracking-wider">
-                VETOED
-              </div>
-            )}
           </div>
 
           <div className="flex items-center gap-4">
