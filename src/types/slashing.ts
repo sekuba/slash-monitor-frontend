@@ -32,7 +32,7 @@ export interface SlashingMonitorConfig {
 
   // Polling Intervals
   l1PollInterval: number // 12s (1 L1 block)
-  l2PollInterval: number // Background poll interval (events trigger immediate updates)
+  l2PollInterval: number // Background poll interval
 
   // Vetoer
   vetoerAddress?: Address
@@ -118,27 +118,6 @@ export interface Offense {
 }
 
 /**
- * L1 event data for VoteCast
- */
-export interface VoteCastEvent {
-  round: bigint
-  slot: bigint
-  proposer: Address
-  blockNumber: bigint
-  transactionHash: Hex
-}
-
-/**
- * L1 event data for RoundExecuted
- */
-export interface RoundExecutedEvent {
-  round: bigint
-  slashCount: bigint
-  blockNumber: bigint
-  transactionHash: Hex
-}
-
-/**
  * Payload information from L1
  */
 export interface PayloadInfo {
@@ -196,8 +175,6 @@ export interface SlashingMonitorStore {
   config: SlashingMonitorConfig | null
   currentRound: bigint | null
   detectedSlashings: Map<bigint, DetectedSlashing>
-  recentVoteCastEvents: VoteCastEvent[]
-  recentRoundExecutedEvents: RoundExecutedEvent[]
   offenses: Offense[]
   stats: SlashingStats
 
@@ -206,8 +183,6 @@ export interface SlashingMonitorStore {
   setCurrentRound: (round: bigint) => void
   addDetectedSlashing: (slashing: DetectedSlashing) => void
   updateDetectedSlashing: (round: bigint, updates: Partial<DetectedSlashing>) => void
-  addVoteCastEvent: (event: VoteCastEvent) => void
-  addRoundExecutedEvent: (event: RoundExecutedEvent) => void
   setOffenses: (offenses: Offense[]) => void
   updateStats: (stats: Partial<SlashingStats>) => void
 }

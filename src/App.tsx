@@ -37,7 +37,7 @@ const slashingConfig: SlashingMonitorConfig = {
 
   // Polling Intervals
   l1PollInterval: 12000, // 12s
-  l2PollInterval: 30000, // 30s - reduced since we use event-driven updates for VoteCast/RoundExecuted
+  l2PollInterval: 120000, // 2 minutes - sufficient for days-long slashing window
 
   // Vetoer
   vetoerAddress: import.meta.env.VITE_VETOER_ADDRESS as Address | undefined,

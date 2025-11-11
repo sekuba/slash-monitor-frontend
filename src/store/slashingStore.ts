@@ -2,8 +2,6 @@ import { create } from 'zustand'
 import type {
   SlashingMonitorConfig,
   DetectedSlashing,
-  VoteCastEvent,
-  RoundExecutedEvent,
   Offense,
   SlashingStats,
 } from '@/types/slashing'
@@ -23,10 +21,6 @@ interface SlashingMonitorStore {
   // Detected slashings
   detectedSlashings: Map<bigint, DetectedSlashing>
 
-  // Events
-  recentVoteCastEvents: VoteCastEvent[]
-  recentRoundExecutedEvents: RoundExecutedEvent[]
-
   // Offenses from node
   offenses: Offense[]
 
@@ -44,8 +38,6 @@ interface SlashingMonitorStore {
   addDetectedSlashing: (slashing: DetectedSlashing) => void
   updateDetectedSlashing: (round: bigint, updates: Partial<DetectedSlashing>) => void
   removeDetectedSlashing: (round: bigint) => void
-  addVoteCastEvent: (event: VoteCastEvent) => void
-  addRoundExecutedEvent: (event: RoundExecutedEvent) => void
   setOffenses: (offenses: Offense[]) => void
   updateStats: (stats: Partial<SlashingStats>) => void
   reset: () => void
@@ -71,8 +63,6 @@ export const useSlashingStore = create<SlashingMonitorStore>((set) => ({
   currentEpoch: null,
   isSlashingEnabled: true,
   detectedSlashings: new Map(),
-  recentVoteCastEvents: [],
-  recentRoundExecutedEvents: [],
   offenses: [],
   stats: initialStats,
 
@@ -115,20 +105,6 @@ export const useSlashingStore = create<SlashingMonitorStore>((set) => ({
       return { detectedSlashings: newMap }
     }),
 
-  addVoteCastEvent: (event) =>
-    set((state) => {
-      // Keep only last 100 events
-      const events = [event, ...state.recentVoteCastEvents].slice(0, 100)
-      return { recentVoteCastEvents: events }
-    }),
-
-  addRoundExecutedEvent: (event) =>
-    set((state) => {
-      // Keep only last 50 events
-      const events = [event, ...state.recentRoundExecutedEvents].slice(0, 50)
-      return { recentRoundExecutedEvents: events }
-    }),
-
   setOffenses: (offenses) => set({ offenses }),
 
   updateStats: (stats) =>
@@ -145,8 +121,6 @@ export const useSlashingStore = create<SlashingMonitorStore>((set) => ({
       currentEpoch: null,
       isSlashingEnabled: true,
       detectedSlashings: new Map(),
-      recentVoteCastEvents: [],
-      recentRoundExecutedEvents: [],
       offenses: [],
       stats: initialStats,
     }),

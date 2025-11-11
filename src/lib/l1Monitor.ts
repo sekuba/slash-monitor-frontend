@@ -11,8 +11,6 @@ import { multicall, createCall } from './multicall'
 import type {
   SlashAction,
   RoundInfo,
-  VoteCastEvent,
-  RoundExecutedEvent,
   SlashingMonitorConfig,
 } from '@/types/slashing'
 
@@ -519,56 +517,6 @@ export class L1Monitor {
     }
   }
 
-  /**
-   * Watch for VoteCast events
-   */
-  watchVoteCastEvents(
-    onEvent: (event: VoteCastEvent) => void
-  ): () => void {
-    const unwatch = this.publicClient.watchContractEvent({
-      address: this.config.tallySlashingProposerAddress,
-      abi: tallySlashingProposerAbi,
-      eventName: 'VoteCast',
-      onLogs: (logs) => {
-        logs.forEach((log) => {
-          onEvent({
-            round: log.args.round as bigint,
-            slot: log.args.slot as bigint,
-            proposer: log.args.proposer as Address,
-            blockNumber: log.blockNumber,
-            transactionHash: log.transactionHash,
-          })
-        })
-      },
-    })
-
-    return unwatch
-  }
-
-  /**
-   * Watch for RoundExecuted events
-   */
-  watchRoundExecutedEvents(
-    onEvent: (event: RoundExecutedEvent) => void
-  ): () => void {
-    const unwatch = this.publicClient.watchContractEvent({
-      address: this.config.tallySlashingProposerAddress,
-      abi: tallySlashingProposerAbi,
-      eventName: 'RoundExecuted',
-      onLogs: (logs) => {
-        logs.forEach((log) => {
-          onEvent({
-            round: log.args.round as bigint,
-            slashCount: log.args.slashCount as bigint,
-            blockNumber: log.blockNumber,
-            transactionHash: log.transactionHash,
-          })
-        })
-      },
-    })
-
-    return unwatch
-  }
 }
 
 /**
