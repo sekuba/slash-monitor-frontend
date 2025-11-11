@@ -7,6 +7,7 @@ import {
 import { tallySlashingProposerAbi } from './contracts/tallySlashingProposerAbi'
 import { slasherAbi } from './contracts/slasherAbi'
 import { rollupAbi } from './contracts/rollupAbi'
+import { multicall, createCall } from './multicall'
 import type {
   SlashAction,
   RoundInfo,
@@ -15,12 +16,20 @@ import type {
   SlashingMonitorConfig,
 } from '@/types/slashing'
 
+interface CachedRoundData {
+  data: RoundInfo
+  timestamp: number
+  blockNumber?: bigint
+}
+
 /**
  * L1 Monitor for tracking slashing-related events and contract state
  */
 export class L1Monitor {
   private publicClient: PublicClient
   private config: SlashingMonitorConfig
+  private roundCache: Map<string, CachedRoundData> = new Map()
+  private cacheTTL: number = 30000 // 30 seconds cache TTL
 
   constructor(config: SlashingMonitorConfig) {
     this.config = config
@@ -28,6 +37,43 @@ export class L1Monitor {
     // Create public client for reading
     this.publicClient = createPublicClient({
       transport: http(config.l1RpcUrl),
+    })
+  }
+
+  /**
+   * Clear cache for a specific round or all rounds
+   */
+  clearCache(round?: bigint) {
+    if (round !== undefined) {
+      this.roundCache.delete(round.toString())
+    } else {
+      this.roundCache.clear()
+    }
+  }
+
+  /**
+   * Get cached round data if still valid
+   */
+  private getCachedRound(round: bigint): RoundInfo | null {
+    const cached = this.roundCache.get(round.toString())
+    if (!cached) return null
+
+    const age = Date.now() - cached.timestamp
+    if (age > this.cacheTTL) {
+      this.roundCache.delete(round.toString())
+      return null
+    }
+
+    return cached.data
+  }
+
+  /**
+   * Store round data in cache
+   */
+  private setCachedRound(round: bigint, data: RoundInfo) {
+    this.roundCache.set(round.toString(), {
+      data,
+      timestamp: Date.now(),
     })
   }
 
@@ -68,9 +114,44 @@ export class L1Monitor {
   }
 
   /**
-   * Get information about a specific round
+   * Get current state (round, slot, epoch, slashing enabled) in a single multicall
+   * This replaces 4 separate RPC calls with 1
    */
-  async getRound(round: bigint): Promise<RoundInfo> {
+  async getCurrentState(): Promise<{
+    currentRound: bigint
+    currentSlot: bigint
+    currentEpoch: bigint
+    isSlashingEnabled: boolean
+  }> {
+    const calls = [
+      createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'getCurrentRound'),
+      createCall(this.config.rollupAddress, rollupAbi, 'getCurrentSlot'),
+      createCall(this.config.rollupAddress, rollupAbi, 'getCurrentEpoch'),
+      createCall(this.config.slasherAddress, slasherAbi, 'isSlashingEnabled'),
+    ]
+
+    const results = await multicall(this.publicClient, calls)
+
+    return {
+      currentRound: results[0].data as bigint,
+      currentSlot: results[1].data as bigint,
+      currentEpoch: results[2].data as bigint,
+      isSlashingEnabled: results[3].data as boolean,
+    }
+  }
+
+  /**
+   * Get information about a specific round (with caching)
+   */
+  async getRound(round: bigint, skipCache = false): Promise<RoundInfo> {
+    // Check cache first
+    if (!skipCache) {
+      const cached = this.getCachedRound(round)
+      if (cached) {
+        return cached
+      }
+    }
+
     const result = await this.publicClient.readContract({
       address: this.config.tallySlashingProposerAddress,
       abi: tallySlashingProposerAbi,
@@ -79,17 +160,73 @@ export class L1Monitor {
     })
 
     // getRound returns (bool isExecuted, bool readyToExecute, uint256 voteCount)
-    const [isExecuted, readyToExecute, voteCount] = result as [
+    const [isExecuted, , voteCount] = result as [
       boolean,
       boolean,
       bigint,
     ]
 
-    return {
+    const roundInfo = {
       round,
       isExecuted: isExecuted as boolean,
       voteCount: voteCount as bigint,
     }
+
+    // Cache the result
+    this.setCachedRound(round, roundInfo)
+
+    return roundInfo
+  }
+
+  /**
+   * Get information about multiple rounds in a single multicall
+   * This is much more efficient than calling getRound multiple times
+   */
+  async getRounds(rounds: bigint[]): Promise<Map<bigint, RoundInfo>> {
+    // Check which rounds we need to fetch (not in cache)
+    const roundsToFetch: bigint[] = []
+    const cachedRounds = new Map<bigint, RoundInfo>()
+
+    for (const round of rounds) {
+      const cached = this.getCachedRound(round)
+      if (cached) {
+        cachedRounds.set(round, cached)
+      } else {
+        roundsToFetch.push(round)
+      }
+    }
+
+    // If all rounds are cached, return immediately
+    if (roundsToFetch.length === 0) {
+      return cachedRounds
+    }
+
+    // Fetch uncached rounds in a single multicall
+    const calls = roundsToFetch.map((round) =>
+      createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'getRound', [round])
+    )
+
+    const results = await multicall(this.publicClient, calls)
+
+    // Process results and cache them
+    const allRounds = new Map(cachedRounds)
+    results.forEach((result, i) => {
+      if (result.success && result.data) {
+        const round = roundsToFetch[i]
+        const [isExecuted, , voteCount] = result.data as [boolean, boolean, bigint]
+
+        const roundInfo: RoundInfo = {
+          round,
+          isExecuted,
+          voteCount,
+        }
+
+        this.setCachedRound(round, roundInfo)
+        allRounds.set(round, roundInfo)
+      }
+    })
+
+    return allRounds
   }
 
   /**
@@ -150,7 +287,7 @@ export class L1Monitor {
       address: this.config.tallySlashingProposerAddress,
       abi: tallySlashingProposerAbi,
       functionName: 'getPayloadAddress',
-      args: [round, actions],
+      args: [round, actions as readonly { validator: Address; slashAmount: bigint }[]],
     })
     return address as Address
   }
@@ -280,8 +417,7 @@ export class L1Monitor {
    * Watch for VoteCast events
    */
   watchVoteCastEvents(
-    onEvent: (event: VoteCastEvent) => void,
-    fromBlock?: bigint
+    onEvent: (event: VoteCastEvent) => void
   ): () => void {
     const unwatch = this.publicClient.watchContractEvent({
       address: this.config.tallySlashingProposerAddress,
@@ -307,8 +443,7 @@ export class L1Monitor {
    * Watch for RoundExecuted events
    */
   watchRoundExecutedEvents(
-    onEvent: (event: RoundExecutedEvent) => void,
-    fromBlock?: bigint
+    onEvent: (event: RoundExecutedEvent) => void
   ): () => void {
     const unwatch = this.publicClient.watchContractEvent({
       address: this.config.tallySlashingProposerAddress,

@@ -3,6 +3,7 @@ import { useSlashingStore } from '@/store/slashingStore'
 import { createL1Monitor } from '@/lib/l1Monitor'
 import { createNodeRpcClient } from '@/lib/nodeRpcClient'
 import { createSlashingDetector } from '@/lib/slashingDetector'
+import { debounce } from '@/lib/debounce'
 import {
   notifySlashingDetected,
   notifySlashingDisabled,
@@ -93,6 +94,7 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
 
   /**
    * Poll for updates
+   * Optimized to use multicall and pass state to detector
    */
   const poll = useCallback(async () => {
     if (!l1MonitorRef.current || !detectorRef.current || !nodeRpcRef.current) return
@@ -103,13 +105,9 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
         setIsScanning(true)
       }
 
-      // Update current round, slot, and epoch
-      const [currentRound, currentSlot, currentEpoch, isEnabled] = await Promise.all([
-        l1MonitorRef.current.getCurrentRound(),
-        l1MonitorRef.current.getCurrentSlot(),
-        l1MonitorRef.current.getCurrentEpoch(),
-        l1MonitorRef.current.isSlashingEnabled(),
-      ])
+      // Get current state in a SINGLE multicall (was 4 separate calls)
+      const { currentRound, currentSlot, currentEpoch, isSlashingEnabled: isEnabled } =
+        await l1MonitorRef.current.getCurrentState()
 
       setCurrentRound(currentRound)
       setCurrentSlot(currentSlot)
@@ -126,8 +124,8 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
       }
       previousSlashingEnabledRef.current = isEnabled
 
-      // Detect executable rounds
-      const detectedSlashings = await detectorRef.current.detectExecutableRounds()
+      // Detect executable rounds - pass current state to avoid re-fetching
+      const detectedSlashings = await detectorRef.current.detectExecutableRounds(currentRound, currentSlot)
 
       // Update store with detected slashings and send notifications for new ones
       detectedSlashings.forEach((slashing) => {
@@ -183,8 +181,14 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
 
       // Mark first scan as complete
       if (isFirstScanRef.current) {
+        console.log(`Initial scan complete: ${detectedSlashings.length} rounds detected`)
         isFirstScanRef.current = false
         setIsScanning(false)
+      }
+
+      // Log poll stats (only every 5 polls to reduce noise)
+      if (Math.random() < 0.2) {
+        console.log(`Poll complete: ${detectedSlashings.length} rounds, ${offenses.length} offenses`)
       }
     } catch (error) {
       console.error('Poll error:', error)
@@ -198,18 +202,24 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
 
   /**
    * Start watching for L1 events
+   * Uses debounced poll to prevent request storms during rapid events
    */
   const startWatching = useCallback(() => {
     if (!l1MonitorRef.current) return
 
     console.log('Starting L1 event watchers...')
 
+    // Create debounced poll (waits 2s after last event before triggering)
+    const debouncedPoll = debounce(() => {
+      poll()
+    }, 2000)
+
     // Watch VoteCast events
     unwatchVoteCastRef.current = l1MonitorRef.current.watchVoteCastEvents((event) => {
       console.log('VoteCast event:', event)
       addVoteCastEvent(event)
-      // Trigger a poll to immediately detect the vote
-      poll()
+      // Trigger a debounced poll to batch multiple rapid events
+      debouncedPoll()
     })
 
     // Watch RoundExecuted events
@@ -218,8 +228,8 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
       addRoundExecutedEvent(event)
       // Send notification
       notifyRoundExecuted(event.round, event.slashCount)
-      // Trigger a poll to update state
-      poll()
+      // Trigger a debounced poll to update state
+      debouncedPoll()
     })
   }, [addVoteCastEvent, addRoundExecutedEvent, poll])
 

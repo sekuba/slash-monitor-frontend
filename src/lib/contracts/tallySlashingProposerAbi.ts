@@ -45,7 +45,7 @@ export const tallySlashingProposerAbi = [
   {
     type: 'function',
     name: 'getSlashTargetCommittees',
-    stateMutability: 'nonpayable',
+    stateMutability: 'view',
     inputs: [{ name: '_round', type: 'uint256' }],
     outputs: [{ name: 'committees', type: 'address[][]' }],
   },

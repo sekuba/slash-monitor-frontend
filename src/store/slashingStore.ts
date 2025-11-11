@@ -61,7 +61,7 @@ const initialStats: SlashingStats = {
   totalSlashAmount: 0n,
 }
 
-export const useSlashingStore = create<SlashingMonitorStore>((set, get) => ({
+export const useSlashingStore = create<SlashingMonitorStore>((set) => ({
   // Initial state
   config: null,
   isInitialized: false,
