@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { DetectedSlashing } from '@/types/slashing'
-import { VetoButton } from './VetoButton'
+import { VetoInstructions } from './VetoInstructions'
 import {
   formatAddress,
   formatEther,
@@ -191,9 +191,9 @@ export function RoundCard({ slashing }: RoundCardProps) {
             </div>
           )}
 
-          {/* Veto Button */}
+          {/* Veto Instructions */}
           {isActionable && slashing.payloadAddress && !slashing.isVetoed && (
-            <VetoButton payloadAddress={slashing.payloadAddress} round={slashing.round} />
+            <VetoInstructions payloadAddress={slashing.payloadAddress} />
           )}
 
           {/* Metadata */}

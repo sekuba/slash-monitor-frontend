@@ -1,4 +1,4 @@
-import type { Address, Hex } from 'viem'
+import type { Address } from 'viem'
 
 /**
  * Configuration for the slashing monitor
@@ -30,8 +30,7 @@ export interface SlashingMonitorConfig {
   slashAmountMedium: bigint
   slashAmountLarge: bigint
 
-  // Polling Intervals
-  l1PollInterval: number // 12s (1 L1 block)
+  // Polling Interval
   l2PollInterval: number // Background poll interval
 
   // Vetoer
@@ -53,7 +52,6 @@ export interface RoundInfo {
   round: bigint
   voteCount: bigint
   isExecuted: boolean
-  lastVoteSlot?: bigint
 }
 
 /**
@@ -118,17 +116,6 @@ export interface Offense {
 }
 
 /**
- * Payload information from L1
- */
-export interface PayloadInfo {
-  address: Address
-  round: bigint
-  slashActions: SlashAction[]
-  isVetoed: boolean
-  isDeployed: boolean
-}
-
-/**
  * Statistics for the dashboard
  */
 export interface SlashingStats {
@@ -139,50 +126,4 @@ export interface SlashingStats {
   executedRounds: number
   totalValidatorsSlashed: number
   totalSlashAmount: bigint
-}
-
-/**
- * Node RPC response types
- */
-export interface NodeInfo {
-  nodeVersion: string
-  l1ChainId: number
-  l1ContractAddresses: {
-    rollupAddress: Address
-    slasherAddress?: Address
-  }
-}
-
-export interface L2Tips {
-  latest: {
-    number: number
-    hash: string
-  }
-  proven: {
-    number: number
-    hash: string
-  }
-  pending: {
-    number: number
-    hash: string
-  }
-}
-
-/**
- * Store state for the slashing monitor
- */
-export interface SlashingMonitorStore {
-  config: SlashingMonitorConfig | null
-  currentRound: bigint | null
-  detectedSlashings: Map<bigint, DetectedSlashing>
-  offenses: Offense[]
-  stats: SlashingStats
-
-  // Actions
-  setConfig: (config: SlashingMonitorConfig) => void
-  setCurrentRound: (round: bigint) => void
-  addDetectedSlashing: (slashing: DetectedSlashing) => void
-  updateDetectedSlashing: (round: bigint, updates: Partial<DetectedSlashing>) => void
-  setOffenses: (offenses: Offense[]) => void
-  updateStats: (stats: Partial<SlashingStats>) => void
 }

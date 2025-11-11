@@ -36,8 +36,6 @@ interface SlashingMonitorStore {
   setCurrentEpoch: (epoch: bigint) => void
   setSlashingEnabled: (enabled: boolean) => void
   addDetectedSlashing: (slashing: DetectedSlashing) => void
-  updateDetectedSlashing: (round: bigint, updates: Partial<DetectedSlashing>) => void
-  removeDetectedSlashing: (round: bigint) => void
   setOffenses: (offenses: Offense[]) => void
   updateStats: (stats: Partial<SlashingStats>) => void
   reset: () => void
@@ -85,23 +83,6 @@ export const useSlashingStore = create<SlashingMonitorStore>((set) => ({
     set((state) => {
       const newMap = new Map(state.detectedSlashings)
       newMap.set(slashing.round, slashing)
-      return { detectedSlashings: newMap }
-    }),
-
-  updateDetectedSlashing: (round, updates) =>
-    set((state) => {
-      const existing = state.detectedSlashings.get(round)
-      if (!existing) return state
-
-      const newMap = new Map(state.detectedSlashings)
-      newMap.set(round, { ...existing, ...updates })
-      return { detectedSlashings: newMap }
-    }),
-
-  removeDetectedSlashing: (round) =>
-    set((state) => {
-      const newMap = new Map(state.detectedSlashings)
-      newMap.delete(round)
       return { detectedSlashings: newMap }
     }),
 

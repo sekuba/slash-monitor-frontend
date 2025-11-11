@@ -2,12 +2,11 @@ import { useState } from 'react'
 import type { Address } from 'viem'
 import { useSlashingStore } from '@/store/slashingStore'
 
-interface VetoButtonProps {
+interface VetoInstructionsProps {
   payloadAddress: Address
-  round: bigint
 }
 
-export function VetoButton({ payloadAddress }: VetoButtonProps) {
+export function VetoInstructions({ payloadAddress }: VetoInstructionsProps) {
   const { config } = useSlashingStore()
   const [copied, setCopied] = useState(false)
 

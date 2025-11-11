@@ -35,8 +35,7 @@ const slashingConfig: SlashingMonitorConfig = {
   slashAmountMedium: 40n * 10n ** 18n,
   slashAmountLarge: 60n * 10n ** 18n,
 
-  // Polling Intervals
-  l1PollInterval: 12000, // 12s
+  // Polling Interval
   l2PollInterval: 120000, // 2 minutes - sufficient for days-long slashing window
 
   // Vetoer

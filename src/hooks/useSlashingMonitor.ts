@@ -53,7 +53,7 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
       const fullConfig = { ...config, ...contractParams }
 
       // Create detector with full config
-      detectorRef.current = createSlashingDetector(fullConfig, l1MonitorRef.current, nodeRpcRef.current)
+      detectorRef.current = createSlashingDetector(fullConfig, l1MonitorRef.current)
 
       // Set config in store
       setConfig(fullConfig)

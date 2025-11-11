@@ -1,6 +1,5 @@
 import type { Address } from 'viem'
 import { L1Monitor } from './l1Monitor'
-import { NodeRpcClient } from './nodeRpcClient'
 import type {
   DetectedSlashing,
   RoundStatus,
@@ -27,11 +26,9 @@ export class SlashingDetector {
   private detailsCache: Map<string, DetailedRoundCache> = new Map()
   private detailsCacheTTL: number = 300000 // 5 minutes
 
-  constructor(config: SlashingMonitorConfig, l1Monitor: L1Monitor, _nodeRpc: NodeRpcClient) {
+  constructor(config: SlashingMonitorConfig, l1Monitor: L1Monitor) {
     this.config = config
     this.l1Monitor = l1Monitor
-    // nodeRpc is passed but not stored/used in this optimized version
-    // Kept in signature for backwards compatibility
   }
 
   /**
@@ -545,8 +542,7 @@ export class SlashingDetector {
  */
 export function createSlashingDetector(
   config: SlashingMonitorConfig,
-  l1Monitor: L1Monitor,
-  nodeRpc: NodeRpcClient
+  l1Monitor: L1Monitor
 ): SlashingDetector {
-  return new SlashingDetector(config, l1Monitor, nodeRpc)
+  return new SlashingDetector(config, l1Monitor)
 }
