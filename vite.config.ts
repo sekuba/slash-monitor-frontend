@@ -9,7 +9,7 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
-  base: '/slash-monitor-frontend/',
+  base: '/slashmon/',
   server: {
     port: 5173,
   },
