@@ -148,7 +148,7 @@ export function Dashboard() {
             </span>
             ACTIVE SLASHING ROUNDS
             {activeSlashings.length > 0 && (
-              <span className="text-base font-black text-vermillion uppercase">(Action Required)</span>
+              <span className="text-base font-black text-vermillion uppercase">(Vetoable)</span>
             )}
           </h2>
 

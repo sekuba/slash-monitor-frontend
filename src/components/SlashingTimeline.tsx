@@ -128,7 +128,7 @@ export function SlashingTimeline() {
             />
           </svg>
         </div>
-        Slashing Timeline
+        Epoch Progress
       </h2>
 
       <div className="bg-brand-black border-5 border-whisper-white p-6 shadow-brutal">

@@ -78,7 +78,7 @@ export function StatsPanel() {
       ),
     },
     {
-      label: 'VALIDATORS',
+      label: 'VALIDATORS HIT',
       value: stats.totalValidatorsSlashed,
       bgColor: 'bg-oxblood/70',
       textColor: 'text-vermillion',
