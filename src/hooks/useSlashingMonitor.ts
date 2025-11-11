@@ -1,13 +1,12 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { useSlashingStore } from '@/store/slashingStore'
-import { createL1Monitor } from '@/lib/l1Monitor'
-import { createNodeRpcClient } from '@/lib/nodeRpcClient'
-import { createSlashingDetector } from '@/lib/slashingDetector'
+import { L1Monitor } from '@/lib/l1Monitor'
+import { NodeRpcClient } from '@/lib/nodeRpcClient'
+import { SlashingDetector } from '@/lib/slashingDetector'
 import {
   notifySlashingDetected,
   notifySlashingDisabled,
   notifySlashingEnabled,
-  notifyRoundExecuted,
 } from '@/lib/notifications'
 import type { SlashingMonitorConfig } from '@/types/slashing'
 
@@ -24,18 +23,14 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
     setCurrentEpoch,
     setSlashingEnabled,
     addDetectedSlashing,
-    addVoteCastEvent,
-    addRoundExecutedEvent,
     setOffenses,
     updateStats,
   } = useSlashingStore()
 
-  const l1MonitorRef = useRef<ReturnType<typeof createL1Monitor> | null>(null)
-  const nodeRpcRef = useRef<ReturnType<typeof createNodeRpcClient> | null>(null)
-  const detectorRef = useRef<ReturnType<typeof createSlashingDetector> | null>(null)
+  const l1MonitorRef = useRef<L1Monitor | null>(null)
+  const nodeRpcRef = useRef<NodeRpcClient | null>(null)
+  const detectorRef = useRef<SlashingDetector | null>(null)
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
-  const unwatchVoteCastRef = useRef<(() => void) | null>(null)
-  const unwatchRoundExecutedRef = useRef<(() => void) | null>(null)
   const notifiedSlashingsRef = useRef<Set<string>>(new Set()) // Track which slashings we've notified about
   const previousSlashingEnabledRef = useRef<boolean | null>(null) // Track slashing enabled status changes
   const isFirstScanRef = useRef<boolean>(true) // Track if this is the first scan
@@ -48,17 +43,17 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
 
     try {
       // Create L1 monitor
-      l1MonitorRef.current = createL1Monitor(config)
+      l1MonitorRef.current = new L1Monitor(config)
 
       // Create Node RPC client
-      nodeRpcRef.current = createNodeRpcClient(config.nodeRpcUrl, config.nodeAdminUrl)
+      nodeRpcRef.current = new NodeRpcClient(config.nodeAdminUrl)
 
       // Load contract parameters from L1
       const contractParams = await l1MonitorRef.current.loadContractParameters()
       const fullConfig = { ...config, ...contractParams }
 
       // Create detector with full config
-      detectorRef.current = createSlashingDetector(fullConfig, l1MonitorRef.current, nodeRpcRef.current)
+      detectorRef.current = new SlashingDetector(fullConfig, l1MonitorRef.current)
 
       // Set config in store
       setConfig(fullConfig)
@@ -93,6 +88,7 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
 
   /**
    * Poll for updates
+   * Optimized to use multicall and pass state to detector
    */
   const poll = useCallback(async () => {
     if (!l1MonitorRef.current || !detectorRef.current || !nodeRpcRef.current) return
@@ -103,13 +99,9 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
         setIsScanning(true)
       }
 
-      // Update current round, slot, and epoch
-      const [currentRound, currentSlot, currentEpoch, isEnabled] = await Promise.all([
-        l1MonitorRef.current.getCurrentRound(),
-        l1MonitorRef.current.getCurrentSlot(),
-        l1MonitorRef.current.getCurrentEpoch(),
-        l1MonitorRef.current.isSlashingEnabled(),
-      ])
+      // Get current state in a SINGLE multicall (was 4 separate calls)
+      const { currentRound, currentSlot, currentEpoch, isSlashingEnabled: isEnabled } =
+        await l1MonitorRef.current.getCurrentState()
 
       setCurrentRound(currentRound)
       setCurrentSlot(currentSlot)
@@ -126,8 +118,8 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
       }
       previousSlashingEnabledRef.current = isEnabled
 
-      // Detect executable rounds
-      const detectedSlashings = await detectorRef.current.detectExecutableRounds()
+      // Detect executable rounds - pass current state to avoid re-fetching
+      const detectedSlashings = await detectorRef.current.detectExecutableRounds(currentRound, currentSlot)
 
       // Update store with detected slashings and send notifications for new ones
       detectedSlashings.forEach((slashing) => {
@@ -183,8 +175,14 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
 
       // Mark first scan as complete
       if (isFirstScanRef.current) {
+        console.log(`Initial scan complete: ${detectedSlashings.length} rounds detected`)
         isFirstScanRef.current = false
         setIsScanning(false)
+      }
+
+      // Log poll stats (only every 5 polls to reduce noise)
+      if (Math.random() < 0.2) {
+        console.log(`Poll complete: ${detectedSlashings.length} rounds, ${offenses.length} offenses`)
       }
     } catch (error) {
       console.error('Poll error:', error)
@@ -195,33 +193,6 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
       }
     }
   }, [setCurrentRound, setCurrentSlot, setCurrentEpoch, setSlashingEnabled, setIsScanning, addDetectedSlashing, setOffenses, updateStats])
-
-  /**
-   * Start watching for L1 events
-   */
-  const startWatching = useCallback(() => {
-    if (!l1MonitorRef.current) return
-
-    console.log('Starting L1 event watchers...')
-
-    // Watch VoteCast events
-    unwatchVoteCastRef.current = l1MonitorRef.current.watchVoteCastEvents((event) => {
-      console.log('VoteCast event:', event)
-      addVoteCastEvent(event)
-      // Trigger a poll to immediately detect the vote
-      poll()
-    })
-
-    // Watch RoundExecuted events
-    unwatchRoundExecutedRef.current = l1MonitorRef.current.watchRoundExecutedEvents((event) => {
-      console.log('RoundExecuted event:', event)
-      addRoundExecutedEvent(event)
-      // Send notification
-      notifyRoundExecuted(event.round, event.slashCount)
-      // Trigger a poll to update state
-      poll()
-    })
-  }, [addVoteCastEvent, addRoundExecutedEvent, poll])
 
   /**
    * Start polling
@@ -246,27 +217,16 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
       clearInterval(intervalRef.current)
       intervalRef.current = null
     }
-
-    if (unwatchVoteCastRef.current) {
-      unwatchVoteCastRef.current()
-      unwatchVoteCastRef.current = null
-    }
-
-    if (unwatchRoundExecutedRef.current) {
-      unwatchRoundExecutedRef.current()
-      unwatchRoundExecutedRef.current = null
-    }
   }, [])
 
   // Initialize and start on mount
   useEffect(() => {
     initialize().then(() => {
-      startWatching()
       startPolling()
     })
 
     return cleanup
-  }, [initialize, startWatching, startPolling, cleanup])
+  }, [initialize, startPolling, cleanup])
 
   return {
     l1Monitor: l1MonitorRef.current,

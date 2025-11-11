@@ -1,4 +1,4 @@
-import type { Address, Hex } from 'viem'
+import type { Address } from 'viem'
 
 /**
  * Configuration for the slashing monitor
@@ -11,7 +11,6 @@ export interface SlashingMonitorConfig {
   rollupAddress: Address
 
   // L2 Configuration
-  nodeRpcUrl: string // http://localhost:8080
   nodeAdminUrl: string // http://localhost:8880
 
   // Network Parameters (read from contract)
@@ -25,14 +24,8 @@ export interface SlashingMonitorConfig {
   slotDuration: number // in seconds
   epochDuration: number // in slots
 
-  // Slash amounts
-  slashAmountSmall: bigint
-  slashAmountMedium: bigint
-  slashAmountLarge: bigint
-
-  // Polling Intervals
-  l1PollInterval: number // 12s (1 L1 block)
-  l2PollInterval: number // Background poll interval (events trigger immediate updates)
+  // Polling Interval
+  l2PollInterval: number // Background poll interval
 
   // Vetoer
   vetoerAddress?: Address
@@ -53,7 +46,6 @@ export interface RoundInfo {
   round: bigint
   voteCount: bigint
   isExecuted: boolean
-  lastVoteSlot?: bigint
 }
 
 /**
@@ -99,10 +91,20 @@ export interface DetectedSlashing {
  */
 export enum OffenseType {
   UNKNOWN = 0,
-  DOUBLE_PROPOSE = 1,
-  INVALID_BLOCK = 2,
+  /** The data for proving an epoch was not publicly available, we slash its committee */
+  DATA_WITHHOLDING = 1,
+  /** An epoch was not successfully proven in time, we slash its committee */
+  VALID_EPOCH_PRUNED = 2,
+  /** A proposer failed to attest or propose during an epoch according to the Sentinel */
   INACTIVITY = 3,
-  VALID_EPOCH_PRUNED = 4,
+  /** A proposer sent an invalid block proposal over the p2p network to the committee */
+  BROADCASTED_INVALID_BLOCK_PROPOSAL = 4,
+  /** A proposer pushed to L1 a block with insufficient committee attestations */
+  PROPOSED_INSUFFICIENT_ATTESTATIONS = 5,
+  /** A proposer pushed to L1 a block with incorrect committee attestations (ie signature from a non-committee member) */
+  PROPOSED_INCORRECT_ATTESTATIONS = 6,
+  /** A committee member attested to a block that was built as a descendent of an invalid block (as in a block with invalid attestations) */
+  ATTESTED_DESCENDANT_OF_INVALID = 7,
 }
 
 /**
@@ -118,38 +120,6 @@ export interface Offense {
 }
 
 /**
- * L1 event data for VoteCast
- */
-export interface VoteCastEvent {
-  round: bigint
-  slot: bigint
-  proposer: Address
-  blockNumber: bigint
-  transactionHash: Hex
-}
-
-/**
- * L1 event data for RoundExecuted
- */
-export interface RoundExecutedEvent {
-  round: bigint
-  slashCount: bigint
-  blockNumber: bigint
-  transactionHash: Hex
-}
-
-/**
- * Payload information from L1
- */
-export interface PayloadInfo {
-  address: Address
-  round: bigint
-  slashActions: SlashAction[]
-  isVetoed: boolean
-  isDeployed: boolean
-}
-
-/**
  * Statistics for the dashboard
  */
 export interface SlashingStats {
@@ -160,54 +130,4 @@ export interface SlashingStats {
   executedRounds: number
   totalValidatorsSlashed: number
   totalSlashAmount: bigint
-}
-
-/**
- * Node RPC response types
- */
-export interface NodeInfo {
-  nodeVersion: string
-  l1ChainId: number
-  l1ContractAddresses: {
-    rollupAddress: Address
-    slasherAddress?: Address
-  }
-}
-
-export interface L2Tips {
-  latest: {
-    number: number
-    hash: string
-  }
-  proven: {
-    number: number
-    hash: string
-  }
-  pending: {
-    number: number
-    hash: string
-  }
-}
-
-/**
- * Store state for the slashing monitor
- */
-export interface SlashingMonitorStore {
-  config: SlashingMonitorConfig | null
-  currentRound: bigint | null
-  detectedSlashings: Map<bigint, DetectedSlashing>
-  recentVoteCastEvents: VoteCastEvent[]
-  recentRoundExecutedEvents: RoundExecutedEvent[]
-  offenses: Offense[]
-  stats: SlashingStats
-
-  // Actions
-  setConfig: (config: SlashingMonitorConfig) => void
-  setCurrentRound: (round: bigint) => void
-  addDetectedSlashing: (slashing: DetectedSlashing) => void
-  updateDetectedSlashing: (round: bigint, updates: Partial<DetectedSlashing>) => void
-  addVoteCastEvent: (event: VoteCastEvent) => void
-  addRoundExecutedEvent: (event: RoundExecutedEvent) => void
-  setOffenses: (offenses: Offense[]) => void
-  updateStats: (stats: Partial<SlashingStats>) => void
 }

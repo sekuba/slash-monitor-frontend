@@ -2,8 +2,6 @@ import { create } from 'zustand'
 import type {
   SlashingMonitorConfig,
   DetectedSlashing,
-  VoteCastEvent,
-  RoundExecutedEvent,
   Offense,
   SlashingStats,
 } from '@/types/slashing'
@@ -23,10 +21,6 @@ interface SlashingMonitorStore {
   // Detected slashings
   detectedSlashings: Map<bigint, DetectedSlashing>
 
-  // Events
-  recentVoteCastEvents: VoteCastEvent[]
-  recentRoundExecutedEvents: RoundExecutedEvent[]
-
   // Offenses from node
   offenses: Offense[]
 
@@ -42,13 +36,8 @@ interface SlashingMonitorStore {
   setCurrentEpoch: (epoch: bigint) => void
   setSlashingEnabled: (enabled: boolean) => void
   addDetectedSlashing: (slashing: DetectedSlashing) => void
-  updateDetectedSlashing: (round: bigint, updates: Partial<DetectedSlashing>) => void
-  removeDetectedSlashing: (round: bigint) => void
-  addVoteCastEvent: (event: VoteCastEvent) => void
-  addRoundExecutedEvent: (event: RoundExecutedEvent) => void
   setOffenses: (offenses: Offense[]) => void
   updateStats: (stats: Partial<SlashingStats>) => void
-  reset: () => void
 }
 
 const initialStats: SlashingStats = {
@@ -61,7 +50,7 @@ const initialStats: SlashingStats = {
   totalSlashAmount: 0n,
 }
 
-export const useSlashingStore = create<SlashingMonitorStore>((set, get) => ({
+export const useSlashingStore = create<SlashingMonitorStore>((set) => ({
   // Initial state
   config: null,
   isInitialized: false,
@@ -71,8 +60,6 @@ export const useSlashingStore = create<SlashingMonitorStore>((set, get) => ({
   currentEpoch: null,
   isSlashingEnabled: true,
   detectedSlashings: new Map(),
-  recentVoteCastEvents: [],
-  recentRoundExecutedEvents: [],
   offenses: [],
   stats: initialStats,
 
@@ -98,56 +85,10 @@ export const useSlashingStore = create<SlashingMonitorStore>((set, get) => ({
       return { detectedSlashings: newMap }
     }),
 
-  updateDetectedSlashing: (round, updates) =>
-    set((state) => {
-      const existing = state.detectedSlashings.get(round)
-      if (!existing) return state
-
-      const newMap = new Map(state.detectedSlashings)
-      newMap.set(round, { ...existing, ...updates })
-      return { detectedSlashings: newMap }
-    }),
-
-  removeDetectedSlashing: (round) =>
-    set((state) => {
-      const newMap = new Map(state.detectedSlashings)
-      newMap.delete(round)
-      return { detectedSlashings: newMap }
-    }),
-
-  addVoteCastEvent: (event) =>
-    set((state) => {
-      // Keep only last 100 events
-      const events = [event, ...state.recentVoteCastEvents].slice(0, 100)
-      return { recentVoteCastEvents: events }
-    }),
-
-  addRoundExecutedEvent: (event) =>
-    set((state) => {
-      // Keep only last 50 events
-      const events = [event, ...state.recentRoundExecutedEvents].slice(0, 50)
-      return { recentRoundExecutedEvents: events }
-    }),
-
   setOffenses: (offenses) => set({ offenses }),
 
   updateStats: (stats) =>
     set((state) => ({
       stats: { ...state.stats, ...stats },
     })),
-
-  reset: () =>
-    set({
-      config: null,
-      isInitialized: false,
-      currentRound: null,
-      currentSlot: null,
-      currentEpoch: null,
-      isSlashingEnabled: true,
-      detectedSlashings: new Map(),
-      recentVoteCastEvents: [],
-      recentRoundExecutedEvents: [],
-      offenses: [],
-      stats: initialStats,
-    }),
 }))

@@ -16,7 +16,6 @@ const slashingConfig: SlashingMonitorConfig = {
   rollupAddress: (import.meta.env.VITE_ROLLUP_ADDRESS || '0x') as Address,
 
   // L2 Configuration
-  nodeRpcUrl: import.meta.env.VITE_NODE_RPC_URL || 'http://localhost:8080',
   nodeAdminUrl: import.meta.env.VITE_NODE_ADMIN_URL || 'http://localhost:8880',
 
   // Network Parameters (will be loaded from contracts)
@@ -30,14 +29,8 @@ const slashingConfig: SlashingMonitorConfig = {
   slotDuration: 8,
   epochDuration: 2,
 
-  // Slash amounts (will be loaded from contracts)
-  slashAmountSmall: 20n * 10n ** 18n,
-  slashAmountMedium: 40n * 10n ** 18n,
-  slashAmountLarge: 60n * 10n ** 18n,
-
-  // Polling Intervals
-  l1PollInterval: 12000, // 12s
-  l2PollInterval: 30000, // 30s - reduced since we use event-driven updates for VoteCast/RoundExecuted
+  // Polling Interval
+  l2PollInterval: 120000, // 2 minutes - sufficient for days-long slashing window
 
   // Vetoer
   vetoerAddress: import.meta.env.VITE_VETOER_ADDRESS as Address | undefined,

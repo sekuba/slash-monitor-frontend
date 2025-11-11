@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { DetectedSlashing } from '@/types/slashing'
-import { VetoButton } from './VetoButton'
+import { VetoInstructions } from './VetoInstructions'
+import { useSlashingStore } from '@/store/slashingStore'
 import {
   formatAddress,
   formatEther,
@@ -8,6 +9,9 @@ import {
   getStatusColor,
   getStatusText,
   isActionableStatus,
+  findOffenseForValidator,
+  getOffenseTypeName,
+  getOffenseTypeColor,
 } from '@/lib/utils'
 
 interface RoundCardProps {
@@ -16,6 +20,7 @@ interface RoundCardProps {
 
 export function RoundCard({ slashing }: RoundCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
+  const { offenses } = useSlashingStore()
 
   const isActionable = isActionableStatus(slashing.status)
 
@@ -178,22 +183,35 @@ export function RoundCard({ slashing }: RoundCardProps) {
             <div>
               <div className="text-sm text-gray-400 mb-2">Validators Being Slashed</div>
               <div className="space-y-2 max-h-64 overflow-y-auto">
-                {slashing.slashActions.map((action, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between bg-gray-950 px-3 py-2 rounded border border-gray-800"
-                  >
-                    <span className="font-mono text-sm text-gray-300">{formatAddress(action.validator)}</span>
-                    <span className="text-red-400 font-semibold">{formatEther(action.slashAmount)} ETH</span>
-                  </div>
-                ))}
+                {slashing.slashActions.map((action, idx) => {
+                  const offense = slashing.targetEpochs
+                    ? findOffenseForValidator(action.validator, slashing.targetEpochs, offenses, slashing.round)
+                    : undefined
+
+                  return (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between bg-gray-950 px-3 py-2 rounded border border-gray-800 gap-3"
+                    >
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <span className="font-mono text-sm text-gray-300 truncate">{formatAddress(action.validator)}</span>
+                        {offense && (
+                          <span className={`px-2 py-0.5 rounded border text-xs font-medium whitespace-nowrap ${getOffenseTypeColor(offense.offenseType)}`}>
+                            {getOffenseTypeName(offense.offenseType)}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-red-400 font-semibold whitespace-nowrap">{formatEther(action.slashAmount)} ETH</span>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
 
-          {/* Veto Button */}
+          {/* Veto Instructions */}
           {isActionable && slashing.payloadAddress && !slashing.isVetoed && (
-            <VetoButton payloadAddress={slashing.payloadAddress} round={slashing.round} />
+            <VetoInstructions payloadAddress={slashing.payloadAddress} />
           )}
 
           {/* Metadata */}

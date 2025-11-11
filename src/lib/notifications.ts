@@ -134,27 +134,3 @@ export function notifySlashingEnabled(): void {
   }
 }
 
-/**
- * Send a notification when a round is executed
- */
-export function notifyRoundExecuted(round: bigint, slashCount: bigint): void {
-  if (!areNotificationsEnabled()) {
-    return
-  }
-
-  try {
-    const notification = new Notification('✓ Slashing Executed', {
-      body: `Round ${round.toString()} has been executed with ${slashCount.toString()} validators slashed`,
-      icon: '/favicon.ico',
-      badge: '/favicon.ico',
-      tag: `round-executed-${round.toString()}`,
-    })
-
-    notification.onclick = () => {
-      window.focus()
-      notification.close()
-    }
-  } catch (error) {
-    console.error('Failed to send notification:', error)
-  }
-}
