@@ -11,7 +11,6 @@ export interface SlashingMonitorConfig {
   rollupAddress: Address
 
   // L2 Configuration
-  nodeRpcUrl: string // http://localhost:8080
   nodeAdminUrl: string // http://localhost:8880
 
   // Network Parameters (read from contract)
@@ -24,11 +23,6 @@ export interface SlashingMonitorConfig {
   committeeSize: number
   slotDuration: number // in seconds
   epochDuration: number // in slots
-
-  // Slash amounts
-  slashAmountSmall: bigint
-  slashAmountMedium: bigint
-  slashAmountLarge: bigint
 
   // Polling Interval
   l2PollInterval: number // Background poll interval

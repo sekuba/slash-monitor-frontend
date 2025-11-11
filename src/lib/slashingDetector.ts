@@ -536,13 +536,3 @@ export class SlashingDetector {
     return validDetections.sort((a, b) => Number(b.round - a.round))
   }
 }
-
-/**
- * Create a slashing detector instance
- */
-export function createSlashingDetector(
-  config: SlashingMonitorConfig,
-  l1Monitor: L1Monitor
-): SlashingDetector {
-  return new SlashingDetector(config, l1Monitor)
-}

@@ -38,7 +38,6 @@ interface SlashingMonitorStore {
   addDetectedSlashing: (slashing: DetectedSlashing) => void
   setOffenses: (offenses: Offense[]) => void
   updateStats: (stats: Partial<SlashingStats>) => void
-  reset: () => void
 }
 
 const initialStats: SlashingStats = {
@@ -92,17 +91,4 @@ export const useSlashingStore = create<SlashingMonitorStore>((set) => ({
     set((state) => ({
       stats: { ...state.stats, ...stats },
     })),
-
-  reset: () =>
-    set({
-      config: null,
-      isInitialized: false,
-      currentRound: null,
-      currentSlot: null,
-      currentEpoch: null,
-      isSlashingEnabled: true,
-      detectedSlashings: new Map(),
-      offenses: [],
-      stats: initialStats,
-    }),
 }))

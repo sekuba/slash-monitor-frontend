@@ -7,7 +7,7 @@ import type { Offense } from '@/types/slashing'
 export class NodeRpcClient {
   private nodeAdminUrl: string
 
-  constructor(_nodeRpcUrl: string, nodeAdminUrl: string) {
+  constructor(nodeAdminUrl: string) {
     this.nodeAdminUrl = nodeAdminUrl
   }
 
@@ -57,11 +57,4 @@ export class NodeRpcClient {
       round: offense.round ? BigInt(offense.round) : undefined,
     }))
   }
-}
-
-/**
- * Create a new Node RPC client
- */
-export function createNodeRpcClient(nodeRpcUrl: string, nodeAdminUrl: string): NodeRpcClient {
-  return new NodeRpcClient(nodeRpcUrl, nodeAdminUrl)
 }

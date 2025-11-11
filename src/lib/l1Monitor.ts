@@ -433,9 +433,6 @@ export class L1Monitor {
       lifetimeInRounds,
       slashOffsetInRounds,
       committeeSize,
-      slashAmountSmall,
-      slashAmountMedium,
-      slashAmountLarge,
       slotDuration,
       epochDuration,
     ] = await Promise.all([
@@ -475,21 +472,6 @@ export class L1Monitor {
         functionName: 'COMMITTEE_SIZE',
       }),
       this.publicClient.readContract({
-        address: this.config.tallySlashingProposerAddress,
-        abi: tallySlashingProposerAbi,
-        functionName: 'SLASH_AMOUNT_SMALL',
-      }),
-      this.publicClient.readContract({
-        address: this.config.tallySlashingProposerAddress,
-        abi: tallySlashingProposerAbi,
-        functionName: 'SLASH_AMOUNT_MEDIUM',
-      }),
-      this.publicClient.readContract({
-        address: this.config.tallySlashingProposerAddress,
-        abi: tallySlashingProposerAbi,
-        functionName: 'SLASH_AMOUNT_LARGE',
-      }),
-      this.publicClient.readContract({
         address: this.config.rollupAddress,
         abi: rollupAbi,
         functionName: 'getSlotDuration',
@@ -509,19 +491,8 @@ export class L1Monitor {
       lifetimeInRounds: Number(lifetimeInRounds),
       slashOffsetInRounds: Number(slashOffsetInRounds),
       committeeSize: Number(committeeSize),
-      slashAmountSmall: slashAmountSmall as bigint,
-      slashAmountMedium: slashAmountMedium as bigint,
-      slashAmountLarge: slashAmountLarge as bigint,
       slotDuration: Number(slotDuration),
       epochDuration: Number(epochDuration),
     }
   }
-
-}
-
-/**
- * Create an L1 monitor instance
- */
-export function createL1Monitor(config: SlashingMonitorConfig): L1Monitor {
-  return new L1Monitor(config)
 }

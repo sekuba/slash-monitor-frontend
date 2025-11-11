@@ -1,8 +1,8 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { useSlashingStore } from '@/store/slashingStore'
-import { createL1Monitor } from '@/lib/l1Monitor'
-import { createNodeRpcClient } from '@/lib/nodeRpcClient'
-import { createSlashingDetector } from '@/lib/slashingDetector'
+import { L1Monitor } from '@/lib/l1Monitor'
+import { NodeRpcClient } from '@/lib/nodeRpcClient'
+import { SlashingDetector } from '@/lib/slashingDetector'
 import {
   notifySlashingDetected,
   notifySlashingDisabled,
@@ -27,9 +27,9 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
     updateStats,
   } = useSlashingStore()
 
-  const l1MonitorRef = useRef<ReturnType<typeof createL1Monitor> | null>(null)
-  const nodeRpcRef = useRef<ReturnType<typeof createNodeRpcClient> | null>(null)
-  const detectorRef = useRef<ReturnType<typeof createSlashingDetector> | null>(null)
+  const l1MonitorRef = useRef<L1Monitor | null>(null)
+  const nodeRpcRef = useRef<NodeRpcClient | null>(null)
+  const detectorRef = useRef<SlashingDetector | null>(null)
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const notifiedSlashingsRef = useRef<Set<string>>(new Set()) // Track which slashings we've notified about
   const previousSlashingEnabledRef = useRef<boolean | null>(null) // Track slashing enabled status changes
@@ -43,17 +43,17 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
 
     try {
       // Create L1 monitor
-      l1MonitorRef.current = createL1Monitor(config)
+      l1MonitorRef.current = new L1Monitor(config)
 
       // Create Node RPC client
-      nodeRpcRef.current = createNodeRpcClient(config.nodeRpcUrl, config.nodeAdminUrl)
+      nodeRpcRef.current = new NodeRpcClient(config.nodeAdminUrl)
 
       // Load contract parameters from L1
       const contractParams = await l1MonitorRef.current.loadContractParameters()
       const fullConfig = { ...config, ...contractParams }
 
       // Create detector with full config
-      detectorRef.current = createSlashingDetector(fullConfig, l1MonitorRef.current)
+      detectorRef.current = new SlashingDetector(fullConfig, l1MonitorRef.current)
 
       // Set config in store
       setConfig(fullConfig)
