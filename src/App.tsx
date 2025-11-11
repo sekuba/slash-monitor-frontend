@@ -7,10 +7,16 @@ import type { Address } from 'viem'
 // Create query client
 const queryClient = new QueryClient()
 
+// Parse L1 RPC URLs (supports comma-separated list for failover)
+const parseRpcUrls = (urlString: string): string | string[] => {
+  const urls = urlString.split(',').map(url => url.trim()).filter(url => url.length > 0)
+  return urls.length === 1 ? urls[0] : urls
+}
+
 // Configuration loaded from environment variables
 const slashingConfig: SlashingMonitorConfig = {
   // L1 Configuration
-  l1RpcUrl: import.meta.env.VITE_L1_RPC_URL || 'http://localhost:8545',
+  l1RpcUrl: parseRpcUrls(import.meta.env.VITE_L1_RPC_URL || 'http://localhost:8545'),
   tallySlashingProposerAddress: (import.meta.env.VITE_TALLY_PROPOSER_ADDRESS || '0x') as Address,
   slasherAddress: (import.meta.env.VITE_SLASHER_ADDRESS || '0x') as Address,
   rollupAddress: (import.meta.env.VITE_ROLLUP_ADDRESS || '0x') as Address,
