@@ -80,8 +80,9 @@ export class SlashingDetector {
     const lifetime = BigInt(this.config.lifetimeInRounds)
     const roundSize = BigInt(this.config.slashingRoundSize)
 
-    // Calculate when this round ends
+    // Calculate when this round ends and when it becomes executable
     const roundEndSlot = (round + 1n) * roundSize - 1n
+    const executableSlot = this.calculateExecutableSlot(round)
 
     // Check if expired
     if (roundsSinceEnd > lifetime) {
@@ -89,13 +90,25 @@ export class SlashingDetector {
     }
 
     // Check if executable (past execution delay but within lifetime)
+    // IMPORTANT: Also verify that current slot has actually reached the executable slot
     if (roundsSinceEnd > executionDelay && roundsSinceEnd <= lifetime) {
-      return 'executable'
+      // Only mark as executable if we've actually reached the executable slot
+      if (currentSlot >= executableSlot) {
+        return 'executable'
+      }
+      // Round-based timing says it should be executable, but slot hasn't been reached yet
+      return hasQuorum ? 'quorum-reached' : 'voting'
     }
 
     // Check if in veto window (exactly at execution delay)
+    // IMPORTANT: Also verify that current slot has actually reached the executable slot
     if (roundsSinceEnd === executionDelay) {
-      return 'in-veto-window'
+      // Only mark as in veto window if we've actually reached the executable slot
+      if (currentSlot >= executableSlot) {
+        return 'in-veto-window'
+      }
+      // Round-based timing says it should be in veto window, but slot hasn't been reached yet
+      return hasQuorum ? 'quorum-reached' : 'voting'
     }
 
     // If we haven't reached execution delay yet

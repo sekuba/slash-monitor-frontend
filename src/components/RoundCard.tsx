@@ -138,17 +138,31 @@ export function RoundCard({ slashing }: RoundCardProps) {
                   </div>
                 </div>
               )}
-            <div className="flex items-center gap-3 bg-brand-black border-3 border-chartreuse p-3">
-              <svg className="w-6 h-6 text-chartreuse stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  strokeLinecap="square"
-                  strokeLinejoin="miter"
-                  strokeWidth={3}
-                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              <div className="text-chartreuse font-black uppercase text-sm">VETO AVAILABLE NOW</div>
-            </div>
+            {slashing.isVetoed ? (
+              <div className="flex items-center gap-3 bg-brand-black border-3 border-orchid p-3">
+                <svg className="w-6 h-6 text-orchid stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="square"
+                    strokeLinejoin="miter"
+                    strokeWidth={3}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+                <div className="text-orchid font-black uppercase text-sm">VETOED</div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 bg-brand-black border-3 border-chartreuse p-3">
+                <svg className="w-6 h-6 text-chartreuse stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="square"
+                    strokeLinejoin="miter"
+                    strokeWidth={3}
+                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+                <div className="text-chartreuse font-black uppercase text-sm">VETO AVAILABLE NOW</div>
+              </div>
+            )}
           </div>
         )}
       </div>
