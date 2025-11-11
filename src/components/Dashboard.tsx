@@ -48,7 +48,9 @@ export function Dashboard() {
   const slashings = Array.from(detectedSlashings.values()).sort((a, b) => Number(b.round - a.round))
 
   // Filter for active slashings (quorum reached, in veto window, or executable)
+  // Sort ascending (oldest first) - older rounds are more urgent
   const activeSlashings = slashings.filter((s) => isActionableStatus(s.status))
+    .sort((a, b) => Number(a.round - b.round))
 
   return (
     <div className="min-h-screen">
