@@ -236,6 +236,15 @@ export function RoundCard({ slashing }: RoundCardProps) {
                     >
                       <div className="flex items-center gap-3 flex-1 min-w-0">
                         <span className="font-mono text-sm text-whisper-white font-bold truncate">{formatAddress(action.validator)}</span>
+                        <button
+                          onClick={() => navigator.clipboard.writeText(action.validator)}
+                          className="flex-shrink-0 bg-whisper-white border-3 border-brand-black p-1 hover:translate-x-1 hover:-translate-y-1 transition-transform shadow-brutal"
+                          title="Copy validator address"
+                        >
+                          <svg className="w-4 h-4 text-brand-black stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                          </svg>
+                        </button>
                         {offense && (
                           <span className={`px-2 py-1 border-3 text-xs font-black uppercase whitespace-nowrap ${getOffenseTypeColor(offense.offenseType)}`}>
                             {getOffenseTypeName(offense.offenseType)}
