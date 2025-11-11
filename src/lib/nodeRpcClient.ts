@@ -40,7 +40,21 @@ export class NodeRpcClient {
       throw new Error(`RPC call failed: ${response.statusText}`)
     }
 
-    const data = await response.json()
+    // Get response text first to handle empty responses
+    const text = await response.text()
+
+    // Handle empty responses
+    if (!text || text.trim() === '') {
+      throw new Error(`RPC call returned empty response for method: ${method}`)
+    }
+
+    // Parse JSON with better error handling
+    let data
+    try {
+      data = JSON.parse(text)
+    } catch (error) {
+      throw new Error(`Failed to parse JSON response for method ${method}: ${error instanceof Error ? error.message : 'Unknown error'}. Response: ${text.substring(0, 100)}`)
+    }
 
     if (data.error) {
       throw new Error(`RPC error: ${data.error.message}`)
