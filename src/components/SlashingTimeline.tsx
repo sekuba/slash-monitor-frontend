@@ -27,60 +27,50 @@ export function SlashingTimeline() {
     const executionDelay = BigInt(config.executionDelayInRounds)
     const slashOffset = BigInt(config.slashOffsetInRounds)
 
-    // Show current round + next 2 rounds
-    for (let i = 0n; i <= 2n; i++) {
-      const round = currentRound + i
-      const roundStartSlot = round * roundSize
-      const roundEndSlot = (round + 1n) * roundSize - 1n
-      const vetoWindowSlot = (round + 1n + executionDelay) * roundSize
-      const vetoWindowEndSlot = vetoWindowSlot + roundSize - 1n
+    // Only show current round
+    const round = currentRound
+    const roundStartSlot = round * roundSize
+    const roundEndSlot = (round + 1n) * roundSize - 1n
+    const vetoWindowSlot = (round + 1n + executionDelay) * roundSize
+    const vetoWindowEndSlot = vetoWindowSlot + roundSize - 1n
 
-      // Calculate target epochs for this round
-      const targetRound = round - slashOffset
-      const targetEpochStart = targetRound * roundSizeInEpochs
-      const targetEpochEnd = targetEpochStart + roundSizeInEpochs - 1n
+    // Calculate target epochs for this round
+    const targetRound = round - slashOffset
+    const targetEpochStart = targetRound * roundSizeInEpochs
+    const targetEpochEnd = targetEpochStart + roundSizeInEpochs - 1n
 
-      // Determine status
-      let status: 'past' | 'current' | 'future' = 'future'
-      if (currentSlot >= vetoWindowSlot) {
-        status = 'past'
-      } else if (currentSlot >= roundStartSlot && currentSlot <= roundEndSlot) {
-        status = 'current'
-      }
-
-      // Voting phase
-      if (currentSlot <= roundEndSlot) {
-        phases.push({
-          name: i === 0n ? 'Current Voting Round' : `Round ${round.toString()} Voting`,
-          round,
-          startSlot: roundStartSlot,
-          endSlot: roundEndSlot,
-          targetEpochStart,
-          targetEpochEnd,
-          status: status === 'current' ? 'current' : currentSlot > roundEndSlot ? 'past' : 'future',
-          description: `Committee members vote on slashing offenses from epochs ${targetEpochStart.toString()}-${targetEpochEnd.toString()}`,
-          color: status === 'current' ? 'blue' : 'gray',
-        })
-      }
-
-      // Veto window / Execution phase
-      if (currentSlot <= vetoWindowEndSlot) {
-        const isInVetoWindow = currentSlot >= vetoWindowSlot && currentSlot <= vetoWindowEndSlot
-        phases.push({
-          name: `Round ${round.toString()} Veto/Execute`,
-          round,
-          startSlot: vetoWindowSlot,
-          endSlot: vetoWindowEndSlot,
-          targetEpochStart,
-          targetEpochEnd,
-          status: isInVetoWindow ? 'current' : currentSlot > vetoWindowEndSlot ? 'past' : 'future',
-          description: `Vetoer can veto or slashing can be executed for epochs ${targetEpochStart.toString()}-${targetEpochEnd.toString()}`,
-          color: isInVetoWindow ? 'red' : 'orange',
-        })
-      }
+    // Current voting phase (if still ongoing)
+    if (currentSlot <= roundEndSlot) {
+      phases.push({
+        name: 'Current Voting Round',
+        round,
+        startSlot: roundStartSlot,
+        endSlot: roundEndSlot,
+        targetEpochStart,
+        targetEpochEnd,
+        status: 'current',
+        description: `Committee members vote on slashing offenses from epochs ${targetEpochStart.toString()}-${targetEpochEnd.toString()}`,
+        color: 'blue',
+      })
     }
 
-    return phases.filter((p) => p.status !== 'past')
+    // Veto window / Execution phase (if not passed)
+    if (currentSlot <= vetoWindowEndSlot) {
+      const isInVetoWindow = currentSlot >= vetoWindowSlot && currentSlot <= vetoWindowEndSlot
+      phases.push({
+        name: `Round ${round.toString()} Veto/Execute`,
+        round,
+        startSlot: vetoWindowSlot,
+        endSlot: vetoWindowEndSlot,
+        targetEpochStart,
+        targetEpochEnd,
+        status: isInVetoWindow ? 'current' : 'future',
+        description: `Vetoer can veto or slashing can be executed for epochs ${targetEpochStart.toString()}-${targetEpochEnd.toString()}`,
+        color: isInVetoWindow ? 'red' : 'orange',
+      })
+    }
+
+    return phases
   }, [config, currentRound, currentSlot, currentEpoch])
 
   if (!config || currentRound === null || currentSlot === null || currentEpoch === null) {
