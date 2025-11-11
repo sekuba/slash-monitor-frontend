@@ -3,7 +3,7 @@
 interface ImportMetaEnv {
   readonly VITE_L1_RPC_URL: string
   readonly VITE_L1_RPC_URL_SECONDARY?: string
-  readonly VITE_L2_NODE_ADMIN_URL: string
+  readonly VITE_NODE_ADMIN_URL?: string // Only used in local development
   readonly VITE_L1_CHAIN_ID: string
   readonly VITE_SLASHER_ADDRESS: string
   readonly VITE_SLASHING_ROUND_SIZE?: string

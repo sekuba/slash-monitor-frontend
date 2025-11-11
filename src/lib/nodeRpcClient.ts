@@ -12,17 +12,18 @@ export class NodeRpcClient {
   }
 
   /**
+   * Check if we're running in production (GitHub Pages)
+   */
+  private isProduction(): boolean {
+    return window.location.hostname.includes('github.io')
+  }
+
+  /**
    * Make a JSON RPC call
    */
   private async rpcCall<T>(url: string, method: string, params: unknown[] = []): Promise<T> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-    }
-
-    // Add API key if configured (for proxied requests)
-    const apiKey = import.meta.env.VITE_API_KEY
-    if (apiKey) {
-      headers['x-api-key'] = apiKey
     }
 
     const response = await fetch(url, {
@@ -66,8 +67,14 @@ export class NodeRpcClient {
   /**
    * Get slash offenses for a specific round
    * @param round - Round number, 'current', or 'all'
+   * Note: In production (GitHub Pages), this returns an empty array as the admin API is not available
    */
   async getSlashOffenses(round: bigint | 'current' | 'all' = 'all'): Promise<Offense[]> {
+    // Skip admin API calls in production
+    if (this.isProduction()) {
+      return []
+    }
+
     const roundParam = typeof round === 'bigint' ? round.toString() : round
     const rawOffenses = await this.rpcCall<any[]>(this.nodeAdminUrl, 'nodeAdmin_getSlashOffenses', [roundParam])
 
