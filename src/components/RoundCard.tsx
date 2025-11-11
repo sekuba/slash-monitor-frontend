@@ -224,14 +224,14 @@ export function RoundCard({ slashing }: RoundCardProps) {
           )}
 
           {/* Metadata */}
-          <div className="grid grid-cols-2 gap-4 text-sm pt-4 border-t-3 border-chartreuse">
-            <div className="bg-malachite border-3 border-chartreuse px-4 py-3">
-              <div className="text-chartreuse font-black uppercase text-xs mb-1">Vote Count</div>
+          <div className="grid grid-cols-2 gap-4 text-sm pt-4 border-t-3 border-brand-black">
+            <div className="bg-aubergine border-3 border-orchid px-4 py-3">
+              <div className="text-orchid font-black uppercase text-xs mb-1">Vote Count</div>
               <div className="text-whisper-white font-black text-xl">{slashing.voteCount.toString()}</div>
             </div>
             {slashing.slotWhenExecutable !== undefined && (
-              <div className="bg-malachite border-3 border-chartreuse px-4 py-3">
-                <div className="text-chartreuse font-black uppercase text-xs mb-1">Executable Slot</div>
+              <div className="bg-lapis border-3 border-aqua px-4 py-3">
+                <div className="text-aqua font-black uppercase text-xs mb-1">Executable Slot</div>
                 <div className="text-whisper-white font-black text-xl">{slashing.slotWhenExecutable.toString()}</div>
               </div>
             )}
