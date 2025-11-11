@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { DetectedSlashing } from '@/types/slashing'
 import { useSlashingStore } from '@/store/slashingStore'
 import {
@@ -19,9 +19,28 @@ interface RoundCardProps {
 
 export function RoundCard({ slashing }: RoundCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
+  const [currentTime, setCurrentTime] = useState(Date.now())
   const { offenses } = useSlashingStore()
 
   const isActionable = isActionableStatus(slashing.status)
+
+  // Update current time every second for real-time countdown
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(Date.now())
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Calculate adjusted time remaining accounting for elapsed time since last poll
+  const getAdjustedSecondsRemaining = (baseSeconds: number | undefined): number | undefined => {
+    if (baseSeconds === undefined || slashing.lastUpdatedTimestamp === undefined) {
+      return baseSeconds
+    }
+    const elapsedSeconds = Math.floor((currentTime - slashing.lastUpdatedTimestamp) / 1000)
+    const adjustedSeconds = baseSeconds - elapsedSeconds
+    return Math.max(0, adjustedSeconds) // Don't go negative
+  }
 
   const getBorderStyle = () => {
     if (!isActionable) return 'border-brand-black shadow-brutal'
@@ -107,7 +126,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
                   </svg>
                   <div>
                     <div className="text-orchid font-black uppercase text-sm">
-                      EXECUTABLE IN {formatTimeRemaining(slashing.secondsUntilExecutable)}
+                      EXECUTABLE IN {formatTimeRemaining(getAdjustedSecondsRemaining(slashing.secondsUntilExecutable) ?? 0)}
                     </div>
                     <div className="text-whisper-white/70 text-xs font-bold uppercase mt-1">
                       Veto now to prevent execution
@@ -128,7 +147,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
                     />
                   </svg>
                   <div className="text-vermillion font-black uppercase text-sm">
-                    EXPIRES IN {formatTimeRemaining(slashing.secondsUntilExpires)}
+                    EXPIRES IN {formatTimeRemaining(getAdjustedSecondsRemaining(slashing.secondsUntilExpires) ?? 0)}
                   </div>
                 </div>
               )}
