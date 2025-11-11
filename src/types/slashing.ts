@@ -5,7 +5,7 @@ import type { Address } from 'viem'
  */
 export interface SlashingMonitorConfig {
   // L1 Configuration
-  l1RpcUrl: string
+  l1RpcUrl: string | string[] // Single URL or array of URLs for failover
   tallySlashingProposerAddress: Address
   slasherAddress: Address
   rollupAddress: Address

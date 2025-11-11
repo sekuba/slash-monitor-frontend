@@ -37,8 +37,6 @@ jobs:
           VITE_TALLY_PROPOSER_ADDRESS: ${{ secrets.VITE_TALLY_PROPOSER_ADDRESS }}
           VITE_SLASHER_ADDRESS: ${{ secrets.VITE_SLASHER_ADDRESS }}
           VITE_ROLLUP_ADDRESS: ${{ secrets.VITE_ROLLUP_ADDRESS }}
-          VITE_NODE_ADMIN_URL: ${{ secrets.VITE_NODE_ADMIN_URL }}
-          VITE_API_KEY: ${{ secrets.VITE_API_KEY }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

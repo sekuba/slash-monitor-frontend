@@ -1,6 +1,7 @@
 import {
   createPublicClient,
   http,
+  fallback,
   type Address,
   type PublicClient,
 } from 'viem'
@@ -32,9 +33,14 @@ export class L1Monitor {
   constructor(config: SlashingMonitorConfig) {
     this.config = config
 
+    // Create transport with automatic failover for multiple RPC URLs
+    const transport = Array.isArray(config.l1RpcUrl)
+      ? fallback(config.l1RpcUrl.map(url => http(url)))
+      : http(config.l1RpcUrl)
+
     // Create public client for reading
     this.publicClient = createPublicClient({
-      transport: http(config.l1RpcUrl),
+      transport,
     })
   }
 
