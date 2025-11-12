@@ -118,8 +118,8 @@ export class L1Monitor {
   }
 
   /**
-   * Get current state (round, slot, epoch, slashing enabled, disabled until) in a single multicall
-   * This replaces 5 separate RPC calls with 1
+   * Get current state (round, slot, epoch, slashing status) in a single multicall
+   * This replaces 6 separate RPC calls with 1
    */
   async getCurrentState(): Promise<{
     currentRound: bigint

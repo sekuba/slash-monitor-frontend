@@ -245,48 +245,40 @@ export function SlashingTimeline() {
 
       {/* Slashing Pause Information */}
       {!isSlashingEnabled && slashingDisabledUntil !== null && slashingDisabledUntil > 0n && slashingDisableDuration !== null && (() => {
-        const now = Math.floor(Date.now() / 1000) // Current time in seconds
+        const now = Math.floor(Date.now() / 1000)
         const disabledUntilSeconds = Number(slashingDisabledUntil)
-
-        // Calculate when slashing will be re-enabled
-        const secondsUntilReEnabled = Math.max(0, disabledUntilSeconds - now)
-        const slotsUntilReEnabled = Math.floor(secondsUntilReEnabled / config.slotDuration)
-        const slotWhenReEnabled = currentSlot + BigInt(slotsUntilReEnabled)
-        const roundWhenReEnabled = slotWhenReEnabled / BigInt(config.slashingRoundSize)
-
         const executionDelay = BigInt(config.executionDelayInRounds)
         const roundSize = BigInt(config.slashingRoundSize)
 
-        // Calculate when the pause started by counting back from slashingDisabledUntil
+        // Calculate when slashing re-enables
+        const secondsUntilReEnabled = Math.max(0, disabledUntilSeconds - now)
+        const slotsUntilReEnabled = Math.floor(secondsUntilReEnabled / config.slotDuration)
+        const slotWhenReEnabled = currentSlot + BigInt(slotsUntilReEnabled)
+        const roundWhenReEnabled = slotWhenReEnabled / roundSize
+
+        // Calculate when pause started (count back from end using contract duration)
         const pauseStartedSeconds = disabledUntilSeconds - Number(slashingDisableDuration)
         const slotWhenPauseStarted = slotWhenReEnabled - BigInt(Math.floor(Number(slashingDisableDuration) / config.slotDuration))
         const roundWhenPauseStarted = slotWhenPauseStarted / roundSize
 
-        // Calculate the three groups of affected rounds
-        // Group 1: Rounds that entered execution delay before pause but won't finish before pause ends
-        // Note: A round becomes executable at the start of round (round + executionDelay + 1)
-        // So round (P - executionDelay - 1) becomes executable at the start of round P
-        // If pause started partway through P, that round may have already been executed
+        // Calculate three groups of rounds affected by the pause
+        // Group 1: Entered delay before pause, still delayed when pause ends
         const firstGroup1Round = roundWhenPauseStarted - executionDelay
         const lastGroup1Round = roundWhenPauseStarted - 1n
 
-        // Group 2: Rounds that enter AND finish execution delay during the pause
+        // Group 2: Enter and finish delay during pause
         const firstGroup2Round = roundWhenPauseStarted
         const lastGroup2Round = roundWhenReEnabled - executionDelay - 2n
 
-        // Group 3: Rounds that enter during pause but finish AFTER pause (CAN be slashed!)
+        // Group 3: Enter during pause but finish after (executable!)
         const firstGroup3Round = lastGroup2Round + 1n
         const lastGroup3Round = roundWhenReEnabled - 1n
 
-        // Overall affected range
-        const firstAffectedVotingRound = firstGroup1Round
-        const lastAffectedVotingRound = lastGroup2Round
-
-        // Calculate target epochs
+        // Calculate target epochs for blocked rounds (Groups 1 & 2)
         const slashOffset = BigInt(config.slashOffsetInRounds)
         const roundSizeInEpochs = BigInt(config.slashingRoundSizeInEpochs)
-        const firstAffectedTargetEpoch = (firstAffectedVotingRound - slashOffset) * roundSizeInEpochs
-        const lastAffectedTargetEpoch = (lastAffectedVotingRound - slashOffset + 1n) * roundSizeInEpochs - 1n
+        const firstBlockedTargetEpoch = (firstGroup1Round - slashOffset) * roundSizeInEpochs
+        const lastBlockedTargetEpoch = (lastGroup2Round - slashOffset + 1n) * roundSizeInEpochs - 1n
 
         const formatTimestamp = (seconds: number) => {
           const date = new Date(seconds * 1000)
@@ -484,10 +476,10 @@ export function SlashingTimeline() {
               <div className="text-brand-black text-sm font-black uppercase mb-3 tracking-wider">Total Blocked Range</div>
               <div className="space-y-2">
                 <div className="text-brand-black text-2xl font-black">
-                  Rounds {firstAffectedVotingRound > 0n ? firstAffectedVotingRound.toString() : '0'} → {lastAffectedVotingRound.toString()}
+                  Rounds {firstGroup1Round > 0n ? firstGroup1Round.toString() : '0'} → {lastGroup2Round.toString()}
                 </div>
                 <div className="text-brand-black text-2xl font-black">
-                  Epochs {firstAffectedTargetEpoch > 0n ? firstAffectedTargetEpoch.toString() : '0'} → {lastAffectedTargetEpoch.toString()}
+                  Epochs {firstBlockedTargetEpoch > 0n ? firstBlockedTargetEpoch.toString() : '0'} → {lastBlockedTargetEpoch.toString()}
                 </div>
               </div>
             </div>

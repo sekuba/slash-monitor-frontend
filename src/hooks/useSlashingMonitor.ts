@@ -101,7 +101,7 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
         setIsScanning(true)
       }
 
-      // Get current state in a SINGLE multicall (was 6 separate calls)
+      // Get current state in a single multicall (6 calls in 1)
       const { currentRound, currentSlot, currentEpoch, isSlashingEnabled: isEnabled, slashingDisabledUntil, slashingDisableDuration } =
         await l1MonitorRef.current.getCurrentState()
 
