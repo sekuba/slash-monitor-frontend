@@ -264,7 +264,10 @@ export function SlashingTimeline() {
 
         // Calculate the three groups of affected rounds
         // Group 1: Rounds that entered execution delay before pause but won't finish before pause ends
-        const firstGroup1Round = roundWhenPauseStarted - executionDelay - 1n
+        // Note: A round becomes executable at the start of round (round + executionDelay + 1)
+        // So round (P - executionDelay - 1) becomes executable at the start of round P
+        // If pause started partway through P, that round may have already been executed
+        const firstGroup1Round = roundWhenPauseStarted - executionDelay
         const lastGroup1Round = roundWhenPauseStarted - 1n
 
         // Group 2: Rounds that enter AND finish execution delay during the pause
