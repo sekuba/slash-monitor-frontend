@@ -8,7 +8,7 @@ import { isActionableStatus } from '@/lib/utils'
 import { requestNotificationPermission, areNotificationsEnabled } from '@/lib/notifications'
 
 export function Dashboard() {
-  const { detectedSlashings, isInitialized, isScanning, currentRound, isSlashingEnabled } = useSlashingStore()
+  const { detectedSlashings, isInitialized, isScanning, currentRound } = useSlashingStore()
   const [showNotificationBanner, setShowNotificationBanner] = useState(false)
   const [isRequestingNotifications, setIsRequestingNotifications] = useState(false)
 
@@ -121,25 +121,6 @@ export function Dashboard() {
           </div>
         )}
 
-        {/* Slashing Status Alert */}
-        {!isSlashingEnabled && (
-          <div className="mb-6 bg-malachite border-5 border-chartreuse p-5 shadow-brutal-chartreuse">
-            <div className="flex items-center gap-4">
-              <div className="bg-chartreuse border-3 border-brand-black p-2">
-                <svg className="w-8 h-8 text-brand-black stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="text-chartreuse font-black uppercase text-lg">Slashing Disabled</h3>
-                <p className="text-whisper-white text-sm font-bold">
-                  Slashing currently disabled by VETOER. No executions will occur.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Active Slashings Section */}
         <div className="mb-8">
           <h2 className="text-3xl font-black text-whisper-white mb-6 flex items-center gap-4">
@@ -183,12 +164,12 @@ export function Dashboard() {
           )}
         </div>
 
-        {/* All Rounds Section (includes executed rounds for verification) */}
+        {/* Other Rounds Section (includes executed, expired, voting rounds) */}
         {slashings.length > activeSlashings.length && (
           <div>
-            <h2 className="text-3xl font-black text-whisper-white mb-6 uppercase">All Detected Rounds</h2>
+            <h2 className="text-3xl font-black text-whisper-white mb-6 uppercase">Other Rounds</h2>
             <div className="grid gap-6">
-              {slashings.map((slashing) => (
+              {slashings.filter((s) => !isActionableStatus(s.status)).map((slashing) => (
                 <RoundCard key={slashing.round.toString()} slashing={slashing} />
               ))}
             </div>

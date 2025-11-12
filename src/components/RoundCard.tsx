@@ -20,7 +20,7 @@ interface RoundCardProps {
 export function RoundCard({ slashing }: RoundCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [currentTime, setCurrentTime] = useState(Date.now())
-  const { offenses } = useSlashingStore()
+  const { offenses, config } = useSlashingStore()
 
   const isActionable = isActionableStatus(slashing.status)
 
@@ -113,7 +113,8 @@ export function RoundCard({ slashing }: RoundCardProps) {
         {/* Time remaining (if actionable) */}
         {isActionable && (
           <div className="mt-4 space-y-3">
-            {slashing.status === 'quorum-reached' && slashing.secondsUntilExecutable !== undefined && (
+            {/* Show executable countdown only if not vetoed */}
+            {!slashing.isVetoed && slashing.status === 'quorum-reached' && slashing.secondsUntilExecutable !== undefined && (
               <>
                 <div className="flex items-center gap-3 bg-brand-black border-3 border-whisper-white p-3 animate-pulse">
                   <svg className="w-6 h-6 text-orchid stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -135,22 +136,27 @@ export function RoundCard({ slashing }: RoundCardProps) {
                 </div>
               </>
             )}
-            {(slashing.status === 'in-veto-window' || slashing.status === 'executable') &&
-              slashing.secondsUntilExpires !== undefined && (
-                <div className="flex items-center gap-3 bg-brand-black border-3 border-vermillion p-3 animate-pulse">
-                  <svg className="w-6 h-6 text-vermillion stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="square"
-                      strokeLinejoin="miter"
-                      strokeWidth={3}
-                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                  <div className="text-vermillion font-black uppercase text-sm">
-                    EXPIRES IN {formatTimeRemaining(getAdjustedSecondsRemaining(slashing.secondsUntilExpires) ?? 0)}
+            {/* Show expiration countdown for non-vetoed OR vetoed rounds */}
+            {(slashing.status === 'in-veto-window' || slashing.status === 'executable' || (slashing.isVetoed && slashing.status === 'quorum-reached')) &&
+              slashing.secondsUntilExpires !== undefined && (() => {
+                const adjustedSeconds = getAdjustedSecondsRemaining(slashing.secondsUntilExpires) ?? 0
+                const isExpired = adjustedSeconds === 0
+                return (
+                  <div className={`flex items-center gap-3 bg-brand-black border-3 border-vermillion p-3 ${!isExpired ? 'animate-pulse' : ''}`}>
+                    <svg className="w-6 h-6 text-vermillion stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path
+                        strokeLinecap="square"
+                        strokeLinejoin="miter"
+                        strokeWidth={3}
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                    <div className="text-vermillion font-black uppercase text-sm">
+                      {isExpired ? 'EXPIRED' : `EXPIRES IN ${formatTimeRemaining(adjustedSeconds)}`}
+                    </div>
                   </div>
-                </div>
-              )}
+                )
+              })()}
             {slashing.isVetoed ? (
               <div className="flex items-center gap-3 bg-brand-black border-3 border-orchid p-3">
                 <svg className="w-6 h-6 text-orchid stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -263,7 +269,9 @@ export function RoundCard({ slashing }: RoundCardProps) {
           <div className="grid grid-cols-2 gap-4 text-sm pt-4 border-t-3 border-brand-black">
             <div className="bg-aubergine border-3 border-orchid px-4 py-3">
               <div className="text-orchid font-black uppercase text-xs mb-1">Vote Count</div>
-              <div className="text-whisper-white font-black text-xl">{slashing.voteCount.toString()}</div>
+              <div className="text-whisper-white font-black text-xl">
+                {slashing.voteCount.toString()}{config ? `/${config.quorum}` : ''}
+              </div>
             </div>
             {slashing.slotWhenExecutable !== undefined && (
               <div className="bg-lapis border-3 border-aqua px-4 py-3">
