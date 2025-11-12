@@ -15,7 +15,7 @@ export function VetoInstructions({ payloadAddress }: VetoInstructionsProps) {
   const handleCopy = async () => {
     await navigator.clipboard.writeText(payloadAddress)
     setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    setTimeout(() => setCopied(false), config.copyFeedbackDuration)
   }
 
   return (
@@ -52,12 +52,6 @@ export function VetoInstructions({ payloadAddress }: VetoInstructionsProps) {
               </button>
             </div>
           </div>
-
-          {config.vetoerAddress && (
-            <p className="text-xs text-whisper-white/80 mt-3 font-bold uppercase">
-              Authorized Vetoer: <span className="font-mono text-aqua">{config.vetoerAddress.slice(0, 10)}...{config.vetoerAddress.slice(-4)}</span>
-            </p>
-          )}
         </div>
       </div>
     </div>

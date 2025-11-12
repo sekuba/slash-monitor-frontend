@@ -13,7 +13,8 @@ export interface SlashingMonitorConfig {
   // L2 Configuration
   nodeAdminUrl: string // http://localhost:8880
 
-  // Network Parameters (read from contract)
+  // Network Parameters (loaded dynamically from L1 contracts during initialization)
+  // The initial values provided here are overwritten by contract data
   slashingRoundSize: number
   slashingRoundSizeInEpochs: number
   executionDelayInRounds: number
@@ -24,11 +25,24 @@ export interface SlashingMonitorConfig {
   slotDuration: number // in seconds
   epochDuration: number // in slots
 
-  // Polling Interval
-  l2PollInterval: number // Background poll interval
+  // Polling & Update Intervals
+  l2PollInterval: number // Background poll interval (default: 120000ms = 2 minutes)
+  realtimeCountdownInterval: number // Real-time countdown update interval (default: 1000ms = 1 second)
 
-  // Vetoer
-  vetoerAddress?: Address
+  // Cache Configuration
+  l1RoundCacheTTL: number // L1 monitor round cache TTL in ms (default: 30000ms = 30 seconds)
+  detailsCacheTTL: number // Slashing detector details cache TTL in ms (default: 300000ms = 5 minutes)
+
+  // Scanning Configuration
+  maxExecutedRoundsToShow: number // Max executed rounds to show in history (default: 2)
+  maxRoundsToScanForHistory: number // Max rounds back to scan for executed rounds (default: 5)
+
+  // UI/UX Configuration
+  copyFeedbackDuration: number // Copy button feedback timeout in ms (default: 2000ms = 2 seconds)
+  hoursThresholdForDayDisplay: number // Hours threshold for displaying days (default: 24)
+
+  // Debug Configuration
+  consoleLogProbability: number // Probability of logging poll results (0-1, default: 0.2 = 20%)
 }
 
 /**

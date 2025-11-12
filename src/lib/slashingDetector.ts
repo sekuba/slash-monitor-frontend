@@ -24,11 +24,12 @@ export class SlashingDetector {
   private config: SlashingMonitorConfig
   private l1Monitor: L1Monitor
   private detailsCache: Map<string, DetailedRoundCache> = new Map()
-  private detailsCacheTTL: number = 300000 // 5 minutes
+  private detailsCacheTTL: number
 
   constructor(config: SlashingMonitorConfig, l1Monitor: L1Monitor) {
     this.config = config
     this.l1Monitor = l1Monitor
+    this.detailsCacheTTL = config.detailsCacheTTL
   }
 
   /**
@@ -510,10 +511,10 @@ export class SlashingDetector {
       ...Array.from(roundsWithDetails.values()),
     ]
 
-    // 4. Find up to 2 most recent executed rounds
-    //    Limit scan to a reasonable window (5 rounds before the slashing period)
-    const maxExecutedToShow = 2
-    const maxRoundsToScanForExecuted = 5
+    // 4. Find most recent executed rounds (configurable limit)
+    //    Limit scan to a reasonable window before the slashing period
+    const maxExecutedToShow = this.config.maxExecutedRoundsToShow
+    const maxRoundsToScanForExecuted = this.config.maxRoundsToScanForHistory
     const executedScanStart = Math.max(0, Number(slashingPeriodStart) - maxRoundsToScanForExecuted)
     const executedScanEnd = slashingPeriodStart - 1n
 

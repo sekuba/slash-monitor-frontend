@@ -188,8 +188,8 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
         setIsScanning(false)
       }
 
-      // Log poll stats (only every 5 polls to reduce noise)
-      if (Math.random() < 0.2) {
+      // Log poll stats (configurable probability to reduce noise)
+      if (Math.random() < config.consoleLogProbability) {
         console.log(`Poll complete: ${detectedSlashings.length} rounds, ${offenses.length} offenses`)
       }
     } catch (error) {

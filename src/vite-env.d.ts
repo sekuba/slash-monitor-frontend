@@ -12,7 +12,6 @@ interface ImportMetaEnv {
   readonly VITE_SLASH_OFFSET_IN_ROUNDS?: string
   readonly VITE_QUORUM?: string
   readonly VITE_SLOT_DURATION?: string
-  readonly VITE_VETOER_ADDRESS?: string
 }
 
 interface ImportMeta {

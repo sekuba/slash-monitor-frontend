@@ -28,10 +28,11 @@ export class L1Monitor {
   private publicClient: PublicClient
   private config: SlashingMonitorConfig
   private roundCache: Map<string, CachedRoundData> = new Map()
-  private cacheTTL: number = 30000 // 30 seconds cache TTL
+  private cacheTTL: number
 
   constructor(config: SlashingMonitorConfig) {
     this.config = config
+    this.cacheTTL = config.l1RoundCacheTTL
 
     // Create transport with automatic failover for multiple RPC URLs
     const transport = Array.isArray(config.l1RpcUrl)

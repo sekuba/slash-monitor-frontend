@@ -24,22 +24,37 @@ const slashingConfig: SlashingMonitorConfig = {
   // L2 Configuration
   nodeAdminUrl: import.meta.env.VITE_NODE_ADMIN_URL || 'http://localhost:8880',
 
-  // Network Parameters (will be loaded from contracts)
-  slashingRoundSize: 4,
-  slashingRoundSizeInEpochs: 2,
-  executionDelayInRounds: 1,
-  lifetimeInRounds: 2,
-  slashOffsetInRounds: 2,
-  quorum: 3,
-  committeeSize: 4,
-  slotDuration: 8,
-  epochDuration: 2,
+  // Network Parameters (loaded dynamically from L1 contracts during initialization)
+  // These placeholder values are immediately overwritten by contract data in useSlashingMonitor
+  slashingRoundSize: 0,
+  slashingRoundSizeInEpochs: 0,
+  executionDelayInRounds: 0,
+  lifetimeInRounds: 0,
+  slashOffsetInRounds: 0,
+  quorum: 0,
+  committeeSize: 0,
+  slotDuration: 0,
+  epochDuration: 0,
 
-  // Polling Interval
-  l2PollInterval: 120000, // 2 minutes - sufficient for days-long slashing window
+  // Polling & Update Intervals
+  l2PollInterval: Number(import.meta.env.VITE_L2_POLL_INTERVAL) || 120000, // 2 minutes
+  realtimeCountdownInterval: Number(import.meta.env.VITE_REALTIME_COUNTDOWN_INTERVAL) || 1000, // 1 second
 
-  // Vetoer
-  vetoerAddress: import.meta.env.VITE_VETOER_ADDRESS as Address | undefined,
+  // Cache Configuration
+  l1RoundCacheTTL: Number(import.meta.env.VITE_L1_ROUND_CACHE_TTL) || 30000, // 30 seconds
+  detailsCacheTTL: Number(import.meta.env.VITE_DETAILS_CACHE_TTL) || 300000, // 5 minutes
+
+  // Scanning Configuration
+  maxExecutedRoundsToShow: Number(import.meta.env.VITE_MAX_EXECUTED_ROUNDS_TO_SHOW) || 2,
+  maxRoundsToScanForHistory: Number(import.meta.env.VITE_MAX_ROUNDS_TO_SCAN_FOR_HISTORY) || 5,
+
+  // UI/UX Configuration
+  copyFeedbackDuration: Number(import.meta.env.VITE_COPY_FEEDBACK_DURATION) || 2000, // 2 seconds
+  hoursThresholdForDayDisplay: Number(import.meta.env.VITE_HOURS_THRESHOLD_FOR_DAY_DISPLAY) || 24,
+
+  // Debug Configuration
+  consoleLogProbability: Number(import.meta.env.VITE_CONSOLE_LOG_PROBABILITY) || 0.2, // 20%
+
 }
 
 function AppContent() {

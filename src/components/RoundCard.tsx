@@ -24,13 +24,14 @@ export function RoundCard({ slashing }: RoundCardProps) {
 
   const isActionable = isActionableStatus(slashing.status)
 
-  // Update current time every second for real-time countdown
+  // Update current time for real-time countdown (interval from config)
   useEffect(() => {
+    if (!config) return
     const interval = setInterval(() => {
       setCurrentTime(Date.now())
-    }, 1000)
+    }, config.realtimeCountdownInterval)
     return () => clearInterval(interval)
-  }, [])
+  }, [config])
 
   // Calculate adjusted time remaining accounting for elapsed time since last poll
   const getAdjustedSecondsRemaining = (baseSeconds: number | undefined): number | undefined => {
