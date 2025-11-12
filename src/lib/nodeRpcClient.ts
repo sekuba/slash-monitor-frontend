@@ -15,7 +15,7 @@ export class NodeRpcClient {
    * Check if we're running in production (GitHub Pages)
    */
   private isProduction(): boolean {
-    return window.location.hostname.includes('github.io')
+    return window.location.hostname.includes('slashveto.me')
   }
 
   /**
