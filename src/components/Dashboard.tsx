@@ -183,12 +183,12 @@ export function Dashboard() {
           )}
         </div>
 
-        {/* All Rounds Section (includes executed rounds for verification) */}
+        {/* Other Rounds Section (includes executed, expired, voting rounds) */}
         {slashings.length > activeSlashings.length && (
           <div>
-            <h2 className="text-3xl font-black text-whisper-white mb-6 uppercase">All Detected Rounds</h2>
+            <h2 className="text-3xl font-black text-whisper-white mb-6 uppercase">Other Rounds</h2>
             <div className="grid gap-6">
-              {slashings.map((slashing) => (
+              {slashings.filter((s) => !isActionableStatus(s.status)).map((slashing) => (
                 <RoundCard key={slashing.round.toString()} slashing={slashing} />
               ))}
             </div>
