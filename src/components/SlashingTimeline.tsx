@@ -14,7 +14,7 @@ interface TimelinePhase {
 }
 
 export function SlashingTimeline() {
-  const { config, currentRound, currentSlot, currentEpoch } = useSlashingStore()
+  const { config, currentRound, currentSlot, currentEpoch, isSlashingEnabled, slashingDisabledUntil } = useSlashingStore()
 
   const timeline = useMemo(() => {
     if (!config || currentRound === null || currentSlot === null || currentEpoch === null) {
@@ -242,6 +242,124 @@ export function SlashingTimeline() {
           </div>
         )}
       </div>
+
+      {/* Slashing Pause Information */}
+      {!isSlashingEnabled && slashingDisabledUntil !== null && slashingDisabledUntil > 0n && (() => {
+        const now = Math.floor(Date.now() / 1000) // Current time in seconds
+        const disabledUntilSeconds = Number(slashingDisabledUntil)
+
+        // Calculate when slashing will be re-enabled
+        const secondsUntilReEnabled = Math.max(0, disabledUntilSeconds - now)
+        const slotsUntilReEnabled = Math.floor(secondsUntilReEnabled / config.slotDuration)
+        const slotWhenReEnabled = currentSlot + BigInt(slotsUntilReEnabled)
+        const roundWhenReEnabled = slotWhenReEnabled / BigInt(config.slashingRoundSize)
+
+        // Calculate affected execution window
+        // Rounds become executable at round + 1 + executionDelay
+        // So if we're at round N and slashing is disabled until round R,
+        // affected voting rounds are those where (votingRound + 1 + executionDelay) * roundSize < slotWhenReEnabled
+        const executionDelay = BigInt(config.executionDelayInRounds)
+
+        // The last voting round that WILL BE affected (its execution would fall in the disabled window)
+        const lastAffectedVotingRound = roundWhenReEnabled - executionDelay - 1n
+        // The first potentially affected voting round (conservative estimate based on current round)
+        const firstAffectedVotingRound = currentRound - executionDelay
+
+        // Calculate target epochs for affected rounds
+        const slashOffset = BigInt(config.slashOffsetInRounds)
+        const roundSizeInEpochs = BigInt(config.slashingRoundSizeInEpochs)
+        const firstAffectedTargetEpoch = (firstAffectedVotingRound - slashOffset) * roundSizeInEpochs
+        const lastAffectedTargetEpoch = (lastAffectedVotingRound - slashOffset + 1n) * roundSizeInEpochs - 1n
+
+        const formatTimestamp = (seconds: number) => {
+          const date = new Date(seconds * 1000)
+          return date.toLocaleString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          })
+        }
+
+        const formatDuration = (seconds: number) => {
+          const hours = Math.floor(seconds / 3600)
+          const minutes = Math.floor((seconds % 3600) / 60)
+
+          if (hours > 24) {
+            const days = Math.floor(hours / 24)
+            const remainingHours = hours % 24
+            return `${days}d ${remainingHours}h`
+          }
+          if (hours > 0) {
+            return `${hours}h ${minutes}m`
+          }
+          return `${minutes}m`
+        }
+
+        return (
+          <div className="mt-6 bg-oxblood border-5 border-vermillion p-6 shadow-brutal-vermillion">
+            <div className="flex items-start gap-4 mb-4">
+              <div className="bg-vermillion border-3 border-brand-black p-2">
+                <svg className="w-8 h-8 text-brand-black stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="square"
+                    strokeLinejoin="miter"
+                    strokeWidth={3}
+                    d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
+                  />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-vermillion font-black text-xl uppercase mb-2">
+                  Slashing Executions Paused
+                </h3>
+                <p className="text-whisper-white text-sm font-bold mb-4">
+                  Voting and proposals continue normally, but slashing executions are temporarily disabled.
+                </p>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div className="bg-brand-black border-3 border-vermillion p-4">
+                    <div className="text-vermillion text-xs font-black uppercase mb-1">Re-enabled At</div>
+                    <div className="text-whisper-white text-lg font-black">
+                      {formatTimestamp(disabledUntilSeconds)}
+                    </div>
+                    <div className="text-whisper-white/70 text-xs font-bold mt-1">
+                      Slot {slotWhenReEnabled.toString()} • Round {roundWhenReEnabled.toString()}
+                    </div>
+                  </div>
+
+                  <div className="bg-brand-black border-3 border-vermillion p-4">
+                    <div className="text-vermillion text-xs font-black uppercase mb-1">Time Remaining</div>
+                    <div className="text-whisper-white text-lg font-black">
+                      {secondsUntilReEnabled > 0 ? formatDuration(secondsUntilReEnabled) : 'Ending Soon'}
+                    </div>
+                    <div className="text-whisper-white/70 text-xs font-bold mt-1">
+                      {slotsUntilReEnabled} slots remaining
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-malachite border-3 border-chartreuse p-4">
+                  <div className="text-chartreuse text-xs font-black uppercase mb-2">Affected Execution Window</div>
+                  <div className="text-whisper-white text-sm font-bold space-y-2">
+                    <div>
+                      <span className="text-whisper-white/70">Voting Rounds:</span> {firstAffectedVotingRound > 0n ? firstAffectedVotingRound.toString() : currentRound.toString()} → {lastAffectedVotingRound.toString()}
+                    </div>
+                    <div>
+                      <span className="text-whisper-white/70">Target Epochs:</span> {firstAffectedTargetEpoch > 0n ? firstAffectedTargetEpoch.toString() : '0'} → {lastAffectedTargetEpoch.toString()}
+                    </div>
+                    <div className="text-xs mt-3 pt-3 border-t-2 border-chartreuse/30">
+                      Rounds voted on during this period cannot be executed until slashing is re-enabled.
+                      Due to the {config.executionDelayInRounds}-round execution delay, this affects rounds that
+                      would normally become executable during the pause.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

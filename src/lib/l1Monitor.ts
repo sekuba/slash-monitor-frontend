@@ -118,20 +118,22 @@ export class L1Monitor {
   }
 
   /**
-   * Get current state (round, slot, epoch, slashing enabled) in a single multicall
-   * This replaces 4 separate RPC calls with 1
+   * Get current state (round, slot, epoch, slashing enabled, disabled until) in a single multicall
+   * This replaces 5 separate RPC calls with 1
    */
   async getCurrentState(): Promise<{
     currentRound: bigint
     currentSlot: bigint
     currentEpoch: bigint
     isSlashingEnabled: boolean
+    slashingDisabledUntil: bigint
   }> {
     const calls = [
       createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'getCurrentRound'),
       createCall(this.config.rollupAddress, rollupAbi, 'getCurrentSlot'),
       createCall(this.config.rollupAddress, rollupAbi, 'getCurrentEpoch'),
       createCall(this.config.slasherAddress, slasherAbi, 'isSlashingEnabled'),
+      createCall(this.config.slasherAddress, slasherAbi, 'slashingDisabledUntil'),
     ]
 
     const results = await multicall(this.publicClient, calls)
@@ -141,6 +143,7 @@ export class L1Monitor {
       currentSlot: results[1].data as bigint,
       currentEpoch: results[2].data as bigint,
       isSlashingEnabled: results[3].data as boolean,
+      slashingDisabledUntil: results[4].data as bigint,
     }
   }
 
