@@ -121,20 +121,6 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
       // Detect executable rounds - pass current state to avoid re-fetching
       const detectedSlashings = await detectorRef.current.detectExecutableRounds(currentRound, currentSlot)
 
-      // DEBUG: Inject some artificial vetoed rounds for testing
-      if (detectedSlashings.length > 0) {
-        // Mark the first round as vetoed if it exists
-        if (detectedSlashings[0]) {
-          detectedSlashings[0].isVetoed = true
-        }
-        // Mark every other round as vetoed for variety
-        detectedSlashings.forEach((slashing, index) => {
-          if (index % 2 === 1) {
-            slashing.isVetoed = true
-          }
-        })
-      }
-
       // Update store with detected slashings and send notifications for new ones
       detectedSlashings.forEach((slashing) => {
         // Create a unique key for this slashing (round + status to detect status changes)
