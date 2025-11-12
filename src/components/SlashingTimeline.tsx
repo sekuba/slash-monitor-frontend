@@ -254,18 +254,32 @@ export function SlashingTimeline() {
         const slotWhenReEnabled = currentSlot + BigInt(slotsUntilReEnabled)
         const roundWhenReEnabled = slotWhenReEnabled / BigInt(config.slashingRoundSize)
 
-        // Calculate affected execution window
-        // Rounds become executable at round + 1 + executionDelay
-        // So if we're at round N and slashing is disabled until round R,
-        // affected voting rounds are those where (votingRound + 1 + executionDelay) * roundSize < slotWhenReEnabled
         const executionDelay = BigInt(config.executionDelayInRounds)
+        const roundSize = BigInt(config.slashingRoundSize)
 
-        // The last voting round that WILL BE affected (its execution would fall in the disabled window)
-        const lastAffectedVotingRound = roundWhenReEnabled - executionDelay - 1n
-        // The first potentially affected voting round (conservative estimate based on current round)
-        const firstAffectedVotingRound = currentRound - executionDelay
+        // When did the pause start?
+        const secondsSincePauseStart = Math.max(0, now - (disabledUntilSeconds - secondsUntilReEnabled))
+        const slotWhenPauseStarted = currentSlot - BigInt(Math.floor(secondsSincePauseStart / config.slotDuration))
+        const roundWhenPauseStarted = slotWhenPauseStarted / roundSize
 
-        // Calculate target epochs for affected rounds
+        // Calculate the three groups of affected rounds
+        // Group 1: Rounds that entered execution delay before pause but won't finish before pause ends
+        const firstGroup1Round = roundWhenPauseStarted - executionDelay - 1n
+        const lastGroup1Round = roundWhenPauseStarted - 1n
+
+        // Group 2: Rounds that enter AND finish execution delay during the pause
+        const firstGroup2Round = roundWhenPauseStarted
+        const lastGroup2Round = roundWhenReEnabled - executionDelay - 2n
+
+        // Group 3: Rounds that enter during pause but finish AFTER pause (CAN be slashed!)
+        const firstGroup3Round = lastGroup2Round + 1n
+        const lastGroup3Round = roundWhenReEnabled - 1n
+
+        // Overall affected range
+        const firstAffectedVotingRound = firstGroup1Round
+        const lastAffectedVotingRound = lastGroup2Round
+
+        // Calculate target epochs
         const slashOffset = BigInt(config.slashOffsetInRounds)
         const roundSizeInEpochs = BigInt(config.slashingRoundSizeInEpochs)
         const firstAffectedTargetEpoch = (firstAffectedVotingRound - slashOffset) * roundSizeInEpochs
@@ -297,62 +311,184 @@ export function SlashingTimeline() {
         }
 
         return (
-          <div className="mt-6 bg-oxblood border-5 border-vermillion p-6 shadow-brutal-vermillion">
-            <div className="flex items-start gap-4 mb-4">
-              <div className="bg-vermillion border-3 border-brand-black p-2">
-                <svg className="w-8 h-8 text-brand-black stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div className="mt-6 bg-malachite border-5 border-chartreuse p-6 shadow-brutal-chartreuse">
+            {/* Header */}
+            <div className="flex items-start gap-4 mb-6">
+              <div className="bg-chartreuse border-3 border-brand-black p-2">
+                <svg className="w-10 h-10 text-brand-black stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path
                     strokeLinecap="square"
                     strokeLinejoin="miter"
                     strokeWidth={3}
-                    d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
+                    d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
                   />
                 </svg>
               </div>
               <div className="flex-1">
-                <h3 className="text-vermillion font-black text-xl uppercase mb-2">
-                  Slashing Executions Paused
+                <h3 className="text-chartreuse font-black text-2xl uppercase mb-2 tracking-tight">
+                  Emergency Slashing Halt
                 </h3>
-                <p className="text-whisper-white text-sm font-bold mb-4">
-                  Voting and proposals continue normally, but slashing executions are temporarily disabled.
+                <p className="text-whisper-white text-sm font-bold">
+                  Slashing executions paused to prevent incorrect penalties. Voting continues normally, but no slashing can be executed during this period.
                 </p>
+              </div>
+            </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  <div className="bg-brand-black border-3 border-vermillion p-4">
-                    <div className="text-vermillion text-xs font-black uppercase mb-1">Re-enabled At</div>
-                    <div className="text-whisper-white text-lg font-black">
-                      {formatTimestamp(disabledUntilSeconds)}
+            {/* Timeline Info */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <div className="bg-brand-black border-3 border-chartreuse p-4">
+                <div className="text-chartreuse text-xs font-black uppercase mb-1">Pause Started</div>
+                <div className="text-whisper-white text-base font-black">
+                  Round {roundWhenPauseStarted.toString()}
+                </div>
+                <div className="text-whisper-white/70 text-xs font-bold mt-1">
+                  Slot {slotWhenPauseStarted.toString()}
+                </div>
+              </div>
+
+              <div className="bg-brand-black border-3 border-chartreuse p-4">
+                <div className="text-chartreuse text-xs font-black uppercase mb-1">Re-enabled At</div>
+                <div className="text-whisper-white text-base font-black">
+                  {formatTimestamp(disabledUntilSeconds)}
+                </div>
+                <div className="text-whisper-white/70 text-xs font-bold mt-1">
+                  Slot {slotWhenReEnabled.toString()} • Round {roundWhenReEnabled.toString()}
+                </div>
+              </div>
+
+              <div className="bg-brand-black border-3 border-chartreuse p-4">
+                <div className="text-chartreuse text-xs font-black uppercase mb-1">Time Remaining</div>
+                <div className="text-whisper-white text-base font-black">
+                  {secondsUntilReEnabled > 0 ? formatDuration(secondsUntilReEnabled) : 'Ending Soon'}
+                </div>
+                <div className="text-whisper-white/70 text-xs font-bold mt-1">
+                  {slotsUntilReEnabled} slots remaining
+                </div>
+              </div>
+            </div>
+
+            {/* Execution Delay Explanation */}
+            <div className="bg-brand-black/50 border-3 border-chartreuse/50 p-4 mb-6">
+              <div className="flex items-start gap-3">
+                <div className="bg-chartreuse/20 border-2 border-chartreuse p-1.5 flex-shrink-0">
+                  <svg className="w-5 h-5 text-chartreuse stroke-[2.5]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="square" strokeLinejoin="miter" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <div className="text-chartreuse text-xs font-black uppercase mb-1">The Shift Effect</div>
+                  <p className="text-whisper-white/90 text-xs font-bold leading-relaxed">
+                    Due to the <span className="text-chartreuse">{executionDelay.toString()}-round execution delay</span>, this pause affects rounds in a non-intuitive way.
+                    Rounds voted on <span className="text-chartreuse">before</span> the pause may still be blocked, while rounds voted on
+                    <span className="text-chartreuse"> late in the pause</span> can still be slashed after it ends.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Three Groups Visualization */}
+            <div className="space-y-4">
+              {/* Group 1: Pre-Pause Rounds */}
+              {firstGroup1Round <= lastGroup1Round && lastGroup1Round >= 0n && (
+                <div className="bg-oxblood border-3 border-vermillion p-4">
+                  <div className="flex items-start gap-3 mb-3">
+                    <div className="bg-vermillion border-2 border-brand-black px-2 py-1 text-brand-black text-xs font-black uppercase flex-shrink-0">
+                      Group 1
                     </div>
-                    <div className="text-whisper-white/70 text-xs font-bold mt-1">
-                      Slot {slotWhenReEnabled.toString()} • Round {roundWhenReEnabled.toString()}
+                    <div className="flex-1">
+                      <h4 className="text-vermillion font-black text-sm uppercase mb-1">Pre-Pause Rounds</h4>
+                      <p className="text-whisper-white text-xs font-bold leading-relaxed">
+                        Voted on <span className="text-vermillion font-black">before</span> the pause started but still in execution delay. <span className="text-vermillion font-black">Cannot be slashed.</span>
+                      </p>
                     </div>
                   </div>
-
-                  <div className="bg-brand-black border-3 border-vermillion p-4">
-                    <div className="text-vermillion text-xs font-black uppercase mb-1">Time Remaining</div>
-                    <div className="text-whisper-white text-lg font-black">
-                      {secondsUntilReEnabled > 0 ? formatDuration(secondsUntilReEnabled) : 'Ending Soon'}
+                  <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t-2 border-vermillion/30">
+                    <div>
+                      <div className="text-vermillion/70 text-xs font-bold uppercase mb-1">Voting Rounds</div>
+                      <div className="text-whisper-white text-sm font-black">
+                        {firstGroup1Round > 0n ? firstGroup1Round.toString() : '0'} → {lastGroup1Round.toString()}
+                      </div>
                     </div>
-                    <div className="text-whisper-white/70 text-xs font-bold mt-1">
-                      {slotsUntilReEnabled} slots remaining
+                    <div>
+                      <div className="text-vermillion/70 text-xs font-bold uppercase mb-1">Status</div>
+                      <div className="text-vermillion text-sm font-black">BLOCKED</div>
                     </div>
                   </div>
                 </div>
+              )}
 
-                <div className="bg-malachite border-3 border-chartreuse p-4">
-                  <div className="text-chartreuse text-xs font-black uppercase mb-2">Affected Execution Window</div>
-                  <div className="text-whisper-white text-sm font-bold space-y-2">
+              {/* Group 2: During-Pause Rounds */}
+              {firstGroup2Round <= lastGroup2Round && lastGroup2Round >= 0n && (
+                <div className="bg-oxblood border-3 border-vermillion p-4">
+                  <div className="flex items-start gap-3 mb-3">
+                    <div className="bg-vermillion border-2 border-brand-black px-2 py-1 text-brand-black text-xs font-black uppercase flex-shrink-0">
+                      Group 2
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="text-vermillion font-black text-sm uppercase mb-1">Full-Pause Rounds</h4>
+                      <p className="text-whisper-white text-xs font-bold leading-relaxed">
+                        Voted on <span className="text-vermillion font-black">during</span> the pause and execution delay finishes during the pause. <span className="text-vermillion font-black">Cannot be slashed.</span>
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t-2 border-vermillion/30">
                     <div>
-                      <span className="text-whisper-white/70">Voting Rounds:</span> {firstAffectedVotingRound > 0n ? firstAffectedVotingRound.toString() : currentRound.toString()} → {lastAffectedVotingRound.toString()}
+                      <div className="text-vermillion/70 text-xs font-bold uppercase mb-1">Voting Rounds</div>
+                      <div className="text-whisper-white text-sm font-black">
+                        {firstGroup2Round.toString()} → {lastGroup2Round.toString()}
+                      </div>
                     </div>
                     <div>
-                      <span className="text-whisper-white/70">Target Epochs:</span> {firstAffectedTargetEpoch > 0n ? firstAffectedTargetEpoch.toString() : '0'} → {lastAffectedTargetEpoch.toString()}
+                      <div className="text-vermillion/70 text-xs font-bold uppercase mb-1">Status</div>
+                      <div className="text-vermillion text-sm font-black">BLOCKED</div>
                     </div>
-                    <div className="text-xs mt-3 pt-3 border-t-2 border-chartreuse/30">
-                      Rounds voted on during this period cannot be executed until slashing is re-enabled.
-                      Due to the {config.executionDelayInRounds}-round execution delay, this affects rounds that
-                      would normally become executable during the pause.
+                  </div>
+                </div>
+              )}
+
+              {/* Group 3: Post-Pause Rounds (CAN be slashed!) */}
+              {firstGroup3Round <= lastGroup3Round && firstGroup3Round < roundWhenReEnabled && (
+                <div className="bg-lapis border-3 border-aqua p-4">
+                  <div className="flex items-start gap-3 mb-3">
+                    <div className="bg-aqua border-2 border-brand-black px-2 py-1 text-brand-black text-xs font-black uppercase flex-shrink-0">
+                      Group 3
                     </div>
+                    <div className="flex-1">
+                      <h4 className="text-aqua font-black text-sm uppercase mb-1">Post-Pause Executable Rounds</h4>
+                      <p className="text-whisper-white text-xs font-bold leading-relaxed">
+                        Voted on <span className="text-aqua font-black">late in the pause</span> but execution delay finishes <span className="text-aqua font-black">after</span> pause ends. <span className="text-aqua font-black">CAN be slashed!</span>
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t-2 border-aqua/30">
+                    <div>
+                      <div className="text-aqua/70 text-xs font-bold uppercase mb-1">Voting Rounds</div>
+                      <div className="text-whisper-white text-sm font-black">
+                        {firstGroup3Round.toString()} → {lastGroup3Round.toString()}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-aqua/70 text-xs font-bold uppercase mb-1">Status</div>
+                      <div className="text-aqua text-sm font-black">EXECUTABLE</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Summary */}
+            <div className="mt-6 bg-chartreuse border-3 border-brand-black p-4">
+              <div className="flex items-start gap-3">
+                <div className="bg-brand-black border-2 border-brand-black p-1.5 flex-shrink-0">
+                  <svg className="w-5 h-5 text-chartreuse stroke-[2.5]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="square" strokeLinejoin="miter" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <div className="text-brand-black text-xs font-black uppercase mb-1">Total Blocked Range</div>
+                  <div className="text-brand-black text-xs font-bold leading-relaxed">
+                    <span className="font-black">Voting Rounds {firstAffectedVotingRound > 0n ? firstAffectedVotingRound.toString() : '0'} → {lastAffectedVotingRound.toString()}</span> targeting{' '}
+                    <span className="font-black">Epochs {firstAffectedTargetEpoch > 0n ? firstAffectedTargetEpoch.toString() : '0'} → {lastAffectedTargetEpoch.toString()}</span> cannot be executed during this pause.
                   </div>
                 </div>
               </div>
