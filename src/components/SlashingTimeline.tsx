@@ -65,7 +65,7 @@ export function SlashingTimeline() {
         targetEpochStart,
         targetEpochEnd,
         status: isInVetoWindow ? 'current' : 'future',
-        description: `Vetoer can veto or slashing can be executed for epochs ${targetEpochStart.toString()}-${targetEpochEnd.toString()}`,
+        description: `If voted to slash and no veto, slashing can be executed for epochs ${targetEpochStart.toString()}-${targetEpochEnd.toString()}`,
         color: isInVetoWindow ? 'red' : 'orange',
       })
     }
@@ -324,7 +324,7 @@ export function SlashingTimeline() {
                   Emergency Slashing Halt
                 </h3>
                 <p className="text-whisper-white text-sm font-bold">
-                  Slashing executions paused to prevent incorrect penalties. Voting continues normally, but no slashing can be executed during this period.
+                  Slash execution paused. Voting continues normally, but slashing will not lead to penalties.
                 </p>
               </div>
             </div>
@@ -373,9 +373,9 @@ export function SlashingTimeline() {
                 <div className="flex-1">
                   <div className="text-chartreuse text-xs font-black uppercase mb-1">The Shift Effect</div>
                   <p className="text-whisper-white/90 text-xs font-bold leading-relaxed">
-                    Due to the <span className="text-chartreuse">{executionDelay.toString()}-round execution delay</span>, this pause affects rounds in a non-intuitive way.
-                    Rounds voted on <span className="text-chartreuse">before</span> the pause may still be blocked, while rounds voted on
-                    <span className="text-chartreuse"> late in the pause</span> can still be slashed after it ends.
+                    Due to the <span className="text-chartreuse">{executionDelay.toString()}-round execution delay</span>, this pause affects rounds with a shift.
+                    Rounds voted on <span className="text-chartreuse">before</span> the pause may still be saved from slashing, while rounds voted on
+                    <span className="text-chartreuse"> late in the pause</span> can be slashed after it ends.
                   </p>
                 </div>
               </div>
@@ -393,7 +393,7 @@ export function SlashingTimeline() {
                     <div className="flex-1">
                       <h4 className="text-aqua font-black text-sm uppercase mb-1">Pre-Pause Rounds</h4>
                       <p className="text-whisper-white text-xs font-bold leading-relaxed">
-                        Voted on <span className="text-aqua font-black">before</span> the pause started but still in execution delay. <span className="text-aqua font-black">Protected from slashing.</span>
+                        Voted on <span className="text-aqua font-black">before</span> the pause started but <span className="text-aqua font-black">protected from slashing</span> thanks to the execution delay.
                       </p>
                     </div>
                   </div>
@@ -422,7 +422,7 @@ export function SlashingTimeline() {
                     <div className="flex-1">
                       <h4 className="text-aqua font-black text-sm uppercase mb-1">Full-Pause Rounds</h4>
                       <p className="text-whisper-white text-xs font-bold leading-relaxed">
-                        Voted on <span className="text-aqua font-black">during</span> the pause and execution delay finishes during the pause. <span className="text-aqua font-black">Protected from slashing.</span>
+                        Voted on <span className="text-aqua font-black">during</span> the pause, execution delay finishes during the pause.
                       </p>
                     </div>
                   </div>
@@ -451,7 +451,7 @@ export function SlashingTimeline() {
                     <div className="flex-1">
                       <h4 className="text-vermillion font-black text-sm uppercase mb-1">Post-Pause Executable Rounds</h4>
                       <p className="text-whisper-white text-xs font-bold leading-relaxed">
-                        Voted on <span className="text-vermillion font-black">late in the pause</span> but execution delay finishes <span className="text-vermillion font-black">after</span> pause ends. <span className="text-vermillion font-black">CAN still be slashed!</span>
+                        Voted on <span className="text-vermillion font-black">late in the pause,</span> execution delay finishes <span className="text-vermillion font-black">after</span> pause ends. <span className="text-vermillion font-black">CAN be slashed!</span>
                       </p>
                     </div>
                   </div>
@@ -464,7 +464,7 @@ export function SlashingTimeline() {
                     </div>
                     <div>
                       <div className="text-vermillion/70 text-xs font-bold uppercase mb-1">Status</div>
-                      <div className="text-vermillion text-sm font-black">AT RISK</div>
+                      <div className="text-vermillion text-sm font-black">SLASHABLE</div>
                     </div>
                   </div>
                 </div>
