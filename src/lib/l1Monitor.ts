@@ -127,6 +127,7 @@ export class L1Monitor {
     currentEpoch: bigint
     isSlashingEnabled: boolean
     slashingDisabledUntil: bigint
+    slashingDisableDuration: bigint
   }> {
     const calls = [
       createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'getCurrentRound'),
@@ -134,6 +135,7 @@ export class L1Monitor {
       createCall(this.config.rollupAddress, rollupAbi, 'getCurrentEpoch'),
       createCall(this.config.slasherAddress, slasherAbi, 'isSlashingEnabled'),
       createCall(this.config.slasherAddress, slasherAbi, 'slashingDisabledUntil'),
+      createCall(this.config.slasherAddress, slasherAbi, 'SLASHING_DISABLE_DURATION'),
     ]
 
     const results = await multicall(this.publicClient, calls)
@@ -144,6 +146,7 @@ export class L1Monitor {
       currentEpoch: results[2].data as bigint,
       isSlashingEnabled: results[3].data as boolean,
       slashingDisabledUntil: results[4].data as bigint,
+      slashingDisableDuration: results[5].data as bigint,
     }
   }
 

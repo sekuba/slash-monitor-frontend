@@ -23,6 +23,7 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
     setCurrentEpoch,
     setSlashingEnabled,
     setSlashingDisabledUntil,
+    setSlashingDisableDuration,
     addDetectedSlashing,
     setOffenses,
     updateStats,
@@ -100,8 +101,8 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
         setIsScanning(true)
       }
 
-      // Get current state in a SINGLE multicall (was 5 separate calls)
-      const { currentRound, currentSlot, currentEpoch, isSlashingEnabled: isEnabled, slashingDisabledUntil } =
+      // Get current state in a SINGLE multicall (was 6 separate calls)
+      const { currentRound, currentSlot, currentEpoch, isSlashingEnabled: isEnabled, slashingDisabledUntil, slashingDisableDuration } =
         await l1MonitorRef.current.getCurrentState()
 
       setCurrentRound(currentRound)
@@ -109,6 +110,7 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
       setCurrentEpoch(currentEpoch)
       setSlashingEnabled(isEnabled)
       setSlashingDisabledUntil(slashingDisabledUntil)
+      setSlashingDisableDuration(slashingDisableDuration)
 
       // Check for slashing enabled status changes and notify
       if (previousSlashingEnabledRef.current !== null && previousSlashingEnabledRef.current !== isEnabled) {

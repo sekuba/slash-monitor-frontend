@@ -18,6 +18,7 @@ interface SlashingMonitorStore {
   currentEpoch: bigint | null
   isSlashingEnabled: boolean
   slashingDisabledUntil: bigint | null
+  slashingDisableDuration: bigint | null
 
   // Detected slashings
   detectedSlashings: Map<bigint, DetectedSlashing>
@@ -37,6 +38,7 @@ interface SlashingMonitorStore {
   setCurrentEpoch: (epoch: bigint) => void
   setSlashingEnabled: (enabled: boolean) => void
   setSlashingDisabledUntil: (timestamp: bigint) => void
+  setSlashingDisableDuration: (duration: bigint) => void
   addDetectedSlashing: (slashing: DetectedSlashing) => void
   setOffenses: (offenses: Offense[]) => void
   updateStats: (stats: Partial<SlashingStats>) => void
@@ -62,6 +64,7 @@ export const useSlashingStore = create<SlashingMonitorStore>((set) => ({
   currentEpoch: null,
   isSlashingEnabled: true,
   slashingDisabledUntil: null,
+  slashingDisableDuration: null,
   detectedSlashings: new Map(),
   offenses: [],
   stats: initialStats,
@@ -82,6 +85,8 @@ export const useSlashingStore = create<SlashingMonitorStore>((set) => ({
   setSlashingEnabled: (enabled) => set({ isSlashingEnabled: enabled }),
 
   setSlashingDisabledUntil: (timestamp) => set({ slashingDisabledUntil: timestamp }),
+
+  setSlashingDisableDuration: (duration) => set({ slashingDisableDuration: duration }),
 
   addDetectedSlashing: (slashing) =>
     set((state) => {

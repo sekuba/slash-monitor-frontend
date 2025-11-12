@@ -46,6 +46,13 @@ export const slasherAbi = [
     inputs: [],
     outputs: [{ name: '', type: 'uint256' }],
   },
+  {
+    type: 'function',
+    name: 'SLASHING_DISABLE_DURATION',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
   // State-changing functions
   {
     type: 'function',
