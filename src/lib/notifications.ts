@@ -23,7 +23,7 @@ export function notifySlashingDetected(slashing: DetectedSlashing): void {
     const validatorCount = slashing.affectedValidatorCount ?? 0;
     const roundNum = slashing.round.toString();
     let title = 'SLASHING ROUND DETECTED';
-    let body = `Round ${roundNum}: ${validatorCount} validator${validatorCount !== 1 ? 's' : ''} will be slashed`;
+    let body = `Round ${roundNum}: ${validatorCount} sequencer${validatorCount !== 1 ? 's' : ''} will be slashed`;
     if (slashing.status === 'quorum-reached') {
         title = 'SLASHING QUORUM REACHED';
         const daysUntilExecutable = slashing.secondsUntilExecutable
@@ -43,7 +43,7 @@ export function notifySlashingDetected(slashing: DetectedSlashing): void {
     }
     if (slashing.totalSlashAmount) {
         const ethAmount = (Number(slashing.totalSlashAmount) / 1e18).toFixed(4);
-        body += `\nTotal: ${ethAmount} ETH`;
+        body += `\nTotal: ${ethAmount} AZTEC`;
     }
     try {
         const notification = new Notification(title, {

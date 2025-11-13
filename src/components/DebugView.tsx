@@ -139,8 +139,8 @@ export const DebugView: React.FC = () => {
           <StatCard label="Active" value={stats.activeSlashings} color="warn" />
           <StatCard label="Vetoed" value={stats.vetoedPayloads} color="orchid" />
           <StatCard label="Executed" value={stats.executedRounds} color="success" />
-          <StatCard label="Validators Hit" value={stats.totalValidatorsSlashed} color="warn" />
-          <StatCard label="Total Slash" value={`${formatEther(stats.totalSlashAmount)} ETH`} color="warn" wide />
+          <StatCard label="Sequencers Hit" value={stats.totalValidatorsSlashed} color="warn" />
+          <StatCard label="Total Slash" value={`${formatEther(stats.totalSlashAmount)} AZTEC`} color="warn" wide />
         </div>
       </section>
 
@@ -186,10 +186,10 @@ export const DebugView: React.FC = () => {
                   <div className="flex items-center gap-6 text-sm font-bold text-whisper-white uppercase">
                     <span>Votes: {slashing.voteCount.toString()}</span>
                     {slashing.affectedValidatorCount !== undefined && (
-                      <span>Validators: {slashing.affectedValidatorCount}</span>
+                      <span>Sequencers: {slashing.affectedValidatorCount}</span>
                     )}
                     {slashing.totalSlashAmount !== undefined && (
-                      <span className="text-vermillion">{formatEther(slashing.totalSlashAmount)} ETH</span>
+                      <span className="text-vermillion">{formatEther(slashing.totalSlashAmount)} AZTEC</span>
                     )}
                     <span className="text-aqua text-xl">{isExpanded ? '▲' : '▼'}</span>
                   </div>
@@ -287,7 +287,7 @@ export const DebugView: React.FC = () => {
                           <svg className="w-4 h-4 stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
                           </svg>
-                          TallyProposer.getTally() - {slashing.slashActions.length} validators
+                          TallyProposer.getTally() - {slashing.slashActions.length} sequencers
                         </h4>
                         <div className="space-y-2">
                           {slashing.slashActions.map((action, idx) => (
@@ -297,7 +297,7 @@ export const DebugView: React.FC = () => {
                                 {action.validator}
                               </code>
                               <span className="text-sm font-black text-vermillion w-36 text-right">
-                                {formatEther(action.slashAmount)} ETH
+                                {formatEther(action.slashAmount)} AZTEC
                               </span>
                               <button
                                 onClick={() => copyToClipboard(action.validator)}

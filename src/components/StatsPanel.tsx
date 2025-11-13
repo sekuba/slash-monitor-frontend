@@ -48,7 +48,7 @@ export function StatsPanel() {
         </svg>),
         },
         {
-            label: 'VALIDATORS HIT',
+            label: 'SEQUENCERS HIT',
             value: stats.totalValidatorsSlashed,
             bgColor: 'bg-oxblood/70',
             textColor: 'text-vermillion',
@@ -59,7 +59,7 @@ export function StatsPanel() {
         </svg>),
         },
         {
-            label: 'TOTAL FEE',
+            label: 'TOTAL AZTEC',
             value: `${parseInt(formatEther(stats.totalSlashAmount), 10)}`,
             bgColor: 'bg-oxblood',
             textColor: 'text-vermillion',

@@ -5,7 +5,7 @@ const TARGET_VALIDATORS = 500;
 export function BootstrapBanner() {
   const { activeAttesterCount, entryQueueLength } = useSlashingStore();
 
-  // Don't show banner if there are active validators
+  // Don't show banner if there are active sequencers
   if (activeAttesterCount === null || activeAttesterCount > 0n) {
     return null;
   }
@@ -69,7 +69,7 @@ export function BootstrapBanner() {
               <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
             </svg>
             <span className="text-whisper-white/80 text-xs font-bold uppercase">
-              Rollup.getEntryQueueLength(): {currentValidators}
+              Rollup.getEntryQueueLength: {currentValidators} Attesting will start once queue is full
             </span>
           </div>
         </div>

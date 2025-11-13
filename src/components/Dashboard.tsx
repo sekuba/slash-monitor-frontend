@@ -85,6 +85,14 @@ export function Dashboard() {
         <StatsPanel />
 
         
+        
+
+        {/* Bootstrap Banner */}
+        <BootstrapBanner />
+
+
+        <SlashingTimeline />
+
         {showNotificationBanner && !areNotificationsEnabled() && (<div className="bg-lapis border-5 border-aqua p-6 mb-6 shadow-brutal-aqua">
             <div className="flex items-start gap-4">
               <div className="flex-shrink-0 bg-aqua border-3 border-brand-black p-2">
@@ -113,13 +121,6 @@ export function Dashboard() {
               </button>
             </div>
           </div>)}
-
-        {/* Bootstrap Banner */}
-        <BootstrapBanner />
-
-
-        <SlashingTimeline />
-
         
         {isScanning && (<div className="mb-6 bg-lapis border-5 border-aqua p-5 shadow-brutal-aqua">
             <div className="flex items-center gap-4">
