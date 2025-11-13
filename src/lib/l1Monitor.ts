@@ -558,77 +558,34 @@ export class L1Monitor {
   }
 
   /**
-   * Load contract parameters from L1
+   * Load contract parameters from L1 using multicall (1 RPC call instead of 9)
    */
   async loadContractParameters(): Promise<Partial<SlashingMonitorConfig>> {
-    const [
-      quorum,
-      roundSize,
-      roundSizeInEpochs,
-      executionDelayInRounds,
-      lifetimeInRounds,
-      slashOffsetInRounds,
-      committeeSize,
-      slotDuration,
-      epochDuration,
-    ] = await Promise.all([
-      this.publicClient.readContract({
-        address: this.config.tallySlashingProposerAddress,
-        abi: tallySlashingProposerAbi,
-        functionName: 'QUORUM',
-      }),
-      this.publicClient.readContract({
-        address: this.config.tallySlashingProposerAddress,
-        abi: tallySlashingProposerAbi,
-        functionName: 'ROUND_SIZE',
-      }),
-      this.publicClient.readContract({
-        address: this.config.tallySlashingProposerAddress,
-        abi: tallySlashingProposerAbi,
-        functionName: 'ROUND_SIZE_IN_EPOCHS',
-      }),
-      this.publicClient.readContract({
-        address: this.config.tallySlashingProposerAddress,
-        abi: tallySlashingProposerAbi,
-        functionName: 'EXECUTION_DELAY_IN_ROUNDS',
-      }),
-      this.publicClient.readContract({
-        address: this.config.tallySlashingProposerAddress,
-        abi: tallySlashingProposerAbi,
-        functionName: 'LIFETIME_IN_ROUNDS',
-      }),
-      this.publicClient.readContract({
-        address: this.config.tallySlashingProposerAddress,
-        abi: tallySlashingProposerAbi,
-        functionName: 'SLASH_OFFSET_IN_ROUNDS',
-      }),
-      this.publicClient.readContract({
-        address: this.config.tallySlashingProposerAddress,
-        abi: tallySlashingProposerAbi,
-        functionName: 'COMMITTEE_SIZE',
-      }),
-      this.publicClient.readContract({
-        address: this.config.rollupAddress,
-        abi: rollupAbi,
-        functionName: 'getSlotDuration',
-      }),
-      this.publicClient.readContract({
-        address: this.config.rollupAddress,
-        abi: rollupAbi,
-        functionName: 'getEpochDuration',
-      }),
-    ])
+    // Batch all parameter reads into a single multicall
+    const calls = [
+      createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'QUORUM'),
+      createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'ROUND_SIZE'),
+      createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'ROUND_SIZE_IN_EPOCHS'),
+      createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'EXECUTION_DELAY_IN_ROUNDS'),
+      createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'LIFETIME_IN_ROUNDS'),
+      createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'SLASH_OFFSET_IN_ROUNDS'),
+      createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'COMMITTEE_SIZE'),
+      createCall(this.config.rollupAddress, rollupAbi, 'getSlotDuration'),
+      createCall(this.config.rollupAddress, rollupAbi, 'getEpochDuration'),
+    ]
+
+    const results = await multicall(this.publicClient, calls)
 
     return {
-      quorum: Number(quorum),
-      slashingRoundSize: Number(roundSize),
-      slashingRoundSizeInEpochs: Number(roundSizeInEpochs),
-      executionDelayInRounds: Number(executionDelayInRounds),
-      lifetimeInRounds: Number(lifetimeInRounds),
-      slashOffsetInRounds: Number(slashOffsetInRounds),
-      committeeSize: Number(committeeSize),
-      slotDuration: Number(slotDuration),
-      epochDuration: Number(epochDuration),
+      quorum: Number(results[0].data),
+      slashingRoundSize: Number(results[1].data),
+      slashingRoundSizeInEpochs: Number(results[2].data),
+      executionDelayInRounds: Number(results[3].data),
+      lifetimeInRounds: Number(results[4].data),
+      slashOffsetInRounds: Number(results[5].data),
+      committeeSize: Number(results[6].data),
+      slotDuration: Number(results[7].data),
+      epochDuration: Number(results[8].data),
     }
   }
 }
