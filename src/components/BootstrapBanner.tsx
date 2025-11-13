@@ -33,7 +33,8 @@ export function BootstrapBanner() {
           </div>
 
           <p className="text-whisper-white text-sm font-bold mb-4 uppercase">
-            active attesters = 0     Waiting for sequencers to register and join the queue
+            active attesters = 0
+            <span className="ml-6">Waiting for sequencers to register and join the queue</span>
           </p>
 
           {/* Progress Bar */}
@@ -69,7 +70,8 @@ export function BootstrapBanner() {
               <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
             </svg>
             <span className="text-whisper-white/80 text-xs font-bold uppercase">
-              Rollup.getEntryQueueLength: {currentValidators}    Attesting will start once queue is full
+              Rollup.getEntryQueueLength: {currentValidators}
+              <span className="ml-6">Attesting will start once queue is full</span>
             </span>
           </div>
         </div>
