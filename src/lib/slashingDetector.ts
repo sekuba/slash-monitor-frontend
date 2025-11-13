@@ -1,5 +1,6 @@
 import type { Address } from 'viem'
 import { L1Monitor } from './l1Monitor'
+import { ImmutableAwareCache } from './immutableCache'
 import type {
   DetectedSlashing,
   RoundStatus,
@@ -14,7 +15,7 @@ interface DetailedRoundCache {
   slashActions: SlashAction[]
   payloadAddress: Address
   isVetoed: boolean
-  timestamp: number
+  isExecuted: boolean
 }
 
 /**
@@ -23,32 +24,34 @@ interface DetailedRoundCache {
 export class SlashingDetector {
   private config: SlashingMonitorConfig
   private l1Monitor: L1Monitor
-  private detailsCache: Map<string, DetailedRoundCache> = new Map()
-  private detailsCacheTTL: number
+  private detailsCache: ImmutableAwareCache<bigint, DetailedRoundCache>
+  private mutableTTL: number
 
   constructor(config: SlashingMonitorConfig, l1Monitor: L1Monitor) {
     this.config = config
     this.l1Monitor = l1Monitor
-    this.detailsCacheTTL = config.detailsCacheTTL
+    this.mutableTTL = config.detailsCacheTTL
+
+    // Create immutability-aware cache for round details
+    // Executed rounds have immutable details and are cached forever
+    this.detailsCache = new ImmutableAwareCache<bigint, DetailedRoundCache>(
+      (round) => round.toString(),
+      (details) => details.isExecuted, // Executed round details never change
+      { maxMutableSize: 50 }
+    )
   }
 
   /**
    * Get cached detailed round data if still valid and voteCount matches
    */
   private getCachedDetails(round: bigint, voteCount: bigint): DetailedRoundCache | null {
-    const cached = this.detailsCache.get(round.toString())
+    const cached = this.detailsCache.get(round)
     if (!cached) return null
 
     // Cache invalid if voteCount changed (new votes came in)
-    if (cached.voteCount !== voteCount) {
-      this.detailsCache.delete(round.toString())
-      return null
-    }
-
-    // Cache expired
-    const age = Date.now() - cached.timestamp
-    if (age > this.detailsCacheTTL) {
-      this.detailsCache.delete(round.toString())
+    // This only matters for mutable rounds; executed rounds are immutable
+    if (!cached.isExecuted && cached.voteCount !== voteCount) {
+      this.detailsCache.delete(round)
       return null
     }
 
@@ -56,10 +59,17 @@ export class SlashingDetector {
   }
 
   /**
-   * Store detailed round data in cache
+   * Get cache statistics
    */
-  private setCachedDetails(round: bigint, data: DetailedRoundCache) {
-    this.detailsCache.set(round.toString(), data)
+  getCacheStats() {
+    return this.detailsCache.getStats()
+  }
+
+  /**
+   * Log cache statistics (useful for debugging)
+   */
+  logCacheStats() {
+    console.log(`[SlashingDetector] ${this.detailsCache.getStatsString()}`)
   }
 
   /**
@@ -241,14 +251,14 @@ export class SlashingDetector {
           isVetoed = await this.l1Monitor.isPayloadVetoed(payloadAddress)
 
           // Cache the details
-          this.setCachedDetails(round, {
+          this.detailsCache.set(round, {
             voteCount: roundInfo.voteCount,
             committees,
             slashActions,
             payloadAddress,
             isVetoed,
-            timestamp: Date.now(),
-          })
+            isExecuted: roundInfo.isExecuted,
+          }, this.mutableTTL)
         }
 
         // Calculate timing
@@ -442,33 +452,29 @@ export class SlashingDetector {
           console.log('[Detection] No rounds with slash actions found')
           // No further processing needed
         } else {
-          // Step 3: Batch fetch payload addresses for rounds with actions (1 multicall)
-          const allPayloadAddresses = await this.l1Monitor.batchGetPayloadAddress(
+          // Step 3: Batch fetch payload addresses AND veto statuses (combined)
+          const payloadAndVetoResults = await this.l1Monitor.batchGetPayloadAddressesAndVetoStatusOptimized(
             roundsWithActions.map(item => ({
               round: item.roundData.round,
               actions: item.slashActions,
             }))
           )
 
-          // Step 4: Batch fetch veto status for all payloads (1 multicall)
-          const allVetoStatuses = await this.l1Monitor.batchIsPayloadVetoed(allPayloadAddresses)
-
-          // Step 5: Process all results
+          // Step 4: Process all results
           roundsWithActions.forEach((item, resultIndex) => {
             const { roundData, committees, slashActions } = item
             const { round, roundInfo, status } = roundData
-            const payloadAddress = allPayloadAddresses[resultIndex]
-            const isVetoed = allVetoStatuses[resultIndex]
+            const { payloadAddress, isVetoed } = payloadAndVetoResults[resultIndex]
 
             // Cache the details
-            this.setCachedDetails(round, {
+            this.detailsCache.set(round, {
               voteCount: roundInfo.voteCount,
               committees,
               slashActions,
               payloadAddress,
               isVetoed,
-              timestamp: Date.now(),
-            })
+              isExecuted: roundInfo.isExecuted,
+            }, this.mutableTTL)
 
             // Calculate timing
             const executableSlot = this.calculateExecutableSlot(round)
@@ -513,6 +519,7 @@ export class SlashingDetector {
 
     // 4. Find most recent executed rounds (configurable limit)
     //    Limit scan to a reasonable window before the slashing period
+    //    Use same batching approach as active rounds for efficiency
     const maxExecutedToShow = this.config.maxExecutedRoundsToShow
     const maxRoundsToScanForExecuted = this.config.maxRoundsToScanForHistory
     const executedScanStart = Math.max(0, Number(slashingPeriodStart) - maxRoundsToScanForExecuted)
@@ -527,25 +534,133 @@ export class SlashingDetector {
       // Batch fetch executed rounds
       const executedRoundInfoMap = await this.l1Monitor.getRounds(executedRoundsToCheck)
 
-      // Find executed rounds (check in order, stop after finding maxExecutedToShow)
-      let executedFound = 0
+      // Collect executed rounds that need details (with votes)
+      const executedRoundsNeedingDetails: Array<{ round: bigint; roundInfo: RoundInfo }> = []
+
       for (const round of executedRoundsToCheck) {
-        if (executedFound >= maxExecutedToShow) break
+        if (executedRoundsNeedingDetails.length >= maxExecutedToShow) break
 
         const roundInfo = executedRoundInfoMap.get(round)
-        if (roundInfo && roundInfo.isExecuted) {
-          // Only fetch full details for executed rounds with votes
-          if (roundInfo.voteCount > 0n) {
-            try {
-              const detected = await this.detectRound(round, currentRound, currentSlot)
-              if (detected && detected.status === 'executed' && detected.slashActions && detected.slashActions.length > 0) {
-                validDetections.push(detected)
-                executedFound++
-              }
-            } catch (error) {
-              console.error(`Error detecting executed round ${round}:`, error)
-            }
+        if (roundInfo && roundInfo.isExecuted && roundInfo.voteCount > 0n) {
+          // Check cache first
+          const cachedDetails = this.getCachedDetails(round, roundInfo.voteCount)
+          if (cachedDetails && cachedDetails.slashActions.length > 0) {
+            // Use cached data
+            const executableSlot = this.calculateExecutableSlot(round)
+            const expirySlot = this.calculateExpirySlot(round)
+            const secondsUntilExecutable = this.calculateSecondsUntilSlot(executableSlot, currentSlot)
+            const secondsUntilExpires = this.calculateSecondsUntilSlot(expirySlot, currentSlot)
+            const totalSlashAmount = cachedDetails.slashActions.reduce((sum, action) => sum + action.slashAmount, 0n)
+            const targetEpochs = this.getTargetEpochs(round)
+
+            validDetections.push({
+              round,
+              status: 'executed' as RoundStatus,
+              voteCount: roundInfo.voteCount,
+              isExecuted: true,
+              isVetoed: cachedDetails.isVetoed,
+              committees: cachedDetails.committees,
+              slashActions: cachedDetails.slashActions,
+              payloadAddress: cachedDetails.payloadAddress,
+              slotWhenExecutable: executableSlot,
+              slotWhenExpires: expirySlot,
+              secondsUntilExecutable,
+              secondsUntilExpires,
+              lastUpdatedTimestamp: Date.now(),
+              targetEpochs,
+              totalSlashAmount,
+              affectedValidatorCount: cachedDetails.slashActions.length,
+            })
+          } else {
+            // Need to fetch details
+            executedRoundsNeedingDetails.push({ round, roundInfo })
           }
+        }
+      }
+
+      // Batch fetch details for executed rounds (same pattern as active rounds)
+      if (executedRoundsNeedingDetails.length > 0) {
+        console.log(`[Detection] Batch fetching details for ${executedRoundsNeedingDetails.length} historical executed rounds`)
+
+        try {
+          // Step 1: Batch fetch committees
+          const executedCommittees = await this.l1Monitor.batchGetSlashTargetCommittees(
+            executedRoundsNeedingDetails.map(r => r.round)
+          )
+
+          // Step 2: Batch fetch tallies
+          const executedRoundsWithCommittees = executedRoundsNeedingDetails.map((r, i) => ({
+            round: r.round,
+            committees: executedCommittees[i],
+          }))
+          const executedTallies = await this.l1Monitor.batchGetTally(executedRoundsWithCommittees)
+
+          // Filter out rounds with no slash actions
+          const executedRoundsWithActions = executedRoundsNeedingDetails
+            .map((r, i) => ({
+              roundData: r,
+              committees: executedCommittees[i],
+              slashActions: executedTallies[i],
+            }))
+            .filter(item => item.slashActions.length > 0)
+
+          if (executedRoundsWithActions.length > 0) {
+            // Step 3: Batch fetch payload addresses AND veto statuses (combined)
+            const executedPayloadAndVetoResults = await this.l1Monitor.batchGetPayloadAddressesAndVetoStatusOptimized(
+              executedRoundsWithActions.map(item => ({
+                round: item.roundData.round,
+                actions: item.slashActions,
+              }))
+            )
+
+            // Step 4: Process all results
+            executedRoundsWithActions.forEach((item, resultIndex) => {
+              const { roundData, committees, slashActions } = item
+              const { round, roundInfo } = roundData
+              const { payloadAddress, isVetoed } = executedPayloadAndVetoResults[resultIndex]
+
+              // Cache the details (will be promoted to immutable cache since isExecuted = true)
+              this.detailsCache.set(round, {
+                voteCount: roundInfo.voteCount,
+                committees,
+                slashActions,
+                payloadAddress,
+                isVetoed,
+                isExecuted: true,
+              }, this.mutableTTL)
+
+              // Calculate timing
+              const executableSlot = this.calculateExecutableSlot(round)
+              const expirySlot = this.calculateExpirySlot(round)
+              const secondsUntilExecutable = this.calculateSecondsUntilSlot(executableSlot, currentSlot)
+              const secondsUntilExpires = this.calculateSecondsUntilSlot(expirySlot, currentSlot)
+              const totalSlashAmount = slashActions.reduce((sum, action) => sum + action.slashAmount, 0n)
+              const targetEpochs = this.getTargetEpochs(round)
+
+              validDetections.push({
+                round,
+                status: 'executed' as RoundStatus,
+                voteCount: roundInfo.voteCount,
+                isExecuted: true,
+                isVetoed,
+                committees,
+                slashActions,
+                payloadAddress,
+                slotWhenExecutable: executableSlot,
+                slotWhenExpires: expirySlot,
+                secondsUntilExecutable,
+                secondsUntilExpires,
+                lastUpdatedTimestamp: Date.now(),
+                targetEpochs,
+                totalSlashAmount,
+                affectedValidatorCount: slashActions.length,
+              })
+            })
+
+            console.log(`[Detection] Successfully processed ${executedRoundsWithActions.length} historical executed rounds`)
+          }
+        } catch (error) {
+          console.error('Error batch fetching historical round details:', error)
         }
       }
     }

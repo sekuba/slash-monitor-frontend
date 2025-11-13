@@ -9,17 +9,12 @@ import { tallySlashingProposerAbi } from './contracts/tallySlashingProposerAbi'
 import { slasherAbi } from './contracts/slasherAbi'
 import { rollupAbi } from './contracts/rollupAbi'
 import { multicall, createCall } from './multicall'
+import { ImmutableAwareCache } from './immutableCache'
 import type {
   SlashAction,
   RoundInfo,
   SlashingMonitorConfig,
 } from '@/types/slashing'
-
-interface CachedRoundData {
-  data: RoundInfo
-  timestamp: number
-  blockNumber?: bigint
-}
 
 /**
  * L1 Monitor for tracking slashing-related events and contract state
@@ -27,12 +22,20 @@ interface CachedRoundData {
 export class L1Monitor {
   private publicClient: PublicClient
   private config: SlashingMonitorConfig
-  private roundCache: Map<string, CachedRoundData> = new Map()
-  private cacheTTL: number
+  private roundCache: ImmutableAwareCache<bigint, RoundInfo>
+  private mutableTTL: number
 
   constructor(config: SlashingMonitorConfig) {
     this.config = config
-    this.cacheTTL = config.l1RoundCacheTTL
+    this.mutableTTL = config.l1RoundCacheTTL
+
+    // Create immutability-aware cache
+    // Executed rounds are immutable and cached forever
+    this.roundCache = new ImmutableAwareCache<bigint, RoundInfo>(
+      (round) => round.toString(),
+      (roundInfo) => roundInfo.isExecuted, // Executed rounds never change
+      { maxMutableSize: 100 }
+    )
 
     // Create transport with automatic failover for multiple RPC URLs
     const transport = Array.isArray(config.l1RpcUrl)
@@ -50,36 +53,24 @@ export class L1Monitor {
    */
   clearCache(round?: bigint) {
     if (round !== undefined) {
-      this.roundCache.delete(round.toString())
+      this.roundCache.delete(round)
     } else {
       this.roundCache.clear()
     }
   }
 
   /**
-   * Get cached round data if still valid
+   * Get cache statistics
    */
-  private getCachedRound(round: bigint): RoundInfo | null {
-    const cached = this.roundCache.get(round.toString())
-    if (!cached) return null
-
-    const age = Date.now() - cached.timestamp
-    if (age > this.cacheTTL) {
-      this.roundCache.delete(round.toString())
-      return null
-    }
-
-    return cached.data
+  getCacheStats() {
+    return this.roundCache.getStats()
   }
 
   /**
-   * Store round data in cache
+   * Log cache statistics (useful for debugging)
    */
-  private setCachedRound(round: bigint, data: RoundInfo) {
-    this.roundCache.set(round.toString(), {
-      data,
-      timestamp: Date.now(),
-    })
+  logCacheStats() {
+    console.log(`[L1Monitor] ${this.roundCache.getStatsString()}`)
   }
 
   /**
@@ -157,7 +148,7 @@ export class L1Monitor {
   async getRound(round: bigint, skipCache = false): Promise<RoundInfo> {
     // Check cache first
     if (!skipCache) {
-      const cached = this.getCachedRound(round)
+      const cached = this.roundCache.get(round)
       if (cached) {
         return cached
       }
@@ -184,7 +175,8 @@ export class L1Monitor {
     }
 
     // Cache the result
-    this.setCachedRound(round, roundInfo)
+    // Executed rounds get cached forever, others use configurable TTL
+    this.roundCache.set(round, roundInfo, this.mutableTTL)
 
     return roundInfo
   }
@@ -199,7 +191,7 @@ export class L1Monitor {
     const cachedRounds = new Map<bigint, RoundInfo>()
 
     for (const round of rounds) {
-      const cached = this.getCachedRound(round)
+      const cached = this.roundCache.get(round)
       if (cached) {
         cachedRounds.set(round, cached)
       } else {
@@ -232,7 +224,8 @@ export class L1Monitor {
           voteCount,
         }
 
-        this.setCachedRound(round, roundInfo)
+        // Cache with smart TTL (executed = forever, others = mutableTTL)
+        this.roundCache.set(round, roundInfo, this.mutableTTL)
         allRounds.set(round, roundInfo)
       }
     })
@@ -423,6 +416,136 @@ export class L1Monitor {
   }
 
   /**
+   * Batch get payload addresses AND veto statuses in a single multicall
+   * This combines two separate calls into one for better performance
+   */
+  async batchGetPayloadAddressesAndVetoStatus(
+    roundsWithActions: Array<{ round: bigint; actions: SlashAction[] }>
+  ): Promise<Array<{ payloadAddress: Address; isVetoed: boolean }>> {
+    if (roundsWithActions.length === 0) return []
+
+    // Build all calls: payload addresses first, then veto statuses
+    const calls: ReturnType<typeof createCall>[] = []
+    const payloadIndices: number[] = []
+
+    // Add payload address calls
+    roundsWithActions.forEach((item, i) => {
+      if (item.actions.length === 0) {
+        // Track that this index has no payload
+        calls.push(null as any) // Placeholder
+      } else {
+        payloadIndices.push(i)
+        calls.push(
+          createCall(
+            this.config.tallySlashingProposerAddress,
+            tallySlashingProposerAbi,
+            'getPayloadAddress',
+            [item.round, item.actions as readonly { validator: Address; slashAmount: bigint }[]]
+          )
+        )
+      }
+    })
+
+    // Filter out null placeholders
+    const validPayloadCalls = calls.filter(call => call !== null)
+
+    // Execute all payload address calls
+    const payloadResults = validPayloadCalls.length > 0
+      ? await multicall(this.publicClient, validPayloadCalls)
+      : []
+
+    // Extract payload addresses
+    const payloadAddresses: Address[] = new Array(roundsWithActions.length).fill('0x0000000000000000000000000000000000000000')
+    payloadResults.forEach((result, i) => {
+      const originalIndex = payloadIndices[i]
+      if (result.success && result.data) {
+        payloadAddresses[originalIndex] = result.data as Address
+      }
+    })
+
+    // Now build veto status calls for all payloads (including zero addresses)
+    const vetoStatusCalls = payloadAddresses.map((address) =>
+      createCall(this.config.slasherAddress, slasherAbi, 'vetoedPayloads', [address])
+    )
+
+    // Execute all veto status calls in the same or separate multicall
+    const vetoResults = await multicall(this.publicClient, vetoStatusCalls)
+
+    // Combine results
+    return roundsWithActions.map((_, i) => ({
+      payloadAddress: payloadAddresses[i],
+      isVetoed: vetoResults[i].success && vetoResults[i].data !== undefined
+        ? (vetoResults[i].data as boolean)
+        : false
+    }))
+  }
+
+  /**
+   * OPTIMIZED: Batch get payload addresses AND veto statuses in a SINGLE multicall
+   * Combines all calls (payload addresses + veto checks) into one RPC request
+   */
+  async batchGetPayloadAddressesAndVetoStatusOptimized(
+    roundsWithActions: Array<{ round: bigint; actions: SlashAction[] }>
+  ): Promise<Array<{ payloadAddress: Address; isVetoed: boolean }>> {
+    if (roundsWithActions.length === 0) return []
+
+    const allCalls: ReturnType<typeof createCall>[] = []
+    const payloadCallIndices: number[] = []
+
+    // Step 1: Add payload address calls (skip empty actions)
+    roundsWithActions.forEach((item, i) => {
+      if (item.actions.length > 0) {
+        payloadCallIndices.push(i)
+        allCalls.push(
+          createCall(
+            this.config.tallySlashingProposerAddress,
+            tallySlashingProposerAbi,
+            'getPayloadAddress',
+            [item.round, item.actions as readonly { validator: Address; slashAmount: bigint }[]]
+          )
+        )
+      }
+    })
+
+    // Step 2: We need payload addresses before we can check veto status
+    // So we still need 2 multicalls, but we've eliminated individual calls
+    if (allCalls.length === 0) {
+      return roundsWithActions.map(() => ({
+        payloadAddress: '0x0000000000000000000000000000000000000000' as Address,
+        isVetoed: false
+      }))
+    }
+
+    // Execute payload address calls
+    const payloadResults = await multicall(this.publicClient, allCalls)
+
+    // Extract payload addresses
+    const payloadAddresses: Address[] = new Array(roundsWithActions.length).fill('0x0000000000000000000000000000000000000000')
+    payloadResults.forEach((result, i) => {
+      const originalIndex = payloadCallIndices[i]
+      if (result.success && result.data) {
+        payloadAddresses[originalIndex] = result.data as Address
+      }
+    })
+
+    // Build veto status calls
+    const vetoStatusCalls = payloadAddresses.map((address) =>
+      createCall(this.config.slasherAddress, slasherAbi, 'vetoedPayloads', [address])
+    )
+
+    // Execute veto status calls
+    const vetoResults = await multicall(this.publicClient, vetoStatusCalls)
+
+    // Combine results
+    return roundsWithActions.map((_, i) => ({
+      payloadAddress: payloadAddresses[i],
+      isVetoed: vetoResults[i].success && vetoResults[i].data !== undefined
+        ? (vetoResults[i].data as boolean)
+        : false
+    }))
+  }
+
+  /**
    * Check if slashing is currently enabled
    */
   async isSlashingEnabled(): Promise<boolean> {
@@ -435,77 +558,34 @@ export class L1Monitor {
   }
 
   /**
-   * Load contract parameters from L1
+   * Load contract parameters from L1 using multicall (1 RPC call instead of 9)
    */
   async loadContractParameters(): Promise<Partial<SlashingMonitorConfig>> {
-    const [
-      quorum,
-      roundSize,
-      roundSizeInEpochs,
-      executionDelayInRounds,
-      lifetimeInRounds,
-      slashOffsetInRounds,
-      committeeSize,
-      slotDuration,
-      epochDuration,
-    ] = await Promise.all([
-      this.publicClient.readContract({
-        address: this.config.tallySlashingProposerAddress,
-        abi: tallySlashingProposerAbi,
-        functionName: 'QUORUM',
-      }),
-      this.publicClient.readContract({
-        address: this.config.tallySlashingProposerAddress,
-        abi: tallySlashingProposerAbi,
-        functionName: 'ROUND_SIZE',
-      }),
-      this.publicClient.readContract({
-        address: this.config.tallySlashingProposerAddress,
-        abi: tallySlashingProposerAbi,
-        functionName: 'ROUND_SIZE_IN_EPOCHS',
-      }),
-      this.publicClient.readContract({
-        address: this.config.tallySlashingProposerAddress,
-        abi: tallySlashingProposerAbi,
-        functionName: 'EXECUTION_DELAY_IN_ROUNDS',
-      }),
-      this.publicClient.readContract({
-        address: this.config.tallySlashingProposerAddress,
-        abi: tallySlashingProposerAbi,
-        functionName: 'LIFETIME_IN_ROUNDS',
-      }),
-      this.publicClient.readContract({
-        address: this.config.tallySlashingProposerAddress,
-        abi: tallySlashingProposerAbi,
-        functionName: 'SLASH_OFFSET_IN_ROUNDS',
-      }),
-      this.publicClient.readContract({
-        address: this.config.tallySlashingProposerAddress,
-        abi: tallySlashingProposerAbi,
-        functionName: 'COMMITTEE_SIZE',
-      }),
-      this.publicClient.readContract({
-        address: this.config.rollupAddress,
-        abi: rollupAbi,
-        functionName: 'getSlotDuration',
-      }),
-      this.publicClient.readContract({
-        address: this.config.rollupAddress,
-        abi: rollupAbi,
-        functionName: 'getEpochDuration',
-      }),
-    ])
+    // Batch all parameter reads into a single multicall
+    const calls = [
+      createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'QUORUM'),
+      createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'ROUND_SIZE'),
+      createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'ROUND_SIZE_IN_EPOCHS'),
+      createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'EXECUTION_DELAY_IN_ROUNDS'),
+      createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'LIFETIME_IN_ROUNDS'),
+      createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'SLASH_OFFSET_IN_ROUNDS'),
+      createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'COMMITTEE_SIZE'),
+      createCall(this.config.rollupAddress, rollupAbi, 'getSlotDuration'),
+      createCall(this.config.rollupAddress, rollupAbi, 'getEpochDuration'),
+    ]
+
+    const results = await multicall(this.publicClient, calls)
 
     return {
-      quorum: Number(quorum),
-      slashingRoundSize: Number(roundSize),
-      slashingRoundSizeInEpochs: Number(roundSizeInEpochs),
-      executionDelayInRounds: Number(executionDelayInRounds),
-      lifetimeInRounds: Number(lifetimeInRounds),
-      slashOffsetInRounds: Number(slashOffsetInRounds),
-      committeeSize: Number(committeeSize),
-      slotDuration: Number(slotDuration),
-      epochDuration: Number(epochDuration),
+      quorum: Number(results[0].data),
+      slashingRoundSize: Number(results[1].data),
+      slashingRoundSizeInEpochs: Number(results[2].data),
+      executionDelayInRounds: Number(results[3].data),
+      lifetimeInRounds: Number(results[4].data),
+      slashOffsetInRounds: Number(results[5].data),
+      committeeSize: Number(results[6].data),
+      slotDuration: Number(results[7].data),
+      epochDuration: Number(results[8].data),
     }
   }
 }

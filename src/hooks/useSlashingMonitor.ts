@@ -191,6 +191,12 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
       // Log poll stats (configurable probability to reduce noise)
       if (Math.random() < config.consoleLogProbability) {
         console.log(`Poll complete: ${detectedSlashings.length} rounds, ${offenses.length} offenses`)
+
+        // Log cache statistics to verify effectiveness
+        if (l1MonitorRef.current && detectorRef.current) {
+          l1MonitorRef.current.logCacheStats()
+          detectorRef.current.logCacheStats()
+        }
       }
     } catch (error) {
       console.error('Poll error:', error)

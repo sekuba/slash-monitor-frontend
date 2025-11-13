@@ -1,11 +1,7 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Dashboard } from './components/Dashboard'
 import { useSlashingMonitor } from './hooks/useSlashingMonitor'
 import type { SlashingMonitorConfig } from './types/slashing'
 import type { Address } from 'viem'
-
-// Create query client
-const queryClient = new QueryClient()
 
 // Parse L1 RPC URLs (supports comma-separated list for failover)
 const parseRpcUrls = (urlString: string): string | string[] => {
@@ -21,8 +17,8 @@ const slashingConfig: SlashingMonitorConfig = {
   slasherAddress: (import.meta.env.VITE_SLASHER_ADDRESS || '0x') as Address,
   rollupAddress: (import.meta.env.VITE_ROLLUP_ADDRESS || '0x') as Address,
 
-  // L2 Configuration
-  nodeAdminUrl: import.meta.env.VITE_NODE_ADMIN_URL || 'http://localhost:8880',
+  // L2 Configuration (optional - if not set, node admin API calls will be skipped)
+  nodeAdminUrl: import.meta.env.VITE_NODE_ADMIN_URL || '',
 
   // Network Parameters (loaded dynamically from L1 contracts during initialization)
   // These placeholder values are immediately overwritten by contract data in useSlashingMonitor
@@ -37,16 +33,16 @@ const slashingConfig: SlashingMonitorConfig = {
   epochDuration: 0,
 
   // Polling & Update Intervals
-  l2PollInterval: Number(import.meta.env.VITE_L2_POLL_INTERVAL) || 120000, // 2 minutes
+  l2PollInterval: Number(import.meta.env.VITE_L2_POLL_INTERVAL) || 180000, // 3 minutes (~10 polls per 30min round)
   realtimeCountdownInterval: Number(import.meta.env.VITE_REALTIME_COUNTDOWN_INTERVAL) || 1000, // 1 second
 
-  // Cache Configuration
-  l1RoundCacheTTL: Number(import.meta.env.VITE_L1_ROUND_CACHE_TTL) || 30000, // 30 seconds
-  detailsCacheTTL: Number(import.meta.env.VITE_DETAILS_CACHE_TTL) || 300000, // 5 minutes
+  // Cache Configuration (immutability-aware: executed rounds cached forever, others use TTL)
+  l1RoundCacheTTL: Number(import.meta.env.VITE_L1_ROUND_CACHE_TTL) || 120000, // 2 minutes for mutable rounds
+  detailsCacheTTL: Number(import.meta.env.VITE_DETAILS_CACHE_TTL) || 300000, // 5 minutes for mutable details
 
   // Scanning Configuration
-  maxExecutedRoundsToShow: Number(import.meta.env.VITE_MAX_EXECUTED_ROUNDS_TO_SHOW) || 2,
-  maxRoundsToScanForHistory: Number(import.meta.env.VITE_MAX_ROUNDS_TO_SCAN_FOR_HISTORY) || 5,
+  maxExecutedRoundsToShow: Number(import.meta.env.VITE_MAX_EXECUTED_ROUNDS_TO_SHOW) || 10, // Show last 10 executed (~5 hours)
+  maxRoundsToScanForHistory: Number(import.meta.env.VITE_MAX_ROUNDS_TO_SCAN_FOR_HISTORY) || 20, // Scan back 20 rounds
 
   // UI/UX Configuration
   copyFeedbackDuration: Number(import.meta.env.VITE_COPY_FEEDBACK_DURATION) || 2000, // 2 seconds
@@ -57,20 +53,12 @@ const slashingConfig: SlashingMonitorConfig = {
 
 }
 
-function AppContent() {
+export function App() {
   useSlashingMonitor(slashingConfig)
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
       <Dashboard />
     </div>
-  )
-}
-
-export function App() {
-  return (
-    <QueryClientProvider client={queryClient}>
-      <AppContent />
-    </QueryClientProvider>
   )
 }

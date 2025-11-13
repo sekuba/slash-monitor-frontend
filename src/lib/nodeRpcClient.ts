@@ -6,16 +6,20 @@ import type { Offense } from '@/types/slashing'
  */
 export class NodeRpcClient {
   private nodeAdminUrl: string
+  private nodeAdminEnabled: boolean
 
   constructor(nodeAdminUrl: string) {
     this.nodeAdminUrl = nodeAdminUrl
+    // Node admin is enabled if URL is provided and not empty
+    this.nodeAdminEnabled = nodeAdminUrl !== '' && nodeAdminUrl !== undefined
   }
 
   /**
-   * Check if we're running in production (GitHub Pages)
+   * Check if node admin API is available
+   * This is true only when VITE_NODE_ADMIN_URL is set in the environment
    */
-  private isProduction(): boolean {
-    return window.location.hostname.includes('slashveto.me')
+  private isNodeAdminAvailable(): boolean {
+    return this.nodeAdminEnabled
   }
 
   /**
@@ -67,11 +71,11 @@ export class NodeRpcClient {
   /**
    * Get slash offenses for a specific round
    * @param round - Round number, 'current', or 'all'
-   * Note: In production (GitHub Pages), this returns an empty array as the admin API is not available
+   * Note: Returns an empty array if VITE_NODE_ADMIN_URL is not set (node admin API unavailable)
    */
   async getSlashOffenses(round: bigint | 'current' | 'all' = 'all'): Promise<Offense[]> {
-    // Skip admin API calls in production
-    if (this.isProduction()) {
+    // Skip admin API calls if node admin URL is not configured
+    if (!this.isNodeAdminAvailable()) {
       return []
     }
 
