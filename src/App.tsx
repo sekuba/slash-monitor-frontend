@@ -17,8 +17,8 @@ const slashingConfig: SlashingMonitorConfig = {
   slasherAddress: (import.meta.env.VITE_SLASHER_ADDRESS || '0x') as Address,
   rollupAddress: (import.meta.env.VITE_ROLLUP_ADDRESS || '0x') as Address,
 
-  // L2 Configuration
-  nodeAdminUrl: import.meta.env.VITE_NODE_ADMIN_URL || 'http://localhost:8880',
+  // L2 Configuration (optional - if not set, node admin API calls will be skipped)
+  nodeAdminUrl: import.meta.env.VITE_NODE_ADMIN_URL || '',
 
   // Network Parameters (loaded dynamically from L1 contracts during initialization)
   // These placeholder values are immediately overwritten by contract data in useSlashingMonitor
