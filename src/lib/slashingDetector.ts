@@ -1,5 +1,6 @@
 import type { Address } from 'viem'
 import { L1Monitor } from './l1Monitor'
+import { ImmutableAwareCache } from './immutableCache'
 import type {
   DetectedSlashing,
   RoundStatus,
@@ -14,7 +15,7 @@ interface DetailedRoundCache {
   slashActions: SlashAction[]
   payloadAddress: Address
   isVetoed: boolean
-  timestamp: number
+  isExecuted: boolean
 }
 
 /**
@@ -23,32 +24,34 @@ interface DetailedRoundCache {
 export class SlashingDetector {
   private config: SlashingMonitorConfig
   private l1Monitor: L1Monitor
-  private detailsCache: Map<string, DetailedRoundCache> = new Map()
-  private detailsCacheTTL: number
+  private detailsCache: ImmutableAwareCache<bigint, DetailedRoundCache>
+  private mutableTTL: number
 
   constructor(config: SlashingMonitorConfig, l1Monitor: L1Monitor) {
     this.config = config
     this.l1Monitor = l1Monitor
-    this.detailsCacheTTL = config.detailsCacheTTL
+    this.mutableTTL = config.detailsCacheTTL
+
+    // Create immutability-aware cache for round details
+    // Executed rounds have immutable details and are cached forever
+    this.detailsCache = new ImmutableAwareCache<bigint, DetailedRoundCache>(
+      (round) => round.toString(),
+      (details) => details.isExecuted, // Executed round details never change
+      { maxMutableSize: 50 }
+    )
   }
 
   /**
    * Get cached detailed round data if still valid and voteCount matches
    */
   private getCachedDetails(round: bigint, voteCount: bigint): DetailedRoundCache | null {
-    const cached = this.detailsCache.get(round.toString())
+    const cached = this.detailsCache.get(round)
     if (!cached) return null
 
     // Cache invalid if voteCount changed (new votes came in)
-    if (cached.voteCount !== voteCount) {
-      this.detailsCache.delete(round.toString())
-      return null
-    }
-
-    // Cache expired
-    const age = Date.now() - cached.timestamp
-    if (age > this.detailsCacheTTL) {
-      this.detailsCache.delete(round.toString())
+    // This only matters for mutable rounds; executed rounds are immutable
+    if (!cached.isExecuted && cached.voteCount !== voteCount) {
+      this.detailsCache.delete(round)
       return null
     }
 
@@ -56,10 +59,17 @@ export class SlashingDetector {
   }
 
   /**
-   * Store detailed round data in cache
+   * Get cache statistics
    */
-  private setCachedDetails(round: bigint, data: DetailedRoundCache) {
-    this.detailsCache.set(round.toString(), data)
+  getCacheStats() {
+    return this.detailsCache.getStats()
+  }
+
+  /**
+   * Log cache statistics (useful for debugging)
+   */
+  logCacheStats() {
+    console.log(`[SlashingDetector] ${this.detailsCache.getStatsString()}`)
   }
 
   /**
@@ -241,14 +251,14 @@ export class SlashingDetector {
           isVetoed = await this.l1Monitor.isPayloadVetoed(payloadAddress)
 
           // Cache the details
-          this.setCachedDetails(round, {
+          this.detailsCache.set(round, {
             voteCount: roundInfo.voteCount,
             committees,
             slashActions,
             payloadAddress,
             isVetoed,
-            timestamp: Date.now(),
-          })
+            isExecuted: roundInfo.isExecuted,
+          }, this.mutableTTL)
         }
 
         // Calculate timing
@@ -461,14 +471,14 @@ export class SlashingDetector {
             const isVetoed = allVetoStatuses[resultIndex]
 
             // Cache the details
-            this.setCachedDetails(round, {
+            this.detailsCache.set(round, {
               voteCount: roundInfo.voteCount,
               committees,
               slashActions,
               payloadAddress,
               isVetoed,
-              timestamp: Date.now(),
-            })
+              isExecuted: roundInfo.isExecuted,
+            }, this.mutableTTL)
 
             // Calculate timing
             const executableSlot = this.calculateExecutableSlot(round)

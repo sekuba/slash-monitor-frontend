@@ -9,17 +9,12 @@ import { tallySlashingProposerAbi } from './contracts/tallySlashingProposerAbi'
 import { slasherAbi } from './contracts/slasherAbi'
 import { rollupAbi } from './contracts/rollupAbi'
 import { multicall, createCall } from './multicall'
+import { ImmutableAwareCache } from './immutableCache'
 import type {
   SlashAction,
   RoundInfo,
   SlashingMonitorConfig,
 } from '@/types/slashing'
-
-interface CachedRoundData {
-  data: RoundInfo
-  timestamp: number
-  blockNumber?: bigint
-}
 
 /**
  * L1 Monitor for tracking slashing-related events and contract state
@@ -27,12 +22,20 @@ interface CachedRoundData {
 export class L1Monitor {
   private publicClient: PublicClient
   private config: SlashingMonitorConfig
-  private roundCache: Map<string, CachedRoundData> = new Map()
-  private cacheTTL: number
+  private roundCache: ImmutableAwareCache<bigint, RoundInfo>
+  private mutableTTL: number
 
   constructor(config: SlashingMonitorConfig) {
     this.config = config
-    this.cacheTTL = config.l1RoundCacheTTL
+    this.mutableTTL = config.l1RoundCacheTTL
+
+    // Create immutability-aware cache
+    // Executed rounds are immutable and cached forever
+    this.roundCache = new ImmutableAwareCache<bigint, RoundInfo>(
+      (round) => round.toString(),
+      (roundInfo) => roundInfo.isExecuted, // Executed rounds never change
+      { maxMutableSize: 100 }
+    )
 
     // Create transport with automatic failover for multiple RPC URLs
     const transport = Array.isArray(config.l1RpcUrl)
@@ -50,36 +53,24 @@ export class L1Monitor {
    */
   clearCache(round?: bigint) {
     if (round !== undefined) {
-      this.roundCache.delete(round.toString())
+      this.roundCache.delete(round)
     } else {
       this.roundCache.clear()
     }
   }
 
   /**
-   * Get cached round data if still valid
+   * Get cache statistics
    */
-  private getCachedRound(round: bigint): RoundInfo | null {
-    const cached = this.roundCache.get(round.toString())
-    if (!cached) return null
-
-    const age = Date.now() - cached.timestamp
-    if (age > this.cacheTTL) {
-      this.roundCache.delete(round.toString())
-      return null
-    }
-
-    return cached.data
+  getCacheStats() {
+    return this.roundCache.getStats()
   }
 
   /**
-   * Store round data in cache
+   * Log cache statistics (useful for debugging)
    */
-  private setCachedRound(round: bigint, data: RoundInfo) {
-    this.roundCache.set(round.toString(), {
-      data,
-      timestamp: Date.now(),
-    })
+  logCacheStats() {
+    console.log(`[L1Monitor] ${this.roundCache.getStatsString()}`)
   }
 
   /**
@@ -157,7 +148,7 @@ export class L1Monitor {
   async getRound(round: bigint, skipCache = false): Promise<RoundInfo> {
     // Check cache first
     if (!skipCache) {
-      const cached = this.getCachedRound(round)
+      const cached = this.roundCache.get(round)
       if (cached) {
         return cached
       }
@@ -184,7 +175,8 @@ export class L1Monitor {
     }
 
     // Cache the result
-    this.setCachedRound(round, roundInfo)
+    // Executed rounds get cached forever, others use configurable TTL
+    this.roundCache.set(round, roundInfo, this.mutableTTL)
 
     return roundInfo
   }
@@ -199,7 +191,7 @@ export class L1Monitor {
     const cachedRounds = new Map<bigint, RoundInfo>()
 
     for (const round of rounds) {
-      const cached = this.getCachedRound(round)
+      const cached = this.roundCache.get(round)
       if (cached) {
         cachedRounds.set(round, cached)
       } else {
@@ -232,7 +224,8 @@ export class L1Monitor {
           voteCount,
         }
 
-        this.setCachedRound(round, roundInfo)
+        // Cache with smart TTL (executed = forever, others = mutableTTL)
+        this.roundCache.set(round, roundInfo, this.mutableTTL)
         allRounds.set(round, roundInfo)
       }
     })
