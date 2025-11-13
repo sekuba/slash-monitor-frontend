@@ -5,6 +5,7 @@ import { StatsPanel } from './StatsPanel';
 import { Header } from './Header';
 import { SlashingTimeline } from './SlashingTimeline';
 import { DebugView } from './DebugView';
+import { BootstrapBanner } from './BootstrapBanner';
 import { isActionableStatus } from '@/lib/utils';
 import { requestNotificationPermission, areNotificationsEnabled } from '@/lib/notifications';
 export function Dashboard() {
@@ -113,7 +114,10 @@ export function Dashboard() {
             </div>
           </div>)}
 
-        
+        {/* Bootstrap Banner */}
+        <BootstrapBanner />
+
+
         <SlashingTimeline />
 
         

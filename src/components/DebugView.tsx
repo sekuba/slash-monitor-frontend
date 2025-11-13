@@ -4,7 +4,7 @@ import { formatEther } from 'viem';
 
 export const DebugView: React.FC = () => {
   const [expandedRounds, setExpandedRounds] = useState<Set<string>>(new Set());
-  const { config, currentRound, currentSlot, currentEpoch, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, detectedSlashings, stats } = useSlashingStore();
+  const { config, currentRound, currentSlot, currentEpoch, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, activeAttesterCount, entryQueueLength, detectedSlashings, stats } = useSlashingStore();
 
   const toggleRound = (round: string) => {
     const newExpanded = new Set(expandedRounds);
@@ -113,6 +113,15 @@ export const DebugView: React.FC = () => {
             label="Slasher.slashingDisabledUntil()"
             value={slashingDisabledUntil ? new Date(Number(slashingDisabledUntil) * 1000).toLocaleString() : 'N/A'}
             wide
+          />
+          <StateCard
+            label="Rollup.getActiveAttesterCount()"
+            value={activeAttesterCount?.toString() || 'Not loaded'}
+            highlight={activeAttesterCount === 0n}
+          />
+          <StateCard
+            label="Rollup.getEntryQueueLength()"
+            value={entryQueueLength?.toString() || 'Not loaded'}
           />
         </div>
       </section>

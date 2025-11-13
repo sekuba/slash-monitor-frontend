@@ -6,7 +6,7 @@ import { SlashingDetector } from '@/lib/slashingDetector';
 import { notifySlashingDetected, notifySlashingDisabled, notifySlashingEnabled, } from '@/lib/notifications';
 import type { SlashingMonitorConfig } from '@/types/slashing';
 export function useSlashingMonitor(config: SlashingMonitorConfig) {
-    const { setConfig, setInitialized, setIsScanning, setCurrentRound, setCurrentSlot, setCurrentEpoch, setSlashingEnabled, setSlashingDisabledUntil, setSlashingDisableDuration, addDetectedSlashing, setOffenses, updateStats, } = useSlashingStore();
+    const { setConfig, setInitialized, setIsScanning, setCurrentRound, setCurrentSlot, setCurrentEpoch, setSlashingEnabled, setSlashingDisabledUntil, setSlashingDisableDuration, setActiveAttesterCount, setEntryQueueLength, addDetectedSlashing, setOffenses, updateStats, } = useSlashingStore();
     const l1MonitorRef = useRef<L1Monitor | null>(null);
     const nodeRpcRef = useRef<NodeRpcClient | null>(null);
     const detectorRef = useRef<SlashingDetector | null>(null);
@@ -52,13 +52,15 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
             if (isFirstScanRef.current) {
                 setIsScanning(true);
             }
-            const { currentRound, currentSlot, currentEpoch, isSlashingEnabled: isEnabled, slashingDisabledUntil, slashingDisableDuration } = await l1MonitorRef.current.getCurrentState();
+            const { currentRound, currentSlot, currentEpoch, isSlashingEnabled: isEnabled, slashingDisabledUntil, slashingDisableDuration, activeAttesterCount, entryQueueLength } = await l1MonitorRef.current.getCurrentState();
             setCurrentRound(currentRound);
             setCurrentSlot(currentSlot);
             setCurrentEpoch(currentEpoch);
             setSlashingEnabled(isEnabled);
             setSlashingDisabledUntil(slashingDisabledUntil);
             setSlashingDisableDuration(slashingDisableDuration);
+            setActiveAttesterCount(activeAttesterCount);
+            setEntryQueueLength(entryQueueLength);
             if (previousSlashingEnabledRef.current !== null && previousSlashingEnabledRef.current !== isEnabled) {
                 if (isEnabled) {
                     notifySlashingEnabled();
@@ -119,7 +121,7 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
                 setIsScanning(false);
             }
         }
-    }, [setCurrentRound, setCurrentSlot, setCurrentEpoch, setSlashingEnabled, setSlashingDisabledUntil, setIsScanning, addDetectedSlashing, setOffenses, updateStats]);
+    }, [setCurrentRound, setCurrentSlot, setCurrentEpoch, setSlashingEnabled, setSlashingDisabledUntil, setSlashingDisableDuration, setActiveAttesterCount, setEntryQueueLength, setIsScanning, addDetectedSlashing, setOffenses, updateStats]);
     const startPolling = useCallback(() => {
         poll();
         intervalRef.current = setInterval(poll, config.l2PollInterval);

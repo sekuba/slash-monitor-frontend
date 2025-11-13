@@ -27,4 +27,18 @@ export const rollupAbi = [
         inputs: [],
         outputs: [{ name: '', type: 'uint256' }],
     },
+    {
+        type: 'function',
+        name: 'getActiveAttesterCount',
+        stateMutability: 'view',
+        inputs: [],
+        outputs: [{ name: '', type: 'uint256' }],
+    },
+    {
+        type: 'function',
+        name: 'getEntryQueueLength',
+        stateMutability: 'view',
+        inputs: [],
+        outputs: [{ name: '', type: 'uint256' }],
+    },
 ] as const;

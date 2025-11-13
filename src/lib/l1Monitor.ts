@@ -66,6 +66,8 @@ export class L1Monitor {
         isSlashingEnabled: boolean;
         slashingDisabledUntil: bigint;
         slashingDisableDuration: bigint;
+        activeAttesterCount: bigint;
+        entryQueueLength: bigint;
     }> {
         const calls = [
             createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'getCurrentRound'),
@@ -74,6 +76,8 @@ export class L1Monitor {
             createCall(this.config.slasherAddress, slasherAbi, 'isSlashingEnabled'),
             createCall(this.config.slasherAddress, slasherAbi, 'slashingDisabledUntil'),
             createCall(this.config.slasherAddress, slasherAbi, 'SLASHING_DISABLE_DURATION'),
+            createCall(this.config.rollupAddress, rollupAbi, 'getActiveAttesterCount'),
+            createCall(this.config.rollupAddress, rollupAbi, 'getEntryQueueLength'),
         ];
         const results = await multicall(this.publicClient, calls);
         return {
@@ -83,6 +87,8 @@ export class L1Monitor {
             isSlashingEnabled: results[3].data as boolean,
             slashingDisabledUntil: results[4].data as bigint,
             slashingDisableDuration: results[5].data as bigint,
+            activeAttesterCount: results[6].data as bigint,
+            entryQueueLength: results[7].data as bigint,
         };
     }
     async getRound(round: bigint, skipCache = false): Promise<RoundInfo> {

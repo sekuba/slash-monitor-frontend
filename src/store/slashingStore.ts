@@ -10,6 +10,8 @@ interface SlashingMonitorStore {
     isSlashingEnabled: boolean;
     slashingDisabledUntil: bigint | null;
     slashingDisableDuration: bigint | null;
+    activeAttesterCount: bigint | null;
+    entryQueueLength: bigint | null;
     detectedSlashings: Map<bigint, DetectedSlashing>;
     offenses: Offense[];
     stats: SlashingStats;
@@ -22,6 +24,8 @@ interface SlashingMonitorStore {
     setSlashingEnabled: (enabled: boolean) => void;
     setSlashingDisabledUntil: (timestamp: bigint) => void;
     setSlashingDisableDuration: (duration: bigint) => void;
+    setActiveAttesterCount: (count: bigint) => void;
+    setEntryQueueLength: (length: bigint) => void;
     addDetectedSlashing: (slashing: DetectedSlashing) => void;
     setOffenses: (offenses: Offense[]) => void;
     updateStats: (stats: Partial<SlashingStats>) => void;
@@ -45,6 +49,8 @@ export const useSlashingStore = create<SlashingMonitorStore>((set) => ({
     isSlashingEnabled: true,
     slashingDisabledUntil: null,
     slashingDisableDuration: null,
+    activeAttesterCount: null,
+    entryQueueLength: null,
     detectedSlashings: new Map(),
     offenses: [],
     stats: initialStats,
@@ -57,6 +63,8 @@ export const useSlashingStore = create<SlashingMonitorStore>((set) => ({
     setSlashingEnabled: (enabled) => set({ isSlashingEnabled: enabled }),
     setSlashingDisabledUntil: (timestamp) => set({ slashingDisabledUntil: timestamp }),
     setSlashingDisableDuration: (duration) => set({ slashingDisableDuration: duration }),
+    setActiveAttesterCount: (count) => set({ activeAttesterCount: count }),
+    setEntryQueueLength: (length) => set({ entryQueueLength: length }),
     addDetectedSlashing: (slashing) => set((state) => {
         const newMap = new Map(state.detectedSlashings);
         newMap.set(slashing.round, slashing);
