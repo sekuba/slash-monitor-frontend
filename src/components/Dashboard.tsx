@@ -4,12 +4,14 @@ import { RoundCard } from './RoundCard';
 import { StatsPanel } from './StatsPanel';
 import { Header } from './Header';
 import { SlashingTimeline } from './SlashingTimeline';
+import { DebugView } from './DebugView';
 import { isActionableStatus } from '@/lib/utils';
 import { requestNotificationPermission, areNotificationsEnabled } from '@/lib/notifications';
 export function Dashboard() {
     const { detectedSlashings, isInitialized, isScanning, currentRound } = useSlashingStore();
     const [showNotificationBanner, setShowNotificationBanner] = useState(false);
     const [isRequestingNotifications, setIsRequestingNotifications] = useState(false);
+    const [showDebugView, setShowDebugView] = useState(false);
     useEffect(() => {
         if ('Notification' in window && Notification.permission === 'default') {
             setShowNotificationBanner(true);
@@ -44,8 +46,41 @@ export function Dashboard() {
     return (<div className="min-h-screen">
       <Header />
 
+      {/* Debug View Toggle Button */}
+      <div className="fixed bottom-6 right-6 z-50">
+        <button
+          onClick={() => setShowDebugView(!showDebugView)}
+          className={`px-6 py-3 font-black uppercase text-sm transition-all shadow-brutal border-5 ${
+            showDebugView
+              ? 'bg-vermillion text-brand-black border-brand-black hover:bg-vermillion/90'
+              : 'bg-lapis text-aqua border-aqua hover:bg-lapis/90'
+          }`}
+          title={showDebugView ? 'Hide Debug View' : 'Show Debug View'}
+        >
+          {showDebugView ? (
+            <span className="flex items-center gap-2">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+              Close Debug
+            </span>
+          ) : (
+            <span className="flex items-center gap-2">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+              </svg>
+              Debug View
+            </span>
+          )}
+        </button>
+      </div>
+
       <main className="max-w-7xl mx-auto px-4 py-8">
-        
+
+        {showDebugView ? (
+          <DebugView />
+        ) : (
+          <>
         <StatsPanel />
 
         
@@ -131,6 +166,8 @@ export function Dashboard() {
             <p className="text-whisper-white font-black uppercase text-lg">No Slashing Rounds Detected</p>
             <p className="text-whisper-white/70 text-sm font-bold uppercase mt-2">Monitoring continues in background</p>
           </div>)}
+          </>
+        )}
       </main>
     </div>);
 }
