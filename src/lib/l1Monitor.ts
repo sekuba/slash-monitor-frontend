@@ -416,6 +416,136 @@ export class L1Monitor {
   }
 
   /**
+   * Batch get payload addresses AND veto statuses in a single multicall
+   * This combines two separate calls into one for better performance
+   */
+  async batchGetPayloadAddressesAndVetoStatus(
+    roundsWithActions: Array<{ round: bigint; actions: SlashAction[] }>
+  ): Promise<Array<{ payloadAddress: Address; isVetoed: boolean }>> {
+    if (roundsWithActions.length === 0) return []
+
+    // Build all calls: payload addresses first, then veto statuses
+    const calls: ReturnType<typeof createCall>[] = []
+    const payloadIndices: number[] = []
+
+    // Add payload address calls
+    roundsWithActions.forEach((item, i) => {
+      if (item.actions.length === 0) {
+        // Track that this index has no payload
+        calls.push(null as any) // Placeholder
+      } else {
+        payloadIndices.push(i)
+        calls.push(
+          createCall(
+            this.config.tallySlashingProposerAddress,
+            tallySlashingProposerAbi,
+            'getPayloadAddress',
+            [item.round, item.actions as readonly { validator: Address; slashAmount: bigint }[]]
+          )
+        )
+      }
+    })
+
+    // Filter out null placeholders
+    const validPayloadCalls = calls.filter(call => call !== null)
+
+    // Execute all payload address calls
+    const payloadResults = validPayloadCalls.length > 0
+      ? await multicall(this.publicClient, validPayloadCalls)
+      : []
+
+    // Extract payload addresses
+    const payloadAddresses: Address[] = new Array(roundsWithActions.length).fill('0x0000000000000000000000000000000000000000')
+    payloadResults.forEach((result, i) => {
+      const originalIndex = payloadIndices[i]
+      if (result.success && result.data) {
+        payloadAddresses[originalIndex] = result.data as Address
+      }
+    })
+
+    // Now build veto status calls for all payloads (including zero addresses)
+    const vetoStatusCalls = payloadAddresses.map((address) =>
+      createCall(this.config.slasherAddress, slasherAbi, 'vetoedPayloads', [address])
+    )
+
+    // Execute all veto status calls in the same or separate multicall
+    const vetoResults = await multicall(this.publicClient, vetoStatusCalls)
+
+    // Combine results
+    return roundsWithActions.map((_, i) => ({
+      payloadAddress: payloadAddresses[i],
+      isVetoed: vetoResults[i].success && vetoResults[i].data !== undefined
+        ? (vetoResults[i].data as boolean)
+        : false
+    }))
+  }
+
+  /**
+   * OPTIMIZED: Batch get payload addresses AND veto statuses in a SINGLE multicall
+   * Combines all calls (payload addresses + veto checks) into one RPC request
+   */
+  async batchGetPayloadAddressesAndVetoStatusOptimized(
+    roundsWithActions: Array<{ round: bigint; actions: SlashAction[] }>
+  ): Promise<Array<{ payloadAddress: Address; isVetoed: boolean }>> {
+    if (roundsWithActions.length === 0) return []
+
+    const allCalls: ReturnType<typeof createCall>[] = []
+    const payloadCallIndices: number[] = []
+
+    // Step 1: Add payload address calls (skip empty actions)
+    roundsWithActions.forEach((item, i) => {
+      if (item.actions.length > 0) {
+        payloadCallIndices.push(i)
+        allCalls.push(
+          createCall(
+            this.config.tallySlashingProposerAddress,
+            tallySlashingProposerAbi,
+            'getPayloadAddress',
+            [item.round, item.actions as readonly { validator: Address; slashAmount: bigint }[]]
+          )
+        )
+      }
+    })
+
+    // Step 2: We need payload addresses before we can check veto status
+    // So we still need 2 multicalls, but we've eliminated individual calls
+    if (allCalls.length === 0) {
+      return roundsWithActions.map(() => ({
+        payloadAddress: '0x0000000000000000000000000000000000000000' as Address,
+        isVetoed: false
+      }))
+    }
+
+    // Execute payload address calls
+    const payloadResults = await multicall(this.publicClient, allCalls)
+
+    // Extract payload addresses
+    const payloadAddresses: Address[] = new Array(roundsWithActions.length).fill('0x0000000000000000000000000000000000000000')
+    payloadResults.forEach((result, i) => {
+      const originalIndex = payloadCallIndices[i]
+      if (result.success && result.data) {
+        payloadAddresses[originalIndex] = result.data as Address
+      }
+    })
+
+    // Build veto status calls
+    const vetoStatusCalls = payloadAddresses.map((address) =>
+      createCall(this.config.slasherAddress, slasherAbi, 'vetoedPayloads', [address])
+    )
+
+    // Execute veto status calls
+    const vetoResults = await multicall(this.publicClient, vetoStatusCalls)
+
+    // Combine results
+    return roundsWithActions.map((_, i) => ({
+      payloadAddress: payloadAddresses[i],
+      isVetoed: vetoResults[i].success && vetoResults[i].data !== undefined
+        ? (vetoResults[i].data as boolean)
+        : false
+    }))
+  }
+
+  /**
    * Check if slashing is currently enabled
    */
   async isSlashingEnabled(): Promise<boolean> {
