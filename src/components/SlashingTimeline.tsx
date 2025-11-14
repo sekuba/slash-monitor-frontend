@@ -121,32 +121,6 @@ export function SlashingTimeline() {
           </div>
         </div>
 
-        <div className="mb-6 flex items-center gap-4 flex-wrap">
-          <div className="bg-malachite/20 border-3 border-chartreuse px-4 py-2">
-            <span className="font-black text-chartreuse text-xs uppercase tracking-wider">1 Slot:</span>{' '}
-            <span className="font-black text-whisper-white text-lg">{config.slotDuration}s</span>
-          </div>
-          <div className="bg-aubergine/20 border-3 border-orchid px-4 py-2">
-            <span className="font-black text-orchid text-xs uppercase tracking-wider">1 Epoch:</span>{' '}
-            <span className="font-black text-whisper-white text-lg">{Math.floor(config.epochDuration * config.slotDuration / 60)}m</span>
-          </div>
-          <div className="bg-malachite/20 border-3 border-chartreuse px-4 py-2">
-            <span className="font-black text-chartreuse text-xs uppercase tracking-wider">1 Round:</span>{' '}
-            <span className="font-black text-whisper-white text-lg">
-              {(() => {
-                const roundSeconds = config.slashingRoundSize * config.slotDuration;
-                const hours = Math.floor(roundSeconds / 3600);
-                if (hours > config.hoursThresholdForDayDisplay) {
-                  const days = Math.floor(hours / config.hoursThresholdForDayDisplay);
-                  const remainingHours = hours % config.hoursThresholdForDayDisplay;
-                  return `${days}d ${remainingHours}h`;
-                }
-                return `${hours}h`;
-              })()}
-            </span>
-          </div>
-        </div>
-
         <div className="space-y-3">
           {timeline.map((phase) => {
             const isCurrent = phase.status === 'current';
