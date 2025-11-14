@@ -53,7 +53,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
     };
     const getBackgroundStyle = () => {
         if (slashing.isVetoed)
-            return 'bg-aubergine';
+            return 'bg-lapis';
         if (!isActionable)
             return 'bg-malachite/20';
         if (slashing.status === 'quorum-reached')
@@ -147,16 +147,16 @@ export function RoundCard({ slashing }: RoundCardProps) {
                     </div>);
               })()}
 
-              {slashing.isVetoed ? (<div className="flex items-center gap-3 bg-brand-black border-3 border-orchid p-3">
-                  <svg className="w-6 h-6 text-orchid stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              {slashing.isVetoed ? (<div className="flex items-center gap-3 bg-brand-black border-3 border-aqua p-3">
+                  <svg className="w-6 h-6 text-aqua stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M6 18L18 6M6 6l12 12"/>
                   </svg>
-                  <div className="text-orchid font-black uppercase text-sm">VETOED</div>
-                </div>) : showVetoButton ? (<div className="flex items-center gap-3 bg-brand-black border-3 border-chartreuse p-3">
-                  <svg className="w-6 h-6 text-chartreuse stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <div className="text-aqua font-black uppercase text-sm">VETOED</div>
+                </div>) : showVetoButton ? (<div className="flex items-center gap-3 bg-brand-black border-3 border-aqua p-3">
+                  <svg className="w-6 h-6 text-aqua stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
                   </svg>
-                  <div className="text-chartreuse font-black uppercase text-sm">VETO AVAILABLE NOW</div>
+                  <div className="text-aqua font-black uppercase text-sm">VETO AVAILABLE NOW</div>
                 </div>) : null}
             </div>);
           })()}
@@ -215,8 +215,8 @@ export function RoundCard({ slashing }: RoundCardProps) {
 
           
           <div className="grid grid-cols-2 gap-4 text-sm pt-4 border-t-3 border-brand-black">
-            <div className="bg-aubergine border-3 border-orchid px-4 py-3">
-              <div className="text-orchid font-black uppercase text-xs mb-1">Vote Count</div>
+            <div className="bg-malachite border-3 border-chartreuse px-4 py-3">
+              <div className="text-chartreuse font-black uppercase text-xs mb-1">Vote Count</div>
               <div className="text-whisper-white font-black text-xl">
                 {slashing.voteCount.toString()}{config ? `/${config.quorum}` : ''}
               </div>
