@@ -1,4 +1,5 @@
 import { Routes, Route } from 'react-router-dom';
+import { useMemo } from 'react';
 import { Dashboard } from './components/Dashboard';
 import { useSlashingMonitor } from './hooks/useSlashingMonitor';
 import type { SlashingMonitorConfig } from './types/slashing';
@@ -56,7 +57,8 @@ const createConfig = (isTestnet: boolean): SlashingMonitorConfig => {
 };
 
 function MonitorPage({ isTestnet }: { isTestnet: boolean }) {
-    const config = createConfig(isTestnet);
+    // Memoize config to prevent re-creation on every render
+    const config = useMemo(() => createConfig(isTestnet), [isTestnet]);
     useSlashingMonitor(config);
 
     return (
