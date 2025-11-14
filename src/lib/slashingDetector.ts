@@ -219,7 +219,12 @@ export class SlashingDetector {
                 status === 'executed';
             if (!shouldComputeDetails) {
                 if (roundInfo.voteCount > 0n) {
-                    simpleRounds.push(detected);
+                    const slashOffset = BigInt(this.config.slashOffsetInRounds);
+                    const votingRoundForThisRound = round + slashOffset;
+                    const isVotingWindowStillOpen = currentRound <= votingRoundForThisRound;
+                    if (isVotingWindowStillOpen) {
+                        simpleRounds.push(detected);
+                    }
                 }
                 continue;
             }

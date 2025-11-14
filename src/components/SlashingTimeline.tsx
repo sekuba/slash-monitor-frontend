@@ -102,7 +102,7 @@ export function SlashingTimeline() {
             <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
           </svg>
         </div>
-        Epoch Progress
+        Slashing Timeline
       </h2>
 
       <div className="bg-brand-black border-5 border-whisper-white p-6 shadow-brutal">
@@ -144,7 +144,7 @@ export function SlashingTimeline() {
                         {phase.endSlot.toString()}
                       </div>
                       <div>
-                        <span className="opacity-75">Epochs:</span> {phase.targetEpochStart.toString()}{' '}
+                        <span className="opacity-75">Target Epochs:</span> {phase.targetEpochStart.toString()}{' '}
                         → {phase.targetEpochEnd.toString()}
                       </div>
                     </div>
@@ -284,7 +284,7 @@ export function SlashingTimeline() {
               </div>
             </div>
 
-            
+
             <div className="bg-brand-black/50 border-3 border-chartreuse/50 p-4 mb-6">
               <div className="flex items-start gap-3">
                 <div className="bg-chartreuse/20 border-2 border-chartreuse p-1.5 flex-shrink-0">
@@ -303,93 +303,9 @@ export function SlashingTimeline() {
               </div>
             </div>
 
-            
-            <div className="space-y-4">
-              
-              {firstGroup1Round <= lastGroup1Round && lastGroup1Round >= 0n && (<div className="bg-lapis border-3 border-aqua p-4">
-                  <div className="flex items-start gap-3 mb-3">
-                    <div className="bg-aqua border-2 border-brand-black px-2 py-1 text-brand-black text-xs font-black uppercase flex-shrink-0">
-                      Group 1
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="text-aqua font-black text-sm uppercase mb-1">Pre-Pause Rounds</h4>
-                      <p className="text-whisper-white text-xs font-bold leading-relaxed">
-                        Voted on <span className="text-aqua font-black">before</span> the pause started but <span className="text-aqua font-black">protected from slashing</span> thanks to the execution delay.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t-2 border-aqua/30">
-                    <div>
-                      <div className="text-aqua/70 text-xs font-bold uppercase mb-1">Voting Rounds</div>
-                      <div className="text-whisper-white text-sm font-black">
-                        {firstGroup1Round > 0n ? firstGroup1Round.toString() : '0'} → {lastGroup1Round.toString()}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-aqua/70 text-xs font-bold uppercase mb-1">Status</div>
-                      <div className="text-aqua text-sm font-black">PROTECTED</div>
-                    </div>
-                  </div>
-                </div>)}
 
-              
-              {firstGroup2Round <= lastGroup2Round && lastGroup2Round >= 0n && (<div className="bg-lapis border-3 border-aqua p-4">
-                  <div className="flex items-start gap-3 mb-3">
-                    <div className="bg-aqua border-2 border-brand-black px-2 py-1 text-brand-black text-xs font-black uppercase flex-shrink-0">
-                      Group 2
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="text-aqua font-black text-sm uppercase mb-1">Full-Pause Rounds</h4>
-                      <p className="text-whisper-white text-xs font-bold leading-relaxed">
-                        Voted on <span className="text-aqua font-black">during</span> the pause, execution delay finishes during the pause.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t-2 border-aqua/30">
-                    <div>
-                      <div className="text-aqua/70 text-xs font-bold uppercase mb-1">Voting Rounds</div>
-                      <div className="text-whisper-white text-sm font-black">
-                        {firstGroup2Round.toString()} → {lastGroup2Round.toString()}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-aqua/70 text-xs font-bold uppercase mb-1">Status</div>
-                      <div className="text-aqua text-sm font-black">PROTECTED</div>
-                    </div>
-                  </div>
-                </div>)}
-
-              
-              {firstGroup3Round <= lastGroup3Round && firstGroup3Round < roundWhenReEnabled && (<div className="bg-oxblood border-3 border-vermillion p-4">
-                  <div className="flex items-start gap-3 mb-3">
-                    <div className="bg-vermillion border-2 border-brand-black px-2 py-1 text-brand-black text-xs font-black uppercase flex-shrink-0">
-                      Group 3
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="text-vermillion font-black text-sm uppercase mb-1">Post-Pause Executable Rounds</h4>
-                      <p className="text-whisper-white text-xs font-bold leading-relaxed">
-                        Voted on <span className="text-vermillion font-black">late in the pause,</span> execution delay finishes <span className="text-vermillion font-black">after</span> pause ends. <span className="text-vermillion font-black">CAN be slashed!</span>
-                      </p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t-2 border-vermillion/30">
-                    <div>
-                      <div className="text-vermillion/70 text-xs font-bold uppercase mb-1">Voting Rounds</div>
-                      <div className="text-whisper-white text-sm font-black">
-                        {firstGroup3Round.toString()} → {lastGroup3Round.toString()}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-vermillion/70 text-xs font-bold uppercase mb-1">Status</div>
-                      <div className="text-vermillion text-sm font-black">SLASHABLE</div>
-                    </div>
-                  </div>
-                </div>)}
-            </div>
-
-            
-            <div className="mt-6 bg-chartreuse border-5 border-brand-black p-6 text-center">
-              <div className="text-brand-black text-sm font-black uppercase mb-3 tracking-wider">Total Blocked Range</div>
+            <div className="bg-chartreuse border-5 border-brand-black p-6 text-center">
+              <div className="text-brand-black text-sm font-black uppercase mb-3 tracking-wider">Total Protected Range</div>
               <div className="space-y-2">
                 <div className="text-brand-black text-2xl font-black">
                   Rounds {firstGroup1Round > 0n ? firstGroup1Round.toString() : '0'} → {lastGroup2Round.toString()}
