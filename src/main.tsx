@@ -1,16 +1,13 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
 import { App } from './App';
 import { NetworkProvider } from './NetworkContext';
 import './index.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <BrowserRouter>
-      <NetworkProvider>
-        <App />
-      </NetworkProvider>
-    </BrowserRouter>
+    <NetworkProvider>
+      <App />
+    </NetworkProvider>
   </React.StrictMode>
 );
