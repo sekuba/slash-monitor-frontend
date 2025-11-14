@@ -202,11 +202,7 @@ export function SlashingTimeline() {
             const slotWhenPauseStarted = slotWhenReEnabled - BigInt(Math.floor(Number(slashingDisableDuration) / config.slotDuration));
             const roundWhenPauseStarted = slotWhenPauseStarted / roundSize;
             const firstGroup1Round = roundWhenPauseStarted - executionDelay;
-            const lastGroup1Round = roundWhenPauseStarted - 1n;
-            const firstGroup2Round = roundWhenPauseStarted;
             const lastGroup2Round = roundWhenReEnabled - executionDelay - 2n;
-            const firstGroup3Round = lastGroup2Round + 1n;
-            const lastGroup3Round = roundWhenReEnabled - 1n;
             const slashOffset = BigInt(config.slashOffsetInRounds);
             const roundSizeInEpochs = BigInt(config.slashingRoundSizeInEpochs);
             const firstBlockedTargetEpoch = (firstGroup1Round - slashOffset) * roundSizeInEpochs;
