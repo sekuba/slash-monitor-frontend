@@ -42,11 +42,11 @@ export function getStatusColor(status: RoundStatus): string {
         case 'quorum-reached':
             return 'bg-lapis text-aqua border-5 border-aqua shadow-brutal-aqua';
         case 'in-veto-window':
-            return 'bg-malachite text-chartreuse border-5 border-chartreuse shadow-brutal-chartreuse';
+            return 'bg-oxblood text-vermillion border-5 border-vermillion shadow-brutal-vermillion';
         case 'executable':
             return 'bg-oxblood text-vermillion border-5 border-vermillion shadow-brutal-vermillion';
         case 'executed':
-            return 'bg-aubergine/50 text-whisper-white border-5 border-brand-black shadow-brutal';
+            return 'bg-oxblood/50 text-vermillion border-5 border-vermillion/50 shadow-brutal';
         case 'expired':
             return 'bg-malachite/30 text-whisper-white/60 border-5 border-brand-black shadow-brutal';
         case 'voting':

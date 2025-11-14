@@ -1,18 +1,39 @@
 import { useSlashingStore } from '@/store/slashingStore';
-import { formatEther, formatNumber } from '@/lib/utils';
+import { formatEther, formatNumber, formatTimeRemaining } from '@/lib/utils';
 export function StatsPanel() {
-    const { stats, currentEpoch } = useSlashingStore();
+    const { stats, config } = useSlashingStore();
+
+    const clockIcon = (<svg className="w-7 h-7 stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>);
+
     const statCards = [
         {
+            label: 'SLOT',
+            value: config ? formatTimeRemaining(config.slotDuration) : '-',
+            bgColor: 'bg-malachite',
+            textColor: 'text-chartreuse',
+            borderColor: 'border-chartreuse',
+            shadowColor: 'shadow-brutal-chartreuse',
+            icon: clockIcon,
+        },
+        {
+            label: 'ROUND',
+            value: config ? formatTimeRemaining(config.slashingRoundSize * config.slotDuration) : '-',
+            bgColor: 'bg-malachite',
+            textColor: 'text-chartreuse',
+            borderColor: 'border-chartreuse',
+            shadowColor: 'shadow-brutal-chartreuse',
+            icon: clockIcon,
+        },
+        {
             label: 'EPOCH',
-            value: currentEpoch?.toString() ?? '-',
-            bgColor: 'bg-lapis',
-            textColor: 'text-aqua',
-            borderColor: 'border-aqua',
-            shadowColor: 'shadow-brutal-aqua',
-            icon: (<svg className="w-7 h-7 stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-        </svg>),
+            value: config ? formatTimeRemaining(config.epochDuration * config.slotDuration) : '-',
+            bgColor: 'bg-malachite',
+            textColor: 'text-chartreuse',
+            borderColor: 'border-chartreuse',
+            shadowColor: 'shadow-brutal-chartreuse',
+            icon: clockIcon,
         },
         {
             label: 'ACTIVE',
@@ -28,10 +49,10 @@ export function StatsPanel() {
         {
             label: 'VETOED',
             value: stats.vetoedPayloads,
-            bgColor: 'bg-aubergine',
-            textColor: 'text-orchid',
-            borderColor: 'border-orchid',
-            shadowColor: 'shadow-brutal-orchid',
+            bgColor: 'bg-lapis',
+            textColor: 'text-aqua',
+            borderColor: 'border-aqua',
+            shadowColor: 'shadow-brutal-aqua',
             icon: (<svg className="w-7 h-7 stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
         </svg>),
@@ -39,10 +60,10 @@ export function StatsPanel() {
         {
             label: 'EXECUTED',
             value: stats.executedRounds,
-            bgColor: 'bg-malachite',
-            textColor: 'text-chartreuse',
-            borderColor: 'border-chartreuse',
-            shadowColor: 'shadow-brutal-chartreuse',
+            bgColor: 'bg-oxblood',
+            textColor: 'text-vermillion',
+            borderColor: 'border-vermillion',
+            shadowColor: 'shadow-brutal-vermillion',
             icon: (<svg className="w-7 h-7 stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
         </svg>),
@@ -50,10 +71,10 @@ export function StatsPanel() {
         {
             label: 'SEQUENCERS HIT',
             value: stats.totalValidatorsSlashed,
-            bgColor: 'bg-oxblood/70',
+            bgColor: 'bg-oxblood',
             textColor: 'text-vermillion',
-            borderColor: 'border-vermillion/70',
-            shadowColor: 'shadow-brutal',
+            borderColor: 'border-vermillion',
+            shadowColor: 'shadow-brutal-vermillion',
             icon: (<svg className="w-7 h-7 stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
         </svg>),
@@ -70,7 +91,7 @@ export function StatsPanel() {
         </svg>),
         },
     ];
-    return (<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6 mb-8">
+    return (<div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8">
       {statCards.map((stat) => (<div key={stat.label} className={`${stat.bgColor} ${stat.borderColor} border-5 ${stat.shadowColor} p-5 transition-transform hover:-translate-y-1 hover:translate-x-1 hover:shadow-brutal-lg`}>
           <div className="flex items-center justify-between mb-3">
             <span className={`text-xs font-black uppercase tracking-wider ${stat.textColor}`}>

@@ -219,12 +219,12 @@ export const DebugView: React.FC = () => {
                       {slashing.status.toUpperCase().replace(/-/g, ' ')}
                     </span>
                     {slashing.isVetoed && (
-                      <span className="px-3 py-1 border-3 border-orchid bg-aubergine text-orchid text-xs font-black">
+                      <span className="px-3 py-1 border-3 border-aqua bg-lapis text-aqua text-xs font-black">
                         VETOED
                       </span>
                     )}
                     {slashing.isExecuted && (
-                      <span className="px-3 py-1 border-3 border-chartreuse bg-malachite text-chartreuse text-xs font-black">
+                      <span className="px-3 py-1 border-3 border-vermillion bg-oxblood text-vermillion text-xs font-black">
                         EXECUTED
                       </span>
                     )}
@@ -497,15 +497,15 @@ const getStatusStyles = (status: string): string => {
     case 'voting':
       return 'bg-lapis border-aqua text-aqua';
     case 'quorum-reached':
-      return 'bg-aubergine border-orchid text-orchid';
+      return 'bg-lapis border-aqua text-aqua';
     case 'in-veto-window':
       return 'bg-oxblood border-vermillion text-vermillion animate-pulse';
     case 'executable':
-      return 'bg-malachite border-chartreuse text-chartreuse';
+      return 'bg-oxblood border-vermillion text-vermillion';
     case 'executed':
-      return 'bg-brand-black border-whisper-white/30 text-whisper-white/60';
+      return 'bg-oxblood/50 border-vermillion/50 text-vermillion';
     case 'expired':
-      return 'bg-oxblood border-vermillion/50 text-vermillion/50';
+      return 'bg-malachite/30 border-brand-black text-whisper-white/60';
     default:
       return 'bg-brand-black border-whisper-white text-whisper-white';
   }
