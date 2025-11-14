@@ -1,15 +1,15 @@
 import { useSlashingStore } from '@/store/slashingStore';
 import { formatEther, formatNumber } from '@/lib/utils';
 export function StatsPanel() {
-    const { stats, currentEpoch, config } = useSlashingStore();
+    const { stats, currentEpoch } = useSlashingStore();
     const statCards = [
         {
             label: 'EPOCH',
             value: currentEpoch?.toString() ?? '-',
-            bgColor: 'bg-aubergine',
-            textColor: 'text-orchid',
-            borderColor: 'border-orchid',
-            shadowColor: 'shadow-brutal-orchid',
+            bgColor: 'bg-lapis',
+            textColor: 'text-aqua',
+            borderColor: 'border-aqua',
+            shadowColor: 'shadow-brutal-aqua',
             icon: (<svg className="w-7 h-7 stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
         </svg>),
@@ -28,10 +28,10 @@ export function StatsPanel() {
         {
             label: 'VETOED',
             value: stats.vetoedPayloads,
-            bgColor: 'bg-lapis',
-            textColor: 'text-aqua',
-            borderColor: 'border-aqua',
-            shadowColor: 'shadow-brutal-aqua',
+            bgColor: 'bg-aubergine',
+            textColor: 'text-orchid',
+            borderColor: 'border-orchid',
+            shadowColor: 'shadow-brutal-orchid',
             icon: (<svg className="w-7 h-7 stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
         </svg>),
@@ -39,10 +39,10 @@ export function StatsPanel() {
         {
             label: 'EXECUTED',
             value: stats.executedRounds,
-            bgColor: 'bg-oxblood',
-            textColor: 'text-vermillion',
-            borderColor: 'border-vermillion',
-            shadowColor: 'shadow-brutal-vermillion',
+            bgColor: 'bg-malachite',
+            textColor: 'text-chartreuse',
+            borderColor: 'border-chartreuse',
+            shadowColor: 'shadow-brutal-chartreuse',
             icon: (<svg className="w-7 h-7 stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
         </svg>),
@@ -69,49 +69,6 @@ export function StatsPanel() {
           <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
         </svg>),
         },
-        ...(config ? [
-            {
-                label: '1 SLOT',
-                value: `${config.slotDuration}s`,
-                bgColor: 'bg-malachite/20',
-                textColor: 'text-chartreuse',
-                borderColor: 'border-chartreuse',
-                shadowColor: 'shadow-brutal',
-                icon: (<svg className="w-7 h-7 stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>),
-            },
-            {
-                label: '1 EPOCH',
-                value: `${Math.floor(config.epochDuration * config.slotDuration / 60)}m`,
-                bgColor: 'bg-aubergine/20',
-                textColor: 'text-orchid',
-                borderColor: 'border-orchid',
-                shadowColor: 'shadow-brutal',
-                icon: (<svg className="w-7 h-7 stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>),
-            },
-            {
-                label: '1 ROUND',
-                value: (() => {
-                    const roundSeconds = config.slashingRoundSize * config.slotDuration;
-                    const hours = Math.floor(roundSeconds / 3600);
-                    if (hours >= 24) {
-                        const days = Math.floor(hours / 24);
-                        return `${days}d`;
-                    }
-                    return `${hours}h`;
-                })(),
-                bgColor: 'bg-malachite/20',
-                textColor: 'text-chartreuse',
-                borderColor: 'border-chartreuse',
-                shadowColor: 'shadow-brutal',
-                icon: (<svg className="w-7 h-7 stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-            </svg>),
-            },
-        ] : []),
     ];
     return (<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6 mb-8">
       {statCards.map((stat) => (<div key={stat.label} className={`${stat.bgColor} ${stat.borderColor} border-5 ${stat.shadowColor} p-5 transition-transform hover:-translate-y-1 hover:translate-x-1 hover:shadow-brutal-lg`}>
