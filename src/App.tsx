@@ -48,8 +48,6 @@ const createConfig = (isTestnet: boolean): SlashingMonitorConfig => {
         realtimeCountdownInterval: Number(import.meta.env.VITE_REALTIME_COUNTDOWN_INTERVAL) || 1000,
         l1RoundCacheTTL: Number(import.meta.env.VITE_L1_ROUND_CACHE_TTL) || 120000,
         detailsCacheTTL: Number(import.meta.env.VITE_DETAILS_CACHE_TTL) || 300000,
-        maxExecutedRoundsToShow: Number(import.meta.env.VITE_MAX_EXECUTED_ROUNDS_TO_SHOW) || 10,
-        maxRoundsToScanForHistory: Number(import.meta.env.VITE_MAX_ROUNDS_TO_SCAN_FOR_HISTORY) || 20,
         copyFeedbackDuration: Number(import.meta.env.VITE_COPY_FEEDBACK_DURATION) || 2000,
         hoursThresholdForDayDisplay: Number(import.meta.env.VITE_HOURS_THRESHOLD_FOR_DAY_DISPLAY) || 24,
         consoleLogProbability: Number(import.meta.env.VITE_CONSOLE_LOG_PROBABILITY) || 0.2,

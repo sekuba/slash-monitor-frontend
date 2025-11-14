@@ -175,7 +175,6 @@ export class SlashingDetector {
         const executionDelay = BigInt(this.config.executionDelayInRounds);
         const lifetime = BigInt(this.config.lifetimeInRounds);
         const slashingPeriodSize = executionDelay + lifetime + 1n;
-        const slashingPeriodStart = currentRound - slashingPeriodSize + 1n;
         console.log(`[Detection] Scanning rounds: current=${currentRound}, period size=${slashingPeriodSize}`);
         const roundsToCheck: bigint[] = [];
         const earlyWarningStart = currentRound - executionDelay + 1n;
@@ -325,123 +324,7 @@ export class SlashingDetector {
             ...simpleRounds,
             ...Array.from(roundsWithDetails.values()),
         ];
-        const maxExecutedToShow = this.config.maxExecutedRoundsToShow;
-        const maxRoundsToScanForExecuted = this.config.maxRoundsToScanForHistory;
-        const executedScanStart = Math.max(0, Number(slashingPeriodStart) - maxRoundsToScanForExecuted);
-        const executedScanEnd = slashingPeriodStart - 1n;
-        if (executedScanEnd >= 0n && executedScanStart < Number(executedScanEnd)) {
-            const executedRoundsToCheck: bigint[] = [];
-            for (let round = executedScanEnd; round >= BigInt(executedScanStart); round--) {
-                executedRoundsToCheck.push(round);
-            }
-            const executedRoundInfoMap = await this.l1Monitor.getRounds(executedRoundsToCheck);
-            const executedRoundsNeedingDetails: Array<{
-                round: bigint;
-                roundInfo: RoundInfo;
-            }> = [];
-            for (const round of executedRoundsToCheck) {
-                if (executedRoundsNeedingDetails.length >= maxExecutedToShow)
-                    break;
-                const roundInfo = executedRoundInfoMap.get(round);
-                if (roundInfo && roundInfo.isExecuted && roundInfo.voteCount > 0n) {
-                    const cachedDetails = this.getCachedDetails(round, roundInfo.voteCount);
-                    if (cachedDetails && cachedDetails.slashActions.length > 0) {
-                        const executableSlot = this.calculateExecutableSlot(round);
-                        const expirySlot = this.calculateExpirySlot(round);
-                        const secondsUntilExecutable = this.calculateSecondsUntilSlot(executableSlot, currentSlot);
-                        const secondsUntilExpires = this.calculateSecondsUntilSlot(expirySlot, currentSlot);
-                        const totalSlashAmount = cachedDetails.slashActions.reduce((sum, action) => sum + action.slashAmount, 0n);
-                        const targetEpochs = this.getTargetEpochs(round);
-                        validDetections.push({
-                            round,
-                            status: 'executed' as RoundStatus,
-                            voteCount: roundInfo.voteCount,
-                            isExecuted: true,
-                            isVetoed: cachedDetails.isVetoed,
-                            committees: cachedDetails.committees,
-                            slashActions: cachedDetails.slashActions,
-                            payloadAddress: cachedDetails.payloadAddress,
-                            slotWhenExecutable: executableSlot,
-                            slotWhenExpires: expirySlot,
-                            secondsUntilExecutable,
-                            secondsUntilExpires,
-                            lastUpdatedTimestamp: Date.now(),
-                            targetEpochs,
-                            totalSlashAmount,
-                            affectedValidatorCount: cachedDetails.slashActions.length,
-                        });
-                    }
-                    else {
-                        executedRoundsNeedingDetails.push({ round, roundInfo });
-                    }
-                }
-            }
-            if (executedRoundsNeedingDetails.length > 0) {
-                console.log(`[Detection] Batch fetching details for ${executedRoundsNeedingDetails.length} historical executed rounds`);
-                try {
-                    const executedCommittees = await this.l1Monitor.batchGetSlashTargetCommittees(executedRoundsNeedingDetails.map(r => r.round));
-                    const executedRoundsWithCommittees = executedRoundsNeedingDetails.map((r, i) => ({
-                        round: r.round,
-                        committees: executedCommittees[i],
-                    }));
-                    const executedTallies = await this.l1Monitor.batchGetTally(executedRoundsWithCommittees);
-                    const executedRoundsWithActions = executedRoundsNeedingDetails
-                        .map((r, i) => ({
-                        roundData: r,
-                        committees: executedCommittees[i],
-                        slashActions: executedTallies[i],
-                    }))
-                        .filter(item => item.slashActions.length > 0);
-                    if (executedRoundsWithActions.length > 0) {
-                        const executedPayloadAndVetoResults = await this.l1Monitor.batchGetPayloadAddressesAndVetoStatusOptimized(executedRoundsWithActions.map(item => ({
-                            round: item.roundData.round,
-                            actions: item.slashActions,
-                        })));
-                        executedRoundsWithActions.forEach((item, resultIndex) => {
-                            const { roundData, committees, slashActions } = item;
-                            const { round, roundInfo } = roundData;
-                            const { payloadAddress, isVetoed } = executedPayloadAndVetoResults[resultIndex];
-                            this.detailsCache.set(round, {
-                                voteCount: roundInfo.voteCount,
-                                committees,
-                                slashActions,
-                                payloadAddress,
-                                isVetoed,
-                                isExecuted: true,
-                            }, this.mutableTTL);
-                            const executableSlot = this.calculateExecutableSlot(round);
-                            const expirySlot = this.calculateExpirySlot(round);
-                            const secondsUntilExecutable = this.calculateSecondsUntilSlot(executableSlot, currentSlot);
-                            const secondsUntilExpires = this.calculateSecondsUntilSlot(expirySlot, currentSlot);
-                            const totalSlashAmount = slashActions.reduce((sum, action) => sum + action.slashAmount, 0n);
-                            const targetEpochs = this.getTargetEpochs(round);
-                            validDetections.push({
-                                round,
-                                status: 'executed' as RoundStatus,
-                                voteCount: roundInfo.voteCount,
-                                isExecuted: true,
-                                isVetoed,
-                                committees,
-                                slashActions,
-                                payloadAddress,
-                                slotWhenExecutable: executableSlot,
-                                slotWhenExpires: expirySlot,
-                                secondsUntilExecutable,
-                                secondsUntilExpires,
-                                lastUpdatedTimestamp: Date.now(),
-                                targetEpochs,
-                                totalSlashAmount,
-                                affectedValidatorCount: slashActions.length,
-                            });
-                        });
-                        console.log(`[Detection] Successfully processed ${executedRoundsWithActions.length} historical executed rounds`);
-                    }
-                }
-                catch (error) {
-                    console.error('Error batch fetching historical round details:', error);
-                }
-            }
-        }
+
         return validDetections.sort((a, b) => Number(b.round - a.round));
     }
 }

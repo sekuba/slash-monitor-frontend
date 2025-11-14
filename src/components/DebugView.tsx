@@ -65,8 +65,6 @@ export const DebugView: React.FC = () => {
           <ConfigItem label="Countdown Interval" value={`${config.realtimeCountdownInterval}ms`} />
           <ConfigItem label="Round Cache TTL" value={`${config.l1RoundCacheTTL}ms`} />
           <ConfigItem label="Details Cache TTL" value={`${config.detailsCacheTTL}ms`} />
-          <ConfigItem label="Max Executed Rounds" value={config.maxExecutedRoundsToShow.toString()} />
-          <ConfigItem label="Max Rounds to Scan" value={config.maxRoundsToScanForHistory.toString()} />
         </div>
       </section>
 
