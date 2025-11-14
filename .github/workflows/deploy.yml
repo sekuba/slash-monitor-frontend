@@ -37,6 +37,10 @@ jobs:
           VITE_TALLY_PROPOSER_ADDRESS: ${{ secrets.VITE_TALLY_PROPOSER_ADDRESS }}
           VITE_SLASHER_ADDRESS: ${{ secrets.VITE_SLASHER_ADDRESS }}
           VITE_ROLLUP_ADDRESS: ${{ secrets.VITE_ROLLUP_ADDRESS }}
+          VITE_TESTNET_L1_RPC_URL: ${{ secrets.VITE_TESTNET_L1_RPC_URL }}
+          VITE_TESTNET_TALLY_PROPOSER_ADDRESS: ${{ secrets.VITE_TESTNET_TALLY_PROPOSER_ADDRESS }}
+          VITE_TESTNET_SLASHER_ADDRESS: ${{ secrets.VITE_TESTNET_SLASHER_ADDRESS }}
+          VITE_TESTNET_ROLLUP_ADDRESS: ${{ secrets.VITE_TESTNET_ROLLUP_ADDRESS }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

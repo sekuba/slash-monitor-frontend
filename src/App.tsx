@@ -1,4 +1,3 @@
-import { Routes, Route } from 'react-router-dom';
 import { useMemo } from 'react';
 import { Dashboard } from './components/Dashboard';
 import { useSlashingMonitor } from './hooks/useSlashingMonitor';
@@ -54,7 +53,11 @@ const createConfig = (isTestnet: boolean): SlashingMonitorConfig => {
     };
 };
 
-function MonitorPage({ isTestnet }: { isTestnet: boolean }) {
+export function App() {
+    // Determine network from URL query parameter
+    const params = new URLSearchParams(window.location.search);
+    const isTestnet = params.get('network') === 'testnet';
+
     // Memoize config to prevent re-creation on every render
     const config = useMemo(() => createConfig(isTestnet), [isTestnet]);
     useSlashingMonitor(config);
@@ -63,14 +66,5 @@ function MonitorPage({ isTestnet }: { isTestnet: boolean }) {
         <div className="min-h-screen bg-gray-950 text-white">
             <Dashboard />
         </div>
-    );
-}
-
-export function App() {
-    return (
-        <Routes>
-            <Route path="/" element={<MonitorPage isTestnet={false} />} />
-            <Route path="/testnet" element={<MonitorPage isTestnet={true} />} />
-        </Routes>
     );
 }

@@ -1,5 +1,4 @@
 import { createContext, useContext, useState, ReactNode, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
 
 export type NetworkType = 'mainnet' | 'testnet';
 
@@ -12,11 +11,9 @@ interface NetworkContextType {
 const NetworkContext = createContext<NetworkContextType | undefined>(undefined);
 
 export function NetworkProvider({ children }: { children: ReactNode }) {
-  const navigate = useNavigate();
-  const location = useLocation();
-
-  // Determine initial network based on current path
-  const initialNetwork: NetworkType = location.pathname.startsWith('/testnet') ? 'testnet' : 'mainnet';
+  // Determine initial network based on query parameter
+  const params = new URLSearchParams(window.location.search);
+  const initialNetwork: NetworkType = params.get('network') === 'testnet' ? 'testnet' : 'mainnet';
   const [network, setNetwork] = useState<NetworkType>(initialNetwork);
 
   const clearAllCaches = useCallback(() => {
@@ -41,13 +38,12 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
     // Clear all caches before switching
     clearAllCaches();
 
-    // Navigate to the appropriate route
-    const newPath = newNetwork === 'testnet' ? '/testnet' : '/';
-    navigate(newPath);
+    // Navigate to the appropriate URL with query parameter
+    const newUrl = newNetwork === 'testnet' ? '/?network=testnet' : '/';
 
     // Reload the page to ensure clean state
-    window.location.href = newPath;
-  }, [network, navigate, clearAllCaches]);
+    window.location.href = newUrl;
+  }, [network, clearAllCaches]);
 
   return (
     <NetworkContext.Provider value={{ network, toggleNetwork, clearAllCaches }}>
