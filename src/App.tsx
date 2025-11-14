@@ -11,7 +11,12 @@ const parseRpcUrls = (urlString: string): string | string[] => {
 };
 
 const createConfig = (isTestnet: boolean): SlashingMonitorConfig => {
-    return {
+    console.log('=== Creating Config ===');
+    console.log('isTestnet:', isTestnet);
+    console.log('VITE_TESTNET_L1_RPC_URL:', import.meta.env.VITE_TESTNET_L1_RPC_URL);
+    console.log('VITE_L1_RPC_URL:', import.meta.env.VITE_L1_RPC_URL);
+
+    const config = {
         l1RpcUrl: parseRpcUrls(
             isTestnet
                 ? (import.meta.env.VITE_TESTNET_L1_RPC_URL || import.meta.env.VITE_L1_RPC_URL || 'http://localhost:8545')
@@ -52,6 +57,11 @@ const createConfig = (isTestnet: boolean): SlashingMonitorConfig => {
         hoursThresholdForDayDisplay: Number(import.meta.env.VITE_HOURS_THRESHOLD_FOR_DAY_DISPLAY) || 24,
         consoleLogProbability: Number(import.meta.env.VITE_CONSOLE_LOG_PROBABILITY) || 0.2,
     };
+
+    console.log('Final RPC URL:', config.l1RpcUrl);
+    console.log('Final Tally Address:', config.tallySlashingProposerAddress);
+
+    return config;
 };
 
 function MonitorPage({ isTestnet }: { isTestnet: boolean }) {
