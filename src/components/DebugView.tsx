@@ -20,6 +20,17 @@ export const DebugView: React.FC = () => {
     navigator.clipboard.writeText(text);
   };
 
+  const clearAllCache = () => {
+    // Clear all localStorage
+    localStorage.clear();
+
+    console.log('All localStorage cleared. Reloading page to clear in-memory caches...');
+
+    // Reload the page to clear all in-memory caches
+    // (ImmutableAwareCache instances, Zustand store, etc.)
+    window.location.reload();
+  };
+
   if (!config) {
     return (
       <div className="bg-lapis border-5 border-aqua p-8 shadow-brutal-aqua">
@@ -46,6 +57,43 @@ export const DebugView: React.FC = () => {
         </div>
       </div>
 
+      {/* Cache Management */}
+      <section className="bg-oxblood border-5 border-vermillion p-6 shadow-brutal-vermillion">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <svg className="w-7 h-7 text-vermillion stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+            </svg>
+            <h3 className="text-2xl font-black text-vermillion uppercase">Cache Management</h3>
+          </div>
+          <button
+            onClick={clearAllCache}
+            className="bg-brand-black border-5 border-vermillion px-6 py-3 shadow-brutal-vermillion hover:-translate-y-1 hover:translate-x-1 hover:shadow-none transition-all duration-100 cursor-pointer"
+            aria-label="Clear all caches and reload"
+          >
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5 text-vermillion stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+              </svg>
+              <span className="text-sm font-bold uppercase tracking-wider text-vermillion">
+                Clear Cache & Reload
+              </span>
+            </div>
+          </button>
+        </div>
+        <div className="mt-4 bg-brand-black border-3 border-aqua p-3">
+          <p className="text-aqua font-bold uppercase text-sm">
+            This will clear all caches and reload the page:
+          </p>
+          <ul className="mt-2 text-whisper-white text-xs space-y-1 list-disc list-inside">
+            <li>localStorage (persistent browser storage)</li>
+            <li>In-memory round cache (ImmutableAwareCache)</li>
+            <li>In-memory slashing details cache</li>
+            <li>Zustand store (all displayed data)</li>
+          </ul>
+        </div>
+      </section>
+
       {/* Environment Configuration */}
       <section className="bg-malachite border-5 border-chartreuse p-6 shadow-brutal-chartreuse">
         <h3 className="text-2xl font-black mb-5 text-chartreuse uppercase flex items-center gap-3">
@@ -65,8 +113,6 @@ export const DebugView: React.FC = () => {
           <ConfigItem label="Countdown Interval" value={`${config.realtimeCountdownInterval}ms`} />
           <ConfigItem label="Round Cache TTL" value={`${config.l1RoundCacheTTL}ms`} />
           <ConfigItem label="Details Cache TTL" value={`${config.detailsCacheTTL}ms`} />
-          <ConfigItem label="Max Executed Rounds" value={config.maxExecutedRoundsToShow.toString()} />
-          <ConfigItem label="Max Rounds to Scan" value={config.maxRoundsToScanForHistory.toString()} />
         </div>
       </section>
 

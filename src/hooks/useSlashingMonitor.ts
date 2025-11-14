@@ -135,10 +135,23 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
         }
     }, []);
     useEffect(() => {
-        initialize().then(() => {
-            startPolling();
-        });
-        return cleanup;
+        let isMounted = true;
+
+        const initAndPoll = async () => {
+            if (isMounted) {
+                await initialize();
+                if (isMounted) {
+                    startPolling();
+                }
+            }
+        };
+
+        initAndPoll();
+
+        return () => {
+            isMounted = false;
+            cleanup();
+        };
     }, [initialize, startPolling, cleanup]);
     return {
         l1Monitor: l1MonitorRef.current,

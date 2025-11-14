@@ -18,8 +18,6 @@ export interface SlashingMonitorConfig {
     realtimeCountdownInterval: number;
     l1RoundCacheTTL: number;
     detailsCacheTTL: number;
-    maxExecutedRoundsToShow: number;
-    maxRoundsToScanForHistory: number;
     copyFeedbackDuration: number;
     hoursThresholdForDayDisplay: number;
     consoleLogProbability: number;
