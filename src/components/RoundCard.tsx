@@ -8,7 +8,7 @@ interface RoundCardProps {
 export function RoundCard({ slashing }: RoundCardProps) {
     const [isExpanded, setIsExpanded] = useState(false);
     const [currentTime, setCurrentTime] = useState(Date.now());
-    const { offenses, config } = useSlashingStore();
+    const { offenses, config, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, currentSlot } = useSlashingStore();
     const isActionable = isActionableStatus(slashing.status);
     useEffect(() => {
         if (!config)
@@ -25,6 +25,24 @@ export function RoundCard({ slashing }: RoundCardProps) {
         const elapsedSeconds = Math.floor((currentTime - slashing.lastUpdatedTimestamp) / 1000);
         const adjustedSeconds = baseSeconds - elapsedSeconds;
         return Math.max(0, adjustedSeconds);
+    };
+    const isProtectedByGlobalPause = (): boolean => {
+        if (!config || isSlashingEnabled || !slashingDisabledUntil || !slashingDisableDuration || !currentSlot) {
+            return false;
+        }
+        const now = Math.floor(Date.now() / 1000);
+        const disabledUntilSeconds = Number(slashingDisabledUntil);
+        const secondsUntilReEnabled = Math.max(0, disabledUntilSeconds - now);
+        const slotsUntilReEnabled = Math.floor(secondsUntilReEnabled / config.slotDuration);
+        const slotWhenReEnabled = currentSlot + BigInt(slotsUntilReEnabled);
+        const roundSize = BigInt(config.slashingRoundSize);
+        const roundWhenReEnabled = slotWhenReEnabled / roundSize;
+        const executionDelay = BigInt(config.executionDelayInRounds);
+        const slotWhenPauseStarted = slotWhenReEnabled - BigInt(Math.floor(Number(slashingDisableDuration) / config.slotDuration));
+        const roundWhenPauseStarted = slotWhenPauseStarted / roundSize;
+        const firstGroup1Round = roundWhenPauseStarted - executionDelay;
+        const lastGroup2Round = roundWhenReEnabled - executionDelay - 2n;
+        return slashing.round >= firstGroup1Round && slashing.round <= lastGroup2Round;
     };
     const getBorderStyle = () => {
         if (!isActionable)
@@ -83,9 +101,16 @@ export function RoundCard({ slashing }: RoundCardProps) {
           </div>
         </div>
 
-        
+
         {isActionable && (<div className="mt-4 space-y-3">
-            
+
+            {isProtectedByGlobalPause() && (<div className="flex items-center gap-3 bg-brand-black border-3 border-aqua p-3">
+                <svg className="w-6 h-6 text-aqua stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                </svg>
+                <div className="text-aqua font-black uppercase text-sm">PROTECTED BY GLOBAL PAUSE</div>
+              </div>)}
+
             {!slashing.isVetoed && slashing.status === 'quorum-reached' && slashing.secondsUntilExecutable !== undefined && (<>
                 <div className="flex items-center gap-3 bg-brand-black border-3 border-whisper-white p-3 animate-pulse">
                   <svg className="w-6 h-6 text-orchid stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
