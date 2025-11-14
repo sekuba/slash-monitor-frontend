@@ -285,6 +285,25 @@ export function SlashingTimeline() {
             </div>
 
 
+            <div className="bg-brand-black/50 border-3 border-chartreuse/50 p-4 mb-6">
+              <div className="flex items-start gap-3">
+                <div className="bg-chartreuse/20 border-2 border-chartreuse p-1.5 flex-shrink-0">
+                  <svg className="w-5 h-5 text-chartreuse stroke-[2.5]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="square" strokeLinejoin="miter" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <div className="text-chartreuse text-xs font-black uppercase mb-1">The Shift Effect</div>
+                  <p className="text-whisper-white/90 text-xs font-bold leading-relaxed">
+                    Due to the <span className="text-chartreuse">{executionDelay.toString()}-round execution delay</span>, this pause affects rounds with a shift.
+                    Rounds voted on <span className="text-chartreuse">before</span> the pause may still be saved from slashing, while rounds voted on
+                    <span className="text-chartreuse"> late in the pause</span> can be slashed after it ends.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+
             <div className="bg-chartreuse border-5 border-brand-black p-6 text-center">
               <div className="text-brand-black text-sm font-black uppercase mb-3 tracking-wider">Total Protected Range</div>
               <div className="space-y-2">

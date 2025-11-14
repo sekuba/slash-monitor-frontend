@@ -102,17 +102,25 @@ export function RoundCard({ slashing }: RoundCardProps) {
         </div>
 
 
-        {isActionable && (<div className="mt-4 space-y-3">
+        {isActionable && (() => {
+            const isProtected = isProtectedByGlobalPause();
+            const showExecutableTimer = !slashing.isVetoed && !isProtected && slashing.status === 'quorum-reached' && slashing.secondsUntilExecutable !== undefined;
+            const showExpirationTimer = (slashing.status === 'in-veto-window' || slashing.status === 'executable' ||
+                                        (slashing.isVetoed && slashing.status === 'quorum-reached') ||
+                                        (isProtected && slashing.status === 'quorum-reached')) &&
+                                        slashing.secondsUntilExpires !== undefined;
+            const showVetoButton = !slashing.isVetoed && !isProtected;
 
-            {isProtectedByGlobalPause() && (<div className="flex items-center gap-3 bg-brand-black border-3 border-aqua p-3">
-                <svg className="w-6 h-6 text-aqua stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
-                </svg>
-                <div className="text-aqua font-black uppercase text-sm">PROTECTED BY GLOBAL PAUSE</div>
-              </div>)}
+            return (<div className="mt-4 space-y-3">
 
-            {!slashing.isVetoed && slashing.status === 'quorum-reached' && slashing.secondsUntilExecutable !== undefined && (<>
-                <div className="flex items-center gap-3 bg-brand-black border-3 border-whisper-white p-3 animate-pulse">
+              {isProtected && (<div className="flex items-center gap-3 bg-brand-black border-3 border-aqua p-3">
+                  <svg className="w-6 h-6 text-aqua stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                  </svg>
+                  <div className="text-aqua font-black uppercase text-sm">PROTECTED BY GLOBAL PAUSE</div>
+                </div>)}
+
+              {showExecutableTimer && (<div className="flex items-center gap-3 bg-brand-black border-3 border-whisper-white p-3 animate-pulse">
                   <svg className="w-6 h-6 text-orchid stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
                   </svg>
@@ -124,34 +132,34 @@ export function RoundCard({ slashing }: RoundCardProps) {
                       Veto now to prevent execution
                     </div>
                   </div>
-                </div>
-              </>)}
-            
-            {(slashing.status === 'in-veto-window' || slashing.status === 'executable' || (slashing.isVetoed && slashing.status === 'quorum-reached')) &&
-                slashing.secondsUntilExpires !== undefined && (() => {
-                const adjustedSeconds = getAdjustedSecondsRemaining(slashing.secondsUntilExpires) ?? 0;
-                const isExpired = adjustedSeconds === 0;
-                return (<div className={`flex items-center gap-3 bg-brand-black border-3 border-vermillion p-3 ${!isExpired ? 'animate-pulse' : ''}`}>
-                    <svg className="w-6 h-6 text-vermillion stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                    </svg>
-                    <div className="text-vermillion font-black uppercase text-sm">
-                      {isExpired ? 'EXPIRED' : `EXPIRES IN ${formatTimeRemaining(adjustedSeconds)}`}
-                    </div>
-                  </div>);
-            })()}
-            {slashing.isVetoed ? (<div className="flex items-center gap-3 bg-brand-black border-3 border-orchid p-3">
-                <svg className="w-6 h-6 text-orchid stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M6 18L18 6M6 6l12 12"/>
-                </svg>
-                <div className="text-orchid font-black uppercase text-sm">VETOED</div>
-              </div>) : (<div className="flex items-center gap-3 bg-brand-black border-3 border-chartreuse p-3">
-                <svg className="w-6 h-6 text-chartreuse stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                </svg>
-                <div className="text-chartreuse font-black uppercase text-sm">VETO AVAILABLE NOW</div>
-              </div>)}
-          </div>)}
+                </div>)}
+
+              {showExpirationTimer && (() => {
+                  const adjustedSeconds = getAdjustedSecondsRemaining(slashing.secondsUntilExpires) ?? 0;
+                  const isExpired = adjustedSeconds === 0;
+                  return (<div className={`flex items-center gap-3 bg-brand-black border-3 border-vermillion p-3 ${!isExpired ? 'animate-pulse' : ''}`}>
+                      <svg className="w-6 h-6 text-vermillion stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                      </svg>
+                      <div className="text-vermillion font-black uppercase text-sm">
+                        {isExpired ? 'EXPIRED' : `EXPIRES IN ${formatTimeRemaining(adjustedSeconds)}`}
+                      </div>
+                    </div>);
+              })()}
+
+              {slashing.isVetoed ? (<div className="flex items-center gap-3 bg-brand-black border-3 border-orchid p-3">
+                  <svg className="w-6 h-6 text-orchid stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M6 18L18 6M6 6l12 12"/>
+                  </svg>
+                  <div className="text-orchid font-black uppercase text-sm">VETOED</div>
+                </div>) : showVetoButton ? (<div className="flex items-center gap-3 bg-brand-black border-3 border-chartreuse p-3">
+                  <svg className="w-6 h-6 text-chartreuse stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                  </svg>
+                  <div className="text-chartreuse font-black uppercase text-sm">VETO AVAILABLE NOW</div>
+                </div>) : null}
+            </div>);
+          })()}
       </div>
 
       
