@@ -4,6 +4,7 @@ import { formatEther } from 'viem';
 
 export const DebugView: React.FC = () => {
   const [expandedRounds, setExpandedRounds] = useState<Set<string>>(new Set());
+  const [cacheCleared, setCacheCleared] = useState(false);
   const { config, currentRound, currentSlot, currentEpoch, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, activeAttesterCount, entryQueueLength, detectedSlashings, stats } = useSlashingStore();
 
   const toggleRound = (round: string) => {
@@ -18,6 +19,17 @@ export const DebugView: React.FC = () => {
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
+  };
+
+  const clearAllCache = () => {
+    // Clear all localStorage
+    localStorage.clear();
+
+    // Show feedback
+    setCacheCleared(true);
+    setTimeout(() => setCacheCleared(false), 3000);
+
+    console.log('All localStorage cleared. Reload the page to reinitialize.');
   };
 
   if (!config) {
@@ -45,6 +57,39 @@ export const DebugView: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Cache Management */}
+      <section className="bg-oxblood border-5 border-vermillion p-6 shadow-brutal-vermillion">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <svg className="w-7 h-7 text-vermillion stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+            </svg>
+            <h3 className="text-2xl font-black text-vermillion uppercase">Cache Management</h3>
+          </div>
+          <button
+            onClick={clearAllCache}
+            className="bg-brand-black border-5 border-vermillion px-6 py-3 shadow-brutal-vermillion hover:-translate-y-1 hover:translate-x-1 hover:shadow-none transition-all duration-100 cursor-pointer"
+            aria-label="Clear all localStorage cache"
+          >
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5 text-vermillion stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+              </svg>
+              <span className="text-sm font-bold uppercase tracking-wider text-vermillion">
+                {cacheCleared ? 'Cache Cleared!' : 'Clear All Cache'}
+              </span>
+            </div>
+          </button>
+        </div>
+        {cacheCleared && (
+          <div className="mt-4 bg-brand-black border-3 border-chartreuse p-3">
+            <p className="text-chartreuse font-bold uppercase text-sm">
+              ✓ All localStorage cleared. Reload the page to reinitialize.
+            </p>
+          </div>
+        )}
+      </section>
 
       {/* Environment Configuration */}
       <section className="bg-malachite border-5 border-chartreuse p-6 shadow-brutal-chartreuse">
