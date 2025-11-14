@@ -57,65 +57,6 @@ export const DebugView: React.FC = () => {
         </div>
       </div>
 
-      {/* Cache Management */}
-      <section className="bg-oxblood border-5 border-vermillion p-6 shadow-brutal-vermillion">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <svg className="w-7 h-7 text-vermillion stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-            </svg>
-            <h3 className="text-2xl font-black text-vermillion uppercase">Cache Management</h3>
-          </div>
-          <button
-            onClick={clearAllCache}
-            className="bg-brand-black border-5 border-vermillion px-6 py-3 shadow-brutal-vermillion hover:-translate-y-1 hover:translate-x-1 hover:shadow-none transition-all duration-100 cursor-pointer"
-            aria-label="Clear all caches and reload"
-          >
-            <div className="flex items-center gap-2">
-              <svg className="w-5 h-5 text-vermillion stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-              </svg>
-              <span className="text-sm font-bold uppercase tracking-wider text-vermillion">
-                Clear Cache & Reload
-              </span>
-            </div>
-          </button>
-        </div>
-        <div className="mt-4 bg-brand-black border-3 border-aqua p-3">
-          <p className="text-aqua font-bold uppercase text-sm">
-            This will clear all caches and reload the page:
-          </p>
-          <ul className="mt-2 text-whisper-white text-xs space-y-1 list-disc list-inside">
-            <li>localStorage (persistent browser storage)</li>
-            <li>In-memory round cache (ImmutableAwareCache)</li>
-            <li>In-memory slashing details cache</li>
-            <li>Zustand store (all displayed data)</li>
-          </ul>
-        </div>
-      </section>
-
-      {/* Environment Configuration */}
-      <section className="bg-malachite border-5 border-chartreuse p-6 shadow-brutal-chartreuse">
-        <h3 className="text-2xl font-black mb-5 text-chartreuse uppercase flex items-center gap-3">
-          <svg className="w-7 h-7 stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
-            <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-          </svg>
-          Environment Configuration
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <ConfigItem label="L1 RPC URL" value={Array.isArray(config.l1RpcUrl) ? config.l1RpcUrl.join(', ') : config.l1RpcUrl} />
-          <ConfigItem label="Tally Proposer Address" value={config.tallySlashingProposerAddress} copyable />
-          <ConfigItem label="Slasher Address" value={config.slasherAddress} copyable />
-          <ConfigItem label="Rollup Address" value={config.rollupAddress} copyable />
-          <ConfigItem label="Node Admin URL" value={config.nodeAdminUrl || 'Not configured'} />
-          <ConfigItem label="L2 Poll Interval" value={`${config.l2PollInterval}ms`} />
-          <ConfigItem label="Countdown Interval" value={`${config.realtimeCountdownInterval}ms`} />
-          <ConfigItem label="Round Cache TTL" value={`${config.l1RoundCacheTTL}ms`} />
-          <ConfigItem label="Details Cache TTL" value={`${config.detailsCacheTTL}ms`} />
-        </div>
-      </section>
-
       {/* Contract Parameters */}
       <section className="bg-aubergine border-5 border-orchid p-6 shadow-brutal-orchid">
         <h3 className="text-2xl font-black mb-5 text-orchid uppercase flex items-center gap-3">
@@ -172,6 +113,43 @@ export const DebugView: React.FC = () => {
         </div>
       </section>
 
+      {/* Cache Management */}
+      <section className="bg-oxblood border-5 border-vermillion p-6 shadow-brutal-vermillion">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <svg className="w-7 h-7 text-vermillion stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+            </svg>
+            <h3 className="text-2xl font-black text-vermillion uppercase">Cache Management</h3>
+          </div>
+          <button
+            onClick={clearAllCache}
+            className="bg-brand-black border-5 border-vermillion px-6 py-3 shadow-brutal-vermillion hover:-translate-y-1 hover:translate-x-1 hover:shadow-none transition-all duration-100 cursor-pointer"
+            aria-label="Clear all caches and reload"
+          >
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5 text-vermillion stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+              </svg>
+              <span className="text-sm font-bold uppercase tracking-wider text-vermillion">
+                Clear Cache & Reload
+              </span>
+            </div>
+          </button>
+        </div>
+        <div className="mt-4 bg-brand-black border-3 border-aqua p-3">
+          <p className="text-aqua font-bold uppercase text-sm">
+            This will clear all caches and reload the page:
+          </p>
+          <ul className="mt-2 text-whisper-white text-xs space-y-1 list-disc list-inside">
+            <li>localStorage (persistent browser storage)</li>
+            <li>In-memory round cache (ImmutableAwareCache)</li>
+            <li>In-memory slashing details cache</li>
+            <li>Zustand store (all displayed data)</li>
+          </ul>
+        </div>
+      </section>
+
       {/* Aggregated Statistics */}
       <section className="bg-oxblood border-5 border-vermillion p-6 shadow-brutal-vermillion">
         <h3 className="text-2xl font-black mb-5 text-vermillion uppercase flex items-center gap-3">
@@ -187,6 +165,28 @@ export const DebugView: React.FC = () => {
           <StatCard label="Executed" value={stats.executedRounds} color="success" />
           <StatCard label="Sequencers Hit" value={stats.totalValidatorsSlashed} color="warn" />
           <StatCard label="Total Slash" value={`${formatEther(stats.totalSlashAmount)} AZTEC`} color="warn" wide />
+        </div>
+      </section>
+
+      {/* Environment Configuration */}
+      <section className="bg-malachite border-5 border-chartreuse p-6 shadow-brutal-chartreuse">
+        <h3 className="text-2xl font-black mb-5 text-chartreuse uppercase flex items-center gap-3">
+          <svg className="w-7 h-7 stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+            <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+          </svg>
+          Environment Configuration
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <ConfigItem label="L1 RPC URL" value={Array.isArray(config.l1RpcUrl) ? config.l1RpcUrl.join(', ') : config.l1RpcUrl} />
+          <ConfigItem label="Tally Proposer Address" value={config.tallySlashingProposerAddress} copyable />
+          <ConfigItem label="Slasher Address" value={config.slasherAddress} copyable />
+          <ConfigItem label="Rollup Address" value={config.rollupAddress} copyable />
+          <ConfigItem label="Node Admin URL" value={config.nodeAdminUrl || 'Not configured'} />
+          <ConfigItem label="L2 Poll Interval" value={`${config.l2PollInterval}ms`} />
+          <ConfigItem label="Countdown Interval" value={`${config.realtimeCountdownInterval}ms`} />
+          <ConfigItem label="Round Cache TTL" value={`${config.l1RoundCacheTTL}ms`} />
+          <ConfigItem label="Details Cache TTL" value={`${config.detailsCacheTTL}ms`} />
         </div>
       </section>
 
