@@ -1,6 +1,15 @@
 import { useSlashingStore } from '@/store/slashingStore';
+import { useNetwork } from '@/NetworkContext';
+
 export function Header() {
     const { currentRound, config } = useSlashingStore();
+    const { network, toggleNetwork } = useNetwork();
+
+    const isMainnet = network === 'mainnet';
+    const networkBorderClass = isMainnet ? 'border-vermillion' : 'border-aqua';
+    const networkShadowClass = isMainnet ? 'shadow-brutal-vermillion' : 'shadow-brutal-aqua';
+    const networkTextClass = isMainnet ? 'text-vermillion' : 'text-aqua';
+
     return (<header className="bg-brand-black border-b-6 border-chartreuse shadow-brutal-chartreuse">
       <div className="max-w-7xl mx-auto px-4 py-6">
         <div className="flex items-center justify-between">
@@ -28,6 +37,15 @@ export function Header() {
                 <div className="text-xs text-orchid font-bold uppercase tracking-wider">Quorum</div>
                 <div className="text-2xl font-black text-whisper-white">{config.quorum}</div>
               </div>)}
+
+            <button onClick={toggleNetwork} className={`bg-brand-black border-5 ${networkBorderClass} px-4 py-3 ${networkShadowClass} hover:-translate-y-1 hover:translate-x-1 hover:shadow-none transition-all duration-100 cursor-pointer`} aria-label={`Switch to ${isMainnet ? 'Testnet' : 'Mainnet'}`}>
+              <div className="flex items-center gap-2">
+                <div className={`w-3 h-3 rounded-full ${isMainnet ? 'bg-vermillion' : 'bg-aqua'} animate-pulse`}></div>
+                <span className={`text-sm font-bold uppercase tracking-wider ${networkTextClass}`}>
+                  {network}
+                </span>
+              </div>
+            </button>
 
             <a href="https://github.com/sekuba/slashmon" target="_blank" rel="noopener noreferrer" className="bg-brand-black border-5 border-chartreuse p-3 shadow-brutal-chartreuse hover:translate-x-1 hover:translate-y-1 hover:shadow-none transition-all duration-100" aria-label="View on GitHub">
               <svg className="w-8 h-8 text-chartreuse" fill="currentColor" viewBox="0 0 24 24">
