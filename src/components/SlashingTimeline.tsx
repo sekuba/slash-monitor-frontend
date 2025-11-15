@@ -191,24 +191,34 @@ export function SlashingTimeline() {
 
       
       {!isSlashingEnabled && slashingDisabledUntil !== null && slashingDisabledUntil > 0n && slashingDisableDuration !== null && (() => {
+            // Timing calculations
             const now = Math.floor(Date.now() / 1000);
-            const disabledUntilSeconds = Number(slashingDisabledUntil);
+            const pauseEndsAt = Number(slashingDisabledUntil);
+            const pauseStartedAt = pauseEndsAt - Number(slashingDisableDuration);
+            const secondsUntilPauseEnds = Math.max(0, pauseEndsAt - now);
+            const slotsUntilPauseEnds = Math.floor(secondsUntilPauseEnds / config.slotDuration);
+
+            // Slot and round calculations
+            const roundSize = BigInt(config.slashingRoundSize);
+            const pauseDurationInSlots = BigInt(Math.floor(Number(slashingDisableDuration) / config.slotDuration));
+            const slotWhenPauseEnds = currentSlot + BigInt(slotsUntilPauseEnds);
+            const slotWhenPauseStarted = slotWhenPauseEnds - pauseDurationInSlots;
+            const roundWhenPauseEnds = slotWhenPauseEnds / roundSize;
+            const roundWhenPauseStarted = slotWhenPauseStarted / roundSize;
+
+            // Protected round range calculation
+            // First protected: becomes executable when pause starts
+            // Last protected: expires before pause ends
             const executionDelay = BigInt(config.executionDelayInRounds);
             const lifetime = BigInt(config.lifetimeInRounds);
-            const roundSize = BigInt(config.slashingRoundSize);
-            const secondsUntilReEnabled = Math.max(0, disabledUntilSeconds - now);
-            const slotsUntilReEnabled = Math.floor(secondsUntilReEnabled / config.slotDuration);
-            const slotWhenReEnabled = currentSlot + BigInt(slotsUntilReEnabled);
-            const roundWhenReEnabled = slotWhenReEnabled / roundSize;
-            const pauseStartedSeconds = disabledUntilSeconds - Number(slashingDisableDuration);
-            const slotWhenPauseStarted = slotWhenReEnabled - BigInt(Math.floor(Number(slashingDisableDuration) / config.slotDuration));
-            const roundWhenPauseStarted = slotWhenPauseStarted / roundSize;
-            const firstGroup1Round = roundWhenPauseStarted - executionDelay;
-            const lastGroup2Round = roundWhenReEnabled - lifetime - 1n;
+            const firstProtectedRound = roundWhenPauseStarted - executionDelay;
+            const lastProtectedRound = roundWhenPauseEnds - lifetime - 1n;
+
+            // Convert to target epochs (the epochs being voted on)
             const slashOffset = BigInt(config.slashOffsetInRounds);
             const roundSizeInEpochs = BigInt(config.slashingRoundSizeInEpochs);
-            const firstBlockedTargetEpoch = (firstGroup1Round - slashOffset) * roundSizeInEpochs;
-            const lastBlockedTargetEpoch = (lastGroup2Round - slashOffset + 1n) * roundSizeInEpochs - 1n;
+            const firstProtectedEpoch = (firstProtectedRound - slashOffset) * roundSizeInEpochs;
+            const lastProtectedEpoch = (lastProtectedRound - slashOffset + 1n) * roundSizeInEpochs - 1n;
             const executionDelaySeconds = Number(executionDelay) * Number(roundSize) * config.slotDuration;
             const executionWindowSeconds = (config.lifetimeInRounds - config.executionDelayInRounds) * Number(roundSize) * config.slotDuration;
             const formatTimestamp = (seconds: number) => {
@@ -256,7 +266,7 @@ export function SlashingTimeline() {
               <div className="bg-brand-black border-3 border-chartreuse p-4">
                 <div className="text-chartreuse text-xs font-black uppercase mb-1">Pause Started</div>
                 <div className="text-whisper-white text-lg font-black">
-                  {formatTimestamp(pauseStartedSeconds)}
+                  {formatTimestamp(pauseStartedAt)}
                 </div>
                 <div className="text-whisper-white/70 text-xs font-bold mt-1">
                   Slot {slotWhenPauseStarted.toString()} • Round {roundWhenPauseStarted.toString()}
@@ -266,20 +276,20 @@ export function SlashingTimeline() {
               <div className="bg-brand-black border-3 border-chartreuse p-4">
                 <div className="text-chartreuse text-xs font-black uppercase mb-1">Re-enabled At</div>
                 <div className="text-whisper-white text-lg font-black">
-                  {formatTimestamp(disabledUntilSeconds)}
+                  {formatTimestamp(pauseEndsAt)}
                 </div>
                 <div className="text-whisper-white/70 text-xs font-bold mt-1">
-                  Slot {slotWhenReEnabled.toString()} • Round {roundWhenReEnabled.toString()}
+                  Slot {slotWhenPauseEnds.toString()} • Round {roundWhenPauseEnds.toString()}
                 </div>
               </div>
 
               <div className="bg-brand-black border-3 border-chartreuse p-4">
                 <div className="text-chartreuse text-xs font-black uppercase mb-1">Time Remaining</div>
                 <div className="text-whisper-white text-lg font-black">
-                  {secondsUntilReEnabled > 0 ? formatDuration(secondsUntilReEnabled) : 'Ending Soon'}
+                  {secondsUntilPauseEnds > 0 ? formatDuration(secondsUntilPauseEnds) : 'Ending Soon'}
                 </div>
                 <div className="text-whisper-white/70 text-xs font-bold mt-1">
-                  {slotsUntilReEnabled} slots remaining
+                  {slotsUntilPauseEnds} slots remaining
                 </div>
               </div>
             </div>
@@ -308,10 +318,10 @@ export function SlashingTimeline() {
               <div className="text-brand-black text-sm font-black uppercase mb-3 tracking-wider">Total Protected Range</div>
               <div className="space-y-2">
                 <div className="text-brand-black text-2xl font-black">
-                  Rounds {firstGroup1Round > 0n ? firstGroup1Round.toString() : '0'} → {lastGroup2Round.toString()}
+                  Rounds {firstProtectedRound > 0n ? firstProtectedRound.toString() : '0'} → {lastProtectedRound.toString()}
                 </div>
                 <div className="text-brand-black text-2xl font-black">
-                  Epochs {firstBlockedTargetEpoch > 0n ? firstBlockedTargetEpoch.toString() : '0'} → {lastBlockedTargetEpoch.toString()}
+                  Epochs {firstProtectedEpoch > 0n ? firstProtectedEpoch.toString() : '0'} → {lastProtectedEpoch.toString()}
                 </div>
               </div>
             </div>
