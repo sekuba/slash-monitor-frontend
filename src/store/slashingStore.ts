@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { SlashingMonitorConfig, DetectedSlashing, Offense, SlashingStats, } from '@/types/slashing';
+import { updateRpcUrl as updateRpcUrlUtil } from '@/lib/cacheManager';
 interface SlashingMonitorStore {
     config: SlashingMonitorConfig | null;
     isInitialized: boolean;
@@ -75,14 +76,5 @@ export const useSlashingStore = create<SlashingMonitorStore>((set) => ({
     updateStats: (stats) => set((state) => ({
         stats: { ...state.stats, ...stats },
     })),
-    updateRpcUrl: (url) => {
-        // Store the custom RPC URL in localStorage
-        localStorage.setItem('customL1RpcUrl', url);
-        // Clear all caches
-        localStorage.removeItem('l1RoundCache');
-        localStorage.removeItem('slashingDetailsCache');
-        console.log('RPC URL updated. Reloading page to apply changes...');
-        // Reload the page to reinitialize with new RPC URL
-        window.location.reload();
-    },
+    updateRpcUrl: updateRpcUrlUtil,
 }));

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSlashingStore } from '@/store/slashingStore';
 import { RoundCard } from './RoundCard';
 import { StatsPanel } from './StatsPanel';
@@ -13,6 +13,12 @@ export function Dashboard() {
     const [showNotificationBanner, setShowNotificationBanner] = useState(false);
     const [isRequestingNotifications, setIsRequestingNotifications] = useState(false);
     const [showDebugView, setShowDebugView] = useState(false);
+
+    // Memoize sorted slashings to avoid re-sorting on every render
+    const slashings = useMemo(() => Array.from(detectedSlashings.values()).sort((a, b) => Number(b.round - a.round)), [detectedSlashings]);
+    const activeSlashings = useMemo(() => slashings.filter((s) => isActionableStatus(s.status))
+        .sort((a, b) => Number(a.round - b.round)), [slashings]);
+
     useEffect(() => {
         if ('Notification' in window && Notification.permission === 'default') {
             setShowNotificationBanner(true);
@@ -41,9 +47,6 @@ export function Dashboard() {
         </div>
       </div>);
     }
-    const slashings = Array.from(detectedSlashings.values()).sort((a, b) => Number(b.round - a.round));
-    const activeSlashings = slashings.filter((s) => isActionableStatus(s.status))
-        .sort((a, b) => Number(a.round - b.round));
     return (<div className="min-h-screen">
       <Header />
 

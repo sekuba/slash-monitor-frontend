@@ -55,41 +55,30 @@ export function isActionableStatus(status: RoundStatus): boolean {
         status === 'in-veto-window' ||
         status === 'executable');
 }
+const STATUS_COLORS: Record<RoundStatus, string> = {
+    'quorum-reached': 'bg-lapis text-aqua border-5 border-aqua shadow-brutal-aqua',
+    'in-veto-window': 'bg-oxblood text-vermillion border-5 border-vermillion shadow-brutal-vermillion',
+    'executable': 'bg-oxblood text-vermillion border-5 border-vermillion shadow-brutal-vermillion',
+    'executed': 'bg-oxblood/50 text-vermillion border-5 border-vermillion/50 shadow-brutal',
+    'expired': 'bg-malachite/30 text-whisper-white/60 border-5 border-brand-black shadow-brutal',
+    'voting': 'bg-lapis/50 text-whisper-white border-5 border-brand-black shadow-brutal',
+};
+
 export function getStatusColor(status: RoundStatus): string {
-    switch (status) {
-        case 'quorum-reached':
-            return 'bg-lapis text-aqua border-5 border-aqua shadow-brutal-aqua';
-        case 'in-veto-window':
-            return 'bg-oxblood text-vermillion border-5 border-vermillion shadow-brutal-vermillion';
-        case 'executable':
-            return 'bg-oxblood text-vermillion border-5 border-vermillion shadow-brutal-vermillion';
-        case 'executed':
-            return 'bg-oxblood/50 text-vermillion border-5 border-vermillion/50 shadow-brutal';
-        case 'expired':
-            return 'bg-malachite/30 text-whisper-white/60 border-5 border-brand-black shadow-brutal';
-        case 'voting':
-            return 'bg-lapis/50 text-whisper-white border-5 border-brand-black shadow-brutal';
-        default:
-            return 'bg-lapis text-aqua border-5 border-aqua shadow-brutal-aqua';
-    }
+    return STATUS_COLORS[status] ?? STATUS_COLORS['quorum-reached'];
 }
+
+const STATUS_TEXT: Record<RoundStatus, string> = {
+    'quorum-reached': 'Quorum Reached',
+    'in-veto-window': 'Newly Executable',
+    'executable': 'Executable',
+    'executed': 'Executed',
+    'expired': 'Expired',
+    'voting': 'Voting',
+};
+
 export function getStatusText(status: RoundStatus): string {
-    switch (status) {
-        case 'quorum-reached':
-            return 'Quorum Reached';
-        case 'in-veto-window':
-            return 'Newly Executable';
-        case 'executable':
-            return 'Executable';
-        case 'executed':
-            return 'Executed';
-        case 'expired':
-            return 'Expired';
-        case 'voting':
-            return 'Voting';
-        default:
-            return 'Pending';
-    }
+    return STATUS_TEXT[status] ?? 'Pending';
 }
 export function getOffenseTypeName(offenseType: OffenseType): string {
     switch (offenseType) {

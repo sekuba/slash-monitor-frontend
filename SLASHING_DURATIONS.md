@@ -2,7 +2,7 @@
 
 ## Overview
 
-Aztec's slashing mechanism uses a multi-stage process with several time-based safeguards to ensure fair, reviewable validator penalties.
+Aztec's slashing mechanism uses a multi-stage process with several time-based safeguards to ensure fair, reviewable sequencer penalties.
 
 ---
 
