@@ -294,9 +294,9 @@ export function SlashingTimeline() {
                 <div className="flex-1">
                   <div className="text-chartreuse text-xs font-black uppercase mb-1">The Shift Effect</div>
                   <p className="text-whisper-white/90 text-xs font-bold leading-relaxed">
-                    Due to the <span className="text-chartreuse">{formatTimeRemaining(executionDelaySeconds)}</span> execution delay, and the <span className="text-chartreuse">{formatTimeRemaining(executionWindowSeconds)}</span> execution window, protected rounds are shifted.
+                    Due to the <span className="text-chartreuse">{formatTimeRemaining(executionDelaySeconds)}</span> execution delay, and the <span className="text-chartreuse">{formatTimeRemaining(executionWindowSeconds)}</span> execution window that follows, protected rounds are shifted.
                     Rounds voted on <span className="text-chartreuse">before</span> the pause may still be saved from slashing, while rounds voted on
-                    <span className="text-chartreuse"> late in the pause</span> can be slashed after it ends.
+                    <span className="text-chartreuse"> late in the pause</span> can be slashed after it ends. See below for the effective round numbers under protection.
                   </p>
                 </div>
               </div>
