@@ -20,6 +20,11 @@ export function RoundCard({ slashing }: RoundCardProps) {
         const slotsUntilReEnabled = Math.floor(secondsUntilReEnabled / config.slotDuration);
         const slotWhenReEnabled = currentSlot + BigInt(slotsUntilReEnabled);
         const roundSize = BigInt(config.slashingRoundSize);
+        const lifetime = BigInt(config.lifetimeInRounds);
+        const expirySlot = (slashing.round + 1n + lifetime) * roundSize;
+        if (expirySlot > slotWhenReEnabled) {
+            return false;
+        }
         const roundWhenReEnabled = slotWhenReEnabled / roundSize;
         const executionDelay = BigInt(config.executionDelayInRounds);
         const slotWhenPauseStarted = slotWhenReEnabled - BigInt(Math.floor(Number(slashingDisableDuration) / config.slotDuration));
