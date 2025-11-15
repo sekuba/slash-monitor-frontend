@@ -209,7 +209,7 @@ export function SlashingTimeline() {
             const firstBlockedTargetEpoch = (firstGroup1Round - slashOffset) * roundSizeInEpochs;
             const lastBlockedTargetEpoch = (lastGroup2Round - slashOffset + 1n) * roundSizeInEpochs - 1n;
             const executionDelaySeconds = Number(executionDelay) * Number(roundSize) * config.slotDuration;
-            const executionWindowSeconds = config.lifetimeInRounds * Number(roundSize) * config.slotDuration;
+            const executionWindowSeconds = (config.lifetimeInRounds - config.executionDelayInRounds) * Number(roundSize) * config.slotDuration;
             const formatTimestamp = (seconds: number) => {
                 const date = new Date(seconds * 1000);
                 return date.toLocaleString(undefined, {
