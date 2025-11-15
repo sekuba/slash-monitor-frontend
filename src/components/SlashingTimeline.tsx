@@ -1,4 +1,5 @@
 import { useSlashingStore } from '@/store/slashingStore';
+import { formatTimeRemaining } from '@/lib/utils';
 import { useMemo } from 'react';
 interface TimelinePhase {
     name: string;
@@ -207,6 +208,8 @@ export function SlashingTimeline() {
             const roundSizeInEpochs = BigInt(config.slashingRoundSizeInEpochs);
             const firstBlockedTargetEpoch = (firstGroup1Round - slashOffset) * roundSizeInEpochs;
             const lastBlockedTargetEpoch = (lastGroup2Round - slashOffset + 1n) * roundSizeInEpochs - 1n;
+            const executionDelaySeconds = Number(executionDelay) * Number(roundSize) * config.slotDuration;
+            const executionWindowSeconds = (config.lifetimeInRounds - config.executionDelayInRounds) * Number(roundSize) * config.slotDuration;
             const formatTimestamp = (seconds: number) => {
                 const date = new Date(seconds * 1000);
                 return date.toLocaleString(undefined, {
@@ -234,15 +237,15 @@ export function SlashingTimeline() {
             <div className="flex items-start gap-4 mb-6">
               <div className="bg-chartreuse border-3 border-brand-black p-2">
                 <svg className="w-10 h-10 text-brand-black stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                  <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M4 12c0-4.4 3.6-8 8-8s8 3.6 8 8M12 12v8m0 0c0 1.1-.9 2-2 2"/>
                 </svg>
               </div>
               <div className="flex-1">
                 <h3 className="text-chartreuse font-black text-2xl uppercase mb-2 tracking-tight">
-                  Emergency Slashing Halt
+                  Slashing Execution Halted
                 </h3>
                 <p className="text-whisper-white text-sm font-bold">
-                  Slash execution paused. Voting continues normally, but slashing will not lead to penalties.
+                  Voting continues normally, but slashing will not lead to penalties.
                 </p>
               </div>
             </div>
@@ -291,9 +294,9 @@ export function SlashingTimeline() {
                 <div className="flex-1">
                   <div className="text-chartreuse text-xs font-black uppercase mb-1">The Shift Effect</div>
                   <p className="text-whisper-white/90 text-xs font-bold leading-relaxed">
-                    Due to the <span className="text-chartreuse">{executionDelay.toString()}-round execution delay</span>, this pause affects rounds with a shift.
+                    Due to the <span className="text-chartreuse">{formatTimeRemaining(executionDelaySeconds)}</span> execution delay, and the <span className="text-chartreuse">{formatTimeRemaining(executionWindowSeconds)}</span> execution window that follows, protected rounds are shifted.
                     Rounds voted on <span className="text-chartreuse">before</span> the pause may still be saved from slashing, while rounds voted on
-                    <span className="text-chartreuse"> late in the pause</span> can be slashed after it ends.
+                    <span className="text-chartreuse"> late in the pause</span> can be slashed after it ends. See below for the effective round numbers under protection.
                   </p>
                 </div>
               </div>

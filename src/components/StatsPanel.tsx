@@ -1,5 +1,5 @@
 import { useSlashingStore } from '@/store/slashingStore';
-import { formatEther, formatNumber, formatTimeRemaining } from '@/lib/utils';
+import { formatEther, formatNumber, formatTimeRemaining, formatSlotDuration, formatEpochDuration, formatRoundDuration } from '@/lib/utils';
 export function StatsPanel() {
     const { stats, config } = useSlashingStore();
 
@@ -10,7 +10,7 @@ export function StatsPanel() {
     const statCards = [
         {
             label: 'SLOT',
-            value: config ? formatTimeRemaining(config.slotDuration) : '-',
+            value: config ? formatSlotDuration(config.slotDuration) : '-',
             bgColor: 'bg-malachite',
             textColor: 'text-chartreuse',
             borderColor: 'border-chartreuse',
@@ -19,7 +19,7 @@ export function StatsPanel() {
         },
         {
             label: 'ROUND',
-            value: config ? formatTimeRemaining(config.slashingRoundSize * config.slotDuration) : '-',
+            value: config ? formatRoundDuration(config.slashingRoundSize * config.slotDuration) : '-',
             bgColor: 'bg-malachite',
             textColor: 'text-chartreuse',
             borderColor: 'border-chartreuse',
@@ -28,7 +28,7 @@ export function StatsPanel() {
         },
         {
             label: 'EPOCH',
-            value: config ? formatTimeRemaining(config.epochDuration * config.slotDuration) : '-',
+            value: config ? formatEpochDuration(config.epochDuration * config.slotDuration) : '-',
             bgColor: 'bg-malachite',
             textColor: 'text-chartreuse',
             borderColor: 'border-chartreuse',

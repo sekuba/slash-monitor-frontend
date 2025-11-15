@@ -10,8 +10,11 @@ const parseRpcUrls = (urlString: string): string | string[] => {
 };
 
 const createConfig = (isTestnet: boolean): SlashingMonitorConfig => {
+    // Check for custom RPC URL in localStorage (set via debug view)
+    const customRpcUrl = localStorage.getItem('customL1RpcUrl');
+
     return {
-        l1RpcUrl: parseRpcUrls(
+        l1RpcUrl: customRpcUrl || parseRpcUrls(
             isTestnet
                 ? (import.meta.env.VITE_TESTNET_L1_RPC_URL || import.meta.env.VITE_L1_RPC_URL || 'http://localhost:8545')
                 : (import.meta.env.VITE_L1_RPC_URL || 'http://localhost:8545')

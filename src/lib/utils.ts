@@ -29,6 +29,24 @@ export function formatTimeRemaining(seconds: number): string {
         return `${secs}s`;
     }
 }
+export function formatSlotDuration(seconds: number): string {
+    return `${seconds}s`;
+}
+
+export function formatEpochDuration(seconds: number): string {
+    const minutes = seconds / 60;
+    const isExact = seconds % 60 === 0;
+    const rounded = Math.round(minutes);
+    return isExact ? `${rounded}m` : `~${rounded}m`;
+}
+
+export function formatRoundDuration(seconds: number): string {
+    const hours = seconds / 3600;
+    const isExact = seconds % 3600 === 0;
+    const formatted = hours.toFixed(1);
+    return isExact ? `${formatted}h` : `~${formatted}h`;
+}
+
 export function formatNumber(num: number | bigint): string {
     return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
