@@ -1,4 +1,5 @@
 import { useSlashingStore } from '@/store/slashingStore';
+import { formatTimeRemaining } from '@/lib/utils';
 import { useMemo } from 'react';
 interface TimelinePhase {
     name: string;
@@ -207,6 +208,8 @@ export function SlashingTimeline() {
             const roundSizeInEpochs = BigInt(config.slashingRoundSizeInEpochs);
             const firstBlockedTargetEpoch = (firstGroup1Round - slashOffset) * roundSizeInEpochs;
             const lastBlockedTargetEpoch = (lastGroup2Round - slashOffset + 1n) * roundSizeInEpochs - 1n;
+            const executionDelaySeconds = Number(executionDelay) * Number(roundSize) * config.slotDuration;
+            const executionWindowSeconds = config.lifetimeInRounds * Number(roundSize) * config.slotDuration;
             const formatTimestamp = (seconds: number) => {
                 const date = new Date(seconds * 1000);
                 return date.toLocaleString(undefined, {
@@ -291,7 +294,7 @@ export function SlashingTimeline() {
                 <div className="flex-1">
                   <div className="text-chartreuse text-xs font-black uppercase mb-1">The Shift Effect</div>
                   <p className="text-whisper-white/90 text-xs font-bold leading-relaxed">
-                    Due to the <span className="text-chartreuse">{executionDelay.toString()}-round execution delay</span>, this pause affects rounds with a shift.
+                    Due to the <span className="text-chartreuse">{formatTimeRemaining(executionDelaySeconds)}</span> execution delay, and the <span className="text-chartreuse">{formatTimeRemaining(executionWindowSeconds)}</span> execution window, protected rounds are shifted.
                     Rounds voted on <span className="text-chartreuse">before</span> the pause may still be saved from slashing, while rounds voted on
                     <span className="text-chartreuse"> late in the pause</span> can be slashed after it ends.
                   </p>
