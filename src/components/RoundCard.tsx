@@ -213,7 +213,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
 
           
           {slashing.slashActions && slashing.slashActions.length > 0 && (<div>
-              <div className="text-xs text-whisper-white font-black uppercase tracking-wider mb-3">Validators To Slash</div>
+              <div className="text-xs text-whisper-white font-black uppercase tracking-wider mb-3">Sequencers To Slash</div>
               <div className="space-y-3 max-h-64 overflow-y-auto">
                 {slashing.slashActions.map((action, idx) => {
                     const offense = slashing.targetEpochs
