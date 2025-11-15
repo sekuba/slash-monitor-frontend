@@ -245,7 +245,7 @@ export function SlashingTimeline() {
                   Slashing Execution Halted
                 </h3>
                 <p className="text-whisper-white text-sm font-bold">
-                  Slash execution paused. Voting continues normally, but slashing will not lead to penalties.
+                  Voting continues normally, but slashing will not lead to penalties.
                 </p>
               </div>
             </div>
