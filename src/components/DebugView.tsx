@@ -4,7 +4,8 @@ import { formatEther } from 'viem';
 
 export const DebugView: React.FC = () => {
   const [expandedRounds, setExpandedRounds] = useState<Set<string>>(new Set());
-  const { config, currentRound, currentSlot, currentEpoch, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, activeAttesterCount, entryQueueLength, detectedSlashings, stats } = useSlashingStore();
+  const [customRpcUrl, setCustomRpcUrl] = useState<string>('');
+  const { config, currentRound, currentSlot, currentEpoch, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, activeAttesterCount, entryQueueLength, detectedSlashings, stats, updateRpcUrl } = useSlashingStore();
 
   const toggleRound = (round: string) => {
     const newExpanded = new Set(expandedRounds);
@@ -28,6 +29,20 @@ export const DebugView: React.FC = () => {
 
     // Reload the page to clear all in-memory caches
     // (ImmutableAwareCache instances, Zustand store, etc.)
+    window.location.reload();
+  };
+
+  const handleRpcUrlChange = () => {
+    if (!customRpcUrl.trim()) {
+      alert('Please enter a valid RPC URL');
+      return;
+    }
+    updateRpcUrl(customRpcUrl.trim());
+  };
+
+  const handleResetRpcUrl = () => {
+    localStorage.removeItem('customL1RpcUrl');
+    console.log('Custom RPC URL removed. Reloading page...');
     window.location.reload();
   };
 
@@ -113,6 +128,62 @@ export const DebugView: React.FC = () => {
         </div>
       </section>
 
+      {/* RPC Configuration */}
+      <section className="bg-aubergine border-5 border-orchid p-6 shadow-brutal-orchid">
+        <h3 className="text-2xl font-black mb-5 text-orchid uppercase flex items-center gap-3">
+          <svg className="w-7 h-7 stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/>
+          </svg>
+          RPC Configuration
+        </h3>
+        <div className="space-y-4">
+          <div className="bg-brand-black border-3 border-orchid/50 p-4">
+            <div className="text-sm text-whisper-white mb-3">
+              <span className="font-black uppercase text-orchid">Current RPC URL: </span>
+              <span className="font-mono text-xs break-all">
+                {Array.isArray(config.l1RpcUrl) ? config.l1RpcUrl.join(', ') : config.l1RpcUrl}
+              </span>
+              {localStorage.getItem('customL1RpcUrl') && (
+                <span className="ml-3 px-2 py-1 bg-chartreuse text-brand-black text-xs font-black uppercase">CUSTOM</span>
+              )}
+            </div>
+            <div className="flex gap-3 items-end">
+              <div className="flex-1">
+                <label className="block text-xs font-black uppercase text-orchid mb-2">
+                  New RPC URL
+                </label>
+                <input
+                  type="text"
+                  value={customRpcUrl}
+                  onChange={(e) => setCustomRpcUrl(e.target.value)}
+                  placeholder="https://eth-mainnet.g.alchemy.com/v2/..."
+                  className="w-full bg-brand-black border-3 border-whisper-white/30 px-4 py-3 text-whisper-white font-mono text-sm focus:border-orchid focus:outline-none"
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      handleRpcUrlChange();
+                    }
+                  }}
+                />
+              </div>
+              <button
+                onClick={handleRpcUrlChange}
+                className="bg-orchid hover:bg-orchid/90 text-brand-black border-5 border-brand-black px-6 py-3 shadow-brutal hover:-translate-y-1 hover:translate-x-1 hover:shadow-none transition-all duration-100 cursor-pointer"
+              >
+                <span className="text-sm font-bold uppercase tracking-wider">Update RPC</span>
+              </button>
+              {localStorage.getItem('customL1RpcUrl') && (
+                <button
+                  onClick={handleResetRpcUrl}
+                  className="bg-brand-black border-5 border-orchid px-6 py-3 shadow-brutal-orchid hover:-translate-y-1 hover:translate-x-1 hover:shadow-none transition-all duration-100 cursor-pointer"
+                >
+                  <span className="text-sm font-bold uppercase tracking-wider text-orchid">Reset to Default</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Cache Management */}
       <section className="bg-oxblood border-5 border-vermillion p-6 shadow-brutal-vermillion">
         <div className="flex items-center justify-between">
@@ -136,17 +207,6 @@ export const DebugView: React.FC = () => {
               </span>
             </div>
           </button>
-        </div>
-        <div className="mt-4 bg-brand-black border-3 border-aqua p-3">
-          <p className="text-aqua font-bold uppercase text-sm">
-            This will clear all caches and reload the page:
-          </p>
-          <ul className="mt-2 text-whisper-white text-xs space-y-1 list-disc list-inside">
-            <li>localStorage (persistent browser storage)</li>
-            <li>In-memory round cache (ImmutableAwareCache)</li>
-            <li>In-memory slashing details cache</li>
-            <li>Zustand store (all displayed data)</li>
-          </ul>
         </div>
       </section>
 
