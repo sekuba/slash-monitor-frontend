@@ -194,6 +194,7 @@ export function SlashingTimeline() {
             const now = Math.floor(Date.now() / 1000);
             const disabledUntilSeconds = Number(slashingDisabledUntil);
             const executionDelay = BigInt(config.executionDelayInRounds);
+            const lifetime = BigInt(config.lifetimeInRounds);
             const roundSize = BigInt(config.slashingRoundSize);
             const secondsUntilReEnabled = Math.max(0, disabledUntilSeconds - now);
             const slotsUntilReEnabled = Math.floor(secondsUntilReEnabled / config.slotDuration);
@@ -203,7 +204,7 @@ export function SlashingTimeline() {
             const slotWhenPauseStarted = slotWhenReEnabled - BigInt(Math.floor(Number(slashingDisableDuration) / config.slotDuration));
             const roundWhenPauseStarted = slotWhenPauseStarted / roundSize;
             const firstGroup1Round = roundWhenPauseStarted - executionDelay;
-            const lastGroup2Round = roundWhenReEnabled - executionDelay - 2n;
+            const lastGroup2Round = roundWhenReEnabled - lifetime - 1n;
             const slashOffset = BigInt(config.slashOffsetInRounds);
             const roundSizeInEpochs = BigInt(config.slashingRoundSizeInEpochs);
             const firstBlockedTargetEpoch = (firstGroup1Round - slashOffset) * roundSizeInEpochs;

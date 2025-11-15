@@ -30,7 +30,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
         const slotWhenPauseStarted = slotWhenReEnabled - BigInt(Math.floor(Number(slashingDisableDuration) / config.slotDuration));
         const roundWhenPauseStarted = slotWhenPauseStarted / roundSize;
         const firstGroup1Round = roundWhenPauseStarted - executionDelay;
-        const lastGroup2Round = roundWhenReEnabled - executionDelay - 2n;
+        const lastGroup2Round = roundWhenReEnabled - lifetime - 1n;
         return slashing.round >= firstGroup1Round && slashing.round <= lastGroup2Round;
     };
 
