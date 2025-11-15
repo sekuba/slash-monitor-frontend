@@ -6,10 +6,6 @@ export const DebugView: React.FC = () => {
   const [customRpcUrl, setCustomRpcUrl] = useState<string>('');
   const { config, currentRound, currentSlot, currentEpoch, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, activeAttesterCount, entryQueueLength, stats, updateRpcUrl } = useSlashingStore();
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-  };
-
   const clearAllCache = () => {
     // Clear all localStorage
     localStorage.clear();

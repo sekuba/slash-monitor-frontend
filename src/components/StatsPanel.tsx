@@ -1,5 +1,5 @@
 import { useSlashingStore } from '@/store/slashingStore';
-import { formatEther, formatNumber, formatTimeRemaining, formatSlotDuration, formatEpochDuration, formatRoundDuration } from '@/lib/utils';
+import { formatEther, formatNumber, formatSlotDuration, formatEpochDuration, formatRoundDuration } from '@/lib/utils';
 export function StatsPanel() {
     const { stats, config } = useSlashingStore();
 
