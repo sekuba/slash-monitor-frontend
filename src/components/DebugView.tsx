@@ -1,21 +1,11 @@
 import React, { useState } from 'react';
 import { useSlashingStore } from '../store/slashingStore';
 import { formatEther } from 'viem';
+import { reloadWithCacheClear } from '@/lib/cacheManager';
 
 export const DebugView: React.FC = () => {
   const [customRpcUrl, setCustomRpcUrl] = useState<string>('');
   const { config, currentRound, currentSlot, currentEpoch, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, activeAttesterCount, entryQueueLength, stats, updateRpcUrl } = useSlashingStore();
-
-  const clearAllCache = () => {
-    // Clear all localStorage
-    localStorage.clear();
-
-    console.log('All localStorage cleared. Reloading page to clear in-memory caches...');
-
-    // Reload the page to clear all in-memory caches
-    // (ImmutableAwareCache instances, Zustand store, etc.)
-    window.location.reload();
-  };
 
   const handleRpcUrlChange = () => {
     if (!customRpcUrl.trim()) {
@@ -177,7 +167,7 @@ export const DebugView: React.FC = () => {
             <h3 className="text-2xl font-black text-vermillion uppercase">Cache Management</h3>
           </div>
           <button
-            onClick={clearAllCache}
+            onClick={reloadWithCacheClear}
             className="bg-brand-black border-5 border-vermillion px-6 py-3 shadow-brutal-vermillion hover:-translate-y-1 hover:translate-x-1 hover:shadow-none transition-all duration-100 cursor-pointer"
             aria-label="Clear all caches and reload"
           >

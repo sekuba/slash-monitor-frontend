@@ -293,49 +293,6 @@ export class L1Monitor {
     }>> {
         if (roundsWithActions.length === 0)
             return [];
-        const calls: ReturnType<typeof createCall>[] = [];
-        const payloadIndices: number[] = [];
-        roundsWithActions.forEach((item, i) => {
-            if (item.actions.length === 0) {
-                calls.push(null as any);
-            }
-            else {
-                payloadIndices.push(i);
-                calls.push(createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'getPayloadAddress', [item.round, item.actions as readonly {
-                        validator: Address;
-                        slashAmount: bigint;
-                    }[]]));
-            }
-        });
-        const validPayloadCalls = calls.filter(call => call !== null);
-        const payloadResults = validPayloadCalls.length > 0
-            ? await multicall(this.publicClient, validPayloadCalls)
-            : [];
-        const payloadAddresses: Address[] = new Array(roundsWithActions.length).fill('0x0000000000000000000000000000000000000000');
-        payloadResults.forEach((result, i) => {
-            const originalIndex = payloadIndices[i];
-            if (result.success && result.data) {
-                payloadAddresses[originalIndex] = result.data as Address;
-            }
-        });
-        const vetoStatusCalls = payloadAddresses.map((address) => createCall(this.config.slasherAddress, slasherAbi, 'vetoedPayloads', [address]));
-        const vetoResults = await multicall(this.publicClient, vetoStatusCalls);
-        return roundsWithActions.map((_, i) => ({
-            payloadAddress: payloadAddresses[i],
-            isVetoed: vetoResults[i].success && vetoResults[i].data !== undefined
-                ? (vetoResults[i].data as boolean)
-                : false
-        }));
-    }
-    async batchGetPayloadAddressesAndVetoStatusOptimized(roundsWithActions: Array<{
-        round: bigint;
-        actions: SlashAction[];
-    }>): Promise<Array<{
-        payloadAddress: Address;
-        isVetoed: boolean;
-    }>> {
-        if (roundsWithActions.length === 0)
-            return [];
         const allCalls: ReturnType<typeof createCall>[] = [];
         const payloadCallIndices: number[] = [];
         roundsWithActions.forEach((item, i) => {

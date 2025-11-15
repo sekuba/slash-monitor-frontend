@@ -199,9 +199,4 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
             cleanup();
         };
     }, [initialize, startPolling, cleanup]);
-    return {
-        l1Monitor: l1MonitorRef.current,
-        nodeRpc: nodeRpcRef.current,
-        detector: detectorRef.current,
-    };
 }

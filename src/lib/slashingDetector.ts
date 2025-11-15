@@ -277,7 +277,7 @@ export class SlashingDetector {
                     console.log('[Detection] No rounds with slash actions found');
                 }
                 else {
-                    const payloadAndVetoResults = await this.l1Monitor.batchGetPayloadAddressesAndVetoStatusOptimized(roundsWithActions.map(item => ({
+                    const payloadAndVetoResults = await this.l1Monitor.batchGetPayloadAddressesAndVetoStatus(roundsWithActions.map(item => ({
                         round: item.roundData.round,
                         actions: item.slashActions,
                     })));
