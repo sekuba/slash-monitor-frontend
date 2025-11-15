@@ -234,7 +234,7 @@ export function SlashingTimeline() {
             <div className="flex items-start gap-4 mb-6">
               <div className="bg-chartreuse border-3 border-brand-black p-2">
                 <svg className="w-10 h-10 text-brand-black stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M3 21c3-5 7-7 9-7s6 2 9 7M12 14c2.21 0 4-1.79 4-4 0-1.5-.7-2.8-1.8-3.6C13.5 5.6 12.8 5 12 5c-.8 0-1.5.6-2.2 1.4C8.7 7.2 8 8.5 8 10c0 2.21 1.79 4 4 4z"/>
+                  <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M4 12c0-4.4 3.6-8 8-8s8 3.6 8 8M12 12v8m0 0c0 1.1-.9 2-2 2"/>
                 </svg>
               </div>
               <div className="flex-1">
