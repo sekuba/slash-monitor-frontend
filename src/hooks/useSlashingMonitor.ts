@@ -27,6 +27,8 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
     const intervalRef = useRef<NodeJS.Timeout | null>(null);
     const previousRoundStatesRef = useRef<Map<string, RoundState>>(new Map());
     const previousSlashingEnabledRef = useRef<boolean | null>(null);
+    const previousActiveAttesterCountRef = useRef<bigint | null>(null);
+    const previousEntryQueueLengthRef = useRef<bigint | null>(null);
     const isFirstScanRef = useRef<boolean>(true);
     const bootstrapNotifiedRef = useRef<boolean>(false);
     const initialize = useCallback(async () => {
@@ -86,13 +88,28 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
                 }
             }
 
-            // Detect bootstrap phase completion (first time slashing becomes enabled)
-            if (!bootstrapNotifiedRef.current && isEnabled && !isFirstScanRef.current) {
-                notifyNetworkLaunched();
-                bootstrapNotifiedRef.current = true;
+            // Detect bootstrap phase completion (network launch indicators)
+            if (!bootstrapNotifiedRef.current && !isFirstScanRef.current) {
+                // Trigger when entry queue length transitions from < 500 to >= 500
+                const queueLengthTransition = previousEntryQueueLengthRef.current !== null &&
+                    previousEntryQueueLengthRef.current < 500n &&
+                    entryQueueLength >= 500n;
+
+                // Trigger when active attester count transitions from 0 to > 0
+                const attesterCountTransition = previousActiveAttesterCountRef.current !== null &&
+                    previousActiveAttesterCountRef.current === 0n &&
+                    activeAttesterCount > 0n;
+
+                if (queueLengthTransition || attesterCountTransition) {
+                    notifyNetworkLaunched();
+                    bootstrapNotifiedRef.current = true;
+                }
             }
 
+            // Update previous values for transition detection
             previousSlashingEnabledRef.current = isEnabled;
+            previousActiveAttesterCountRef.current = activeAttesterCount;
+            previousEntryQueueLengthRef.current = entryQueueLength;
             const detectedSlashings = await detectorRef.current.detectExecutableRounds(currentRound, currentSlot);
 
             detectedSlashings.forEach((slashing) => {
