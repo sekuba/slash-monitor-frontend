@@ -18,15 +18,6 @@ export function StatsPanel() {
             icon: clockIcon,
         },
         {
-            label: 'ROUND',
-            value: config ? formatRoundDuration(config.slashingRoundSize * config.slotDuration) : '-',
-            bgColor: 'bg-malachite',
-            textColor: 'text-chartreuse',
-            borderColor: 'border-chartreuse',
-            shadowColor: 'shadow-brutal-chartreuse',
-            icon: clockIcon,
-        },
-        {
             label: 'EPOCH',
             value: config ? formatEpochDuration(config.epochDuration * config.slotDuration) : '-',
             bgColor: 'bg-malachite',
@@ -36,15 +27,13 @@ export function StatsPanel() {
             icon: clockIcon,
         },
         {
-            label: 'ACTIVE',
-            value: stats.activeSlashings,
-            bgColor: stats.activeSlashings > 0 ? 'bg-oxblood' : 'bg-malachite/30',
-            textColor: stats.activeSlashings > 0 ? 'text-vermillion' : 'text-whisper-white/60',
-            borderColor: stats.activeSlashings > 0 ? 'border-vermillion' : 'border-brand-black',
-            shadowColor: stats.activeSlashings > 0 ? 'shadow-brutal-vermillion' : 'shadow-brutal',
-            icon: (<svg className="w-7 h-7 stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-        </svg>),
+            label: 'ROUND',
+            value: config ? formatRoundDuration(config.slashingRoundSize * config.slotDuration) : '-',
+            bgColor: 'bg-malachite',
+            textColor: 'text-chartreuse',
+            borderColor: 'border-chartreuse',
+            shadowColor: 'shadow-brutal-chartreuse',
+            icon: clockIcon,
         },
         {
             label: 'VETOED',
@@ -55,6 +44,17 @@ export function StatsPanel() {
             shadowColor: 'shadow-brutal-aqua',
             icon: (<svg className="w-7 h-7 stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
+        </svg>),
+        },
+        {
+            label: 'ACTIVE',
+            value: stats.activeSlashings,
+            bgColor: stats.activeSlashings > 0 ? 'bg-oxblood' : 'bg-malachite/30',
+            textColor: stats.activeSlashings > 0 ? 'text-vermillion' : 'text-whisper-white/60',
+            borderColor: stats.activeSlashings > 0 ? 'border-vermillion' : 'border-brand-black',
+            shadowColor: stats.activeSlashings > 0 ? 'shadow-brutal-vermillion' : 'shadow-brutal',
+            icon: (<svg className="w-7 h-7 stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
         </svg>),
         },
         {
@@ -80,7 +80,7 @@ export function StatsPanel() {
         </svg>),
         },
         {
-            label: 'TOTAL AZTEC',
+            label: 'AZTEC SLASHED',
             value: `${parseInt(formatEther(stats.totalSlashAmount), 10)}`,
             bgColor: 'bg-oxblood',
             textColor: 'text-vermillion',
