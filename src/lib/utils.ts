@@ -56,7 +56,7 @@ export function isActionableStatus(status: RoundStatus): boolean {
         status === 'executable');
 }
 const STATUS_COLORS: Record<RoundStatus, string> = {
-    'quorum-reached': 'bg-lapis text-aqua border-5 border-aqua shadow-brutal-aqua',
+    'quorum-reached': 'bg-malachite text-chartreuse border-5 border-chartreuse shadow-brutal-chartreuse',
     'in-veto-window': 'bg-oxblood text-vermillion border-5 border-vermillion shadow-brutal-vermillion',
     'executable': 'bg-oxblood text-vermillion border-5 border-vermillion shadow-brutal-vermillion',
     'executed': 'bg-oxblood/50 text-vermillion border-5 border-vermillion/50 shadow-brutal',

@@ -1,74 +1,54 @@
 import { useSlashingStore } from '@/store/slashingStore';
 import { formatTimeRemaining } from '@/lib/utils';
-import { useMemo } from 'react';
-interface TimelinePhase {
-    name: string;
-    round: bigint;
-    startSlot: bigint;
-    endSlot: bigint;
-    targetEpochStart: bigint;
-    targetEpochEnd: bigint;
-    status: 'past' | 'current' | 'future';
-    description: string;
-    color: string;
-}
+
 export function SlashingTimeline() {
-    const { config, currentRound, currentSlot, currentEpoch, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration } = useSlashingStore();
-    const timeline = useMemo(() => {
-        if (!config || currentRound === null || currentSlot === null || currentEpoch === null) {
-            return [];
-        }
-        const phases: TimelinePhase[] = [];
-        const roundSize = BigInt(config.slashingRoundSize);
-        const roundSizeInEpochs = BigInt(config.slashingRoundSizeInEpochs);
-        const executionDelay = BigInt(config.executionDelayInRounds);
-        const slashOffset = BigInt(config.slashOffsetInRounds);
-        const round = currentRound;
-        const roundStartSlot = round * roundSize;
-        const roundEndSlot = (round + 1n) * roundSize - 1n;
-        const vetoWindowSlot = (round + 1n + executionDelay) * roundSize;
-        const vetoWindowEndSlot = vetoWindowSlot + roundSize - 1n;
-        const targetRound = round - slashOffset;
-        const targetEpochStart = targetRound * roundSizeInEpochs;
-        const targetEpochEnd = targetEpochStart + roundSizeInEpochs - 1n;
-        if (currentSlot <= roundEndSlot) {
-            phases.push({
-                name: 'Current Voting Round',
-                round,
-                startSlot: roundStartSlot,
-                endSlot: roundEndSlot,
-                targetEpochStart,
-                targetEpochEnd,
-                status: 'current',
-                description: `Committee members vote on slashing offenses from epochs ${targetEpochStart.toString()}-${targetEpochEnd.toString()}`,
-                color: 'blue',
-            });
-        }
-        if (currentSlot <= vetoWindowEndSlot) {
-            const isInVetoWindow = currentSlot >= vetoWindowSlot && currentSlot <= vetoWindowEndSlot;
-            phases.push({
-                name: `Round ${round.toString()} Veto/Execute`,
-                round,
-                startSlot: vetoWindowSlot,
-                endSlot: vetoWindowEndSlot,
-                targetEpochStart,
-                targetEpochEnd,
-                status: isInVetoWindow ? 'current' : 'future',
-                description: `If voted to slash and no veto, slashing can be executed for epochs ${targetEpochStart.toString()}-${targetEpochEnd.toString()}`,
-                color: isInVetoWindow ? 'red' : 'orange',
-            });
-        }
-        return phases;
-    }, [config, currentRound, currentSlot, currentEpoch]);
+    const { config, currentRound, currentSlot, currentEpoch, detectedSlashings, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration } = useSlashingStore();
+
     if (!config || currentRound === null || currentSlot === null || currentEpoch === null) {
         return null;
     }
-    const formatSlotToTime = (slot: bigint) => {
-        const slotDiff = Number(slot - currentSlot);
-        const seconds = slotDiff * config.slotDuration;
-        if (seconds < 0) {
-            return 'Now';
-        }
+
+    // Calculate current round boundaries
+    const roundSize = BigInt(config.slashingRoundSize);
+    const roundSizeInEpochs = BigInt(config.slashingRoundSizeInEpochs);
+    const executionDelay = BigInt(config.executionDelayInRounds);
+    const slashOffset = BigInt(config.slashOffsetInRounds);
+
+    const roundStartSlot = currentRound * roundSize;
+    const roundEndSlot = (currentRound + 1n) * roundSize - 1n;
+    const executableAtSlot = (currentRound + 1n + executionDelay) * roundSize;
+
+    // Calculate target epochs (what we're voting on)
+    const targetRound = currentRound - slashOffset;
+    const targetEpochStart = targetRound * roundSizeInEpochs;
+    const targetEpochEnd = targetEpochStart + roundSizeInEpochs - 1n;
+
+    // Calculate how long ago the target round was
+    const roundsAgo = currentRound - targetRound;
+    const slotsAgo = Number(roundsAgo) * Number(roundSize);
+    const secondsAgo = slotsAgo * config.slotDuration;
+
+    // Get voting data
+    const currentRoundSlashing = detectedSlashings.get(currentRound);
+    const voteCount = currentRoundSlashing?.voteCount.toString() ?? '0';
+    const quorum = config.quorum;
+    const hasReachedQuorum = currentRoundSlashing && currentRoundSlashing.voteCount >= BigInt(quorum);
+
+    // Calculate progress
+    const totalSlots = Number(roundEndSlot - roundStartSlot + 1n);
+    const slotsElapsed = Number(currentSlot - roundStartSlot);
+    const progressPercent = Math.min(100, Math.round((slotsElapsed / totalSlots) * 100));
+
+    // Calculate time remaining
+    const slotsRemaining = Number(roundEndSlot - currentSlot);
+    const secondsRemaining = Math.max(0, slotsRemaining * config.slotDuration);
+
+    // Calculate when executable
+    const slotsUntilExecutable = Number(executableAtSlot - currentSlot);
+    const secondsUntilExecutable = Math.max(0, slotsUntilExecutable * config.slotDuration);
+
+    const formatTime = (seconds: number): string => {
+        if (seconds <= 0) return 'Now';
         const hours = Math.floor(seconds / 3600);
         const minutes = Math.floor((seconds % 3600) / 60);
         if (hours > config.hoursThresholdForDayDisplay) {
@@ -76,26 +56,12 @@ export function SlashingTimeline() {
             const remainingHours = hours % config.hoursThresholdForDayDisplay;
             return `~${days}d ${remainingHours}h`;
         }
-        if (hours > 0) {
-            return `~${hours}h ${minutes}m`;
-        }
+        if (hours > 0) return `~${hours}h ${minutes}m`;
         return `~${minutes}m`;
     };
-    const getColorClasses = (color: string, isCurrent: boolean) => {
-        if (isCurrent) {
-            switch (color) {
-                case 'blue':
-                    return 'bg-lapis border-aqua text-aqua shadow-brutal-aqua';
-                case 'red':
-                    return 'bg-oxblood border-vermillion text-vermillion shadow-brutal-vermillion';
-                case 'orange':
-                    return 'bg-malachite border-chartreuse text-chartreuse shadow-brutal-chartreuse';
-                default:
-                    return 'bg-malachite/30 border-brand-black text-whisper-white shadow-brutal';
-            }
-        }
-        return 'bg-malachite/20 border-brand-black text-whisper-white/70 shadow-brutal';
-    };
+
+    const timeAgo = formatTime(secondsAgo);
+
     return (<div className="mb-8">
       <h2 className="text-3xl font-black text-whisper-white mb-6 flex items-center gap-4 uppercase">
         <div className="bg-aqua border-3 border-brand-black p-2">
@@ -106,90 +72,105 @@ export function SlashingTimeline() {
         Slashing Timeline
       </h2>
 
-      <div className="bg-brand-black border-5 border-whisper-white p-6 shadow-brutal">
-        <div className="mb-6 flex items-center gap-4 flex-wrap">
-          <div className="bg-lapis border-3 border-aqua px-4 py-2">
-            <span className="font-black text-aqua text-xs uppercase tracking-wider">Slot:</span>{' '}
-            <span className="font-black text-whisper-white text-lg">{currentSlot.toString()}</span>
-          </div>
-          <div className="bg-aubergine border-3 border-orchid px-4 py-2">
-            <span className="font-black text-orchid text-xs uppercase tracking-wider">Epoch:</span>{' '}
-            <span className="font-black text-whisper-white text-lg">{currentEpoch.toString()}</span>
-          </div>
-          <div className="bg-malachite border-3 border-chartreuse px-4 py-2">
-            <span className="font-black text-chartreuse text-xs uppercase tracking-wider">Round:</span>{' '}
-            <span className="font-black text-whisper-white text-lg">{currentRound.toString()}</span>
-          </div>
+      {/* Current State Badges */}
+      <div className="mb-6 flex items-center gap-4 flex-wrap">
+        <div className="bg-lapis border-3 border-aqua px-4 py-2">
+          <span className="font-black text-aqua text-xs uppercase tracking-wider">Slot:</span>{' '}
+          <span className="font-black text-whisper-white text-lg">{currentSlot.toString()}</span>
         </div>
-
-        <div className="space-y-3">
-          {timeline.map((phase) => {
-            const isCurrent = phase.status === 'current';
-            const timeUntilStart = formatSlotToTime(phase.startSlot);
-            const timeUntilEnd = formatSlotToTime(phase.endSlot);
-            return (<div key={`${phase.round}-${phase.name}`} className={`relative p-5 border-5 transition-all ${getColorClasses(phase.color, isCurrent)} ${isCurrent ? 'animate-pulse' : ''}`}>
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-3">
-                      <h3 className="font-black text-lg uppercase tracking-tight">
-                        {phase.name}
-                        {isCurrent && (<span className="ml-3 inline-flex items-center px-3 py-1 border-3 border-brand-black bg-chartreuse text-xs font-black uppercase text-brand-black">
-                            ACTIVE
-                          </span>)}
-                      </h3>
-                    </div>
-                    <p className="text-sm font-bold mb-3">{phase.description}</p>
-                    <div className="flex items-center gap-4 text-xs font-bold uppercase">
-                      <div>
-                        <span className="opacity-75">Slots:</span> {phase.startSlot.toString()} →{' '}
-                        {phase.endSlot.toString()}
-                      </div>
-                      <div>
-                        <span className="opacity-75">Target Epochs:</span> {phase.targetEpochStart.toString()}{' '}
-                        → {phase.targetEpochEnd.toString()}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    {phase.status === 'current' ? (<div className="bg-brand-black border-3 border-current px-4 py-2">
-                        <div className="opacity-75 mb-1 text-xs font-black uppercase">Ends In</div>
-                        <div className="text-2xl font-black">{timeUntilEnd}</div>
-                      </div>) : phase.status === 'future' ? (<div className="bg-brand-black border-3 border-current px-4 py-2">
-                        <div className="opacity-75 mb-1 text-xs font-black uppercase">Starts In</div>
-                        <div className="text-2xl font-black">{timeUntilStart}</div>
-                      </div>) : null}
-                  </div>
-                </div>
-
-                
-                {isCurrent && (<div className="mt-4 pt-4 border-t-3 border-brand-black">
-                    <div className="flex items-center gap-2 text-xs font-black uppercase mb-2">
-                      <span>Progress</span>
-                      <span className="ml-auto">
-                        {Math.round((Number(currentSlot - phase.startSlot) /
-                        Number(phase.endSlot - phase.startSlot)) *
-                        100)}
-                        %
-                      </span>
-                    </div>
-                    <div className="w-full bg-brand-black border-3 border-current h-4 overflow-hidden">
-                      <div className="bg-chartreuse h-full transition-all duration-500" style={{
-                        width: `${Math.min(100, Math.round((Number(currentSlot - phase.startSlot) /
-                            Number(phase.endSlot - phase.startSlot)) *
-                            100))}%`,
-                    }}/>
-                    </div>
-                  </div>)}
-              </div>);
-        })}
+        <div className="bg-aubergine border-3 border-orchid px-4 py-2">
+          <span className="font-black text-orchid text-xs uppercase tracking-wider">Epoch:</span>{' '}
+          <span className="font-black text-whisper-white text-lg">{currentEpoch.toString()}</span>
         </div>
-
-        {timeline.length === 0 && (<div className="text-center text-whisper-white/70 py-8">
-            <p className="font-black uppercase">No Upcoming Phases</p>
-          </div>)}
+        <div className="bg-malachite border-3 border-chartreuse px-4 py-2">
+          <span className="font-black text-chartreuse text-xs uppercase tracking-wider">Round:</span>{' '}
+          <span className="font-black text-whisper-white text-lg">{currentRound.toString()}</span>
+        </div>
       </div>
 
-      
+      {/* Current Voting Round Section */}
+      <div className="bg-lapis border-5 border-aqua p-5 shadow-brutal-aqua animate-pulse">
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div className="flex-1">
+            <div className="flex items-center gap-3 mb-3">
+              <h3 className="font-black text-lg uppercase tracking-tight text-aqua">
+                Current Voting Round {currentRound.toString()}
+              </h3>
+              <span className="inline-flex items-center px-3 py-1 border-3 border-brand-black bg-chartreuse text-xs font-black uppercase text-brand-black">
+                ACTIVE
+              </span>
+            </div>
+            <p className="text-sm font-bold text-whisper-white mb-3">
+              Sequencers vote on slashing offenses from round {targetRound.toString()} ({timeAgo} ago)
+              <br></br>For each slot, its proposer can vote to slash the target round's offenders
+            </p>
+          </div>
+          <div className="text-right flex-shrink-0">
+            <div className="bg-brand-black border-3 border-aqua px-4 py-2">
+              <div className="opacity-75 mb-1 text-xs font-black uppercase text-aqua">Ends In</div>
+              <div className="text-2xl font-black text-whisper-white">{formatTime(secondsRemaining)}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Round Details Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+          <div className="bg-brand-black border-3 border-aqua px-3 py-2">
+            <div className="text-aqua text-xs font-black uppercase mb-1">Voting Slots</div>
+            <div className="text-whisper-white text-sm font-bold">
+              {roundStartSlot.toString()} → {roundEndSlot.toString()}
+            </div>
+          </div>
+          <div className="bg-brand-black border-3 border-aqua px-3 py-2">
+            <div className="text-aqua text-xs font-black uppercase mb-1">Target Epochs</div>
+            <div className="text-whisper-white text-sm font-bold">
+              {targetEpochStart.toString()} → {targetEpochEnd.toString()}
+            </div>
+          </div>
+          <div className="bg-brand-black border-3 border-aqua px-3 py-2">
+            <div className="text-aqua text-xs font-black uppercase mb-1">Votes to Slash</div>
+            <div className="text-whisper-white text-sm font-bold">
+              {voteCount}/{quorum}
+              {hasReachedQuorum && <span className="ml-2 text-chartreuse">✓ QUORUM</span>}
+            </div>
+          </div>
+        </div>
+
+        {/* Execution Info */}
+        {hasReachedQuorum && (
+          <div className="bg-oxblood border-3 border-vermillion p-3 mb-4">
+            <div className="flex items-center gap-3">
+              <svg className="w-5 h-5 text-vermillion stroke-[3] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+              <div>
+                <div className="text-vermillion font-black text-sm uppercase">
+                  Executable in {formatTime(secondsUntilExecutable)}
+                </div>
+                <div className="text-whisper-white/70 text-xs font-bold mt-1">
+                  Slashing payload can be executed at slot {executableAtSlot.toString()} unless vetoed
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Progress Bar */}
+        <div className="pt-4 border-t-3 border-brand-black">
+          <div className="flex items-center gap-2 text-xs font-black uppercase mb-2 text-aqua">
+            <span>Voting Progress</span>
+            <span className="ml-auto">{progressPercent}%</span>
+          </div>
+          <div className="w-full bg-brand-black border-3 border-aqua h-4 overflow-hidden">
+            <div
+              className="bg-chartreuse h-full transition-all duration-500"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Global Pause Section */}
       {!isSlashingEnabled && slashingDisabledUntil !== null && slashingDisabledUntil > 0n && slashingDisableDuration !== null && (() => {
             // Timing calculations
             const now = Math.floor(Date.now() / 1000);
@@ -207,14 +188,12 @@ export function SlashingTimeline() {
             const roundWhenPauseStarted = slotWhenPauseStarted / roundSize;
 
             // Protected round range calculation
-            // First protected: becomes executable when pause starts
-            // Last protected: expires before pause ends
             const executionDelay = BigInt(config.executionDelayInRounds);
             const lifetime = BigInt(config.lifetimeInRounds);
             const firstProtectedRound = roundWhenPauseStarted - executionDelay;
             const lastProtectedRound = roundWhenPauseEnds - lifetime - 1n;
 
-            // Convert to target epochs (the epochs being voted on)
+            // Convert to target epochs
             const slashOffset = BigInt(config.slashOffsetInRounds);
             const roundSizeInEpochs = BigInt(config.slashingRoundSizeInEpochs);
             const firstProtectedEpoch = (firstProtectedRound - slashOffset) * roundSizeInEpochs;
@@ -244,7 +223,7 @@ export function SlashingTimeline() {
                 return `${minutes}m`;
             };
             return (<div className="mt-6 bg-malachite border-5 border-chartreuse p-6 shadow-brutal-chartreuse">
-            
+
             <div className="flex items-start gap-4 mb-6">
               <div className="bg-chartreuse border-3 border-brand-black p-2">
                 <svg className="w-10 h-10 text-brand-black stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -261,7 +240,7 @@ export function SlashingTimeline() {
               </div>
             </div>
 
-            
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
               <div className="bg-brand-black border-3 border-chartreuse p-4">
                 <div className="text-chartreuse text-xs font-black uppercase mb-1">Pause Started</div>

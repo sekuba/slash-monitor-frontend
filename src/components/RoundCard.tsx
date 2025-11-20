@@ -69,27 +69,40 @@ export function RoundCard({ slashing }: RoundCardProps) {
         const adjustedSeconds = baseSeconds - elapsedSeconds;
         return Math.max(0, adjustedSeconds);
     };
-    const getBorderStyle = () => {
-        if (!isActionable)
-            return 'border-brand-black shadow-brutal';
-        if (displayStatus === 'quorum-reached')
-            return 'border-aqua shadow-brutal-aqua';
-        return 'border-chartreuse shadow-brutal-chartreuse';
+    // Determine color theme based on status
+    const getColorTheme = (): 'aqua' | 'chartreuse' | 'vermillion' | 'default' => {
+        if (!isActionable) return 'default';
+        if (slashing.isVetoed || isProtected) return 'aqua';
+        if (displayStatus === 'quorum-reached') return 'chartreuse';
+        return 'vermillion';
     };
-    const getBackgroundStyle = () => {
-        if (slashing.isVetoed)
-            return 'bg-lapis';
-        if (!isActionable)
-            return 'bg-malachite/20';
-        if (displayStatus === 'quorum-reached')
-            return 'bg-lapis';
-        if (displayStatus === 'executable' || displayStatus === 'in-veto-window')
-            return 'bg-oxblood';
-        return 'bg-malachite/30';
+
+    const colorTheme = getColorTheme();
+
+    // Style mappings based on color theme
+    const themeStyles = {
+        border: {
+            aqua: 'border-aqua shadow-brutal-aqua',
+            chartreuse: 'border-chartreuse shadow-brutal-chartreuse',
+            vermillion: 'border-vermillion shadow-brutal-vermillion',
+            default: 'border-brand-black shadow-brutal',
+        },
+        background: {
+            aqua: 'bg-lapis',
+            chartreuse: 'bg-malachite',
+            vermillion: 'bg-oxblood',
+            default: 'bg-malachite/20',
+        },
+        pulse: {
+            aqua: 'bg-aqua',
+            chartreuse: 'bg-chartreuse',
+            vermillion: 'bg-vermillion',
+            default: 'bg-chartreuse',
+        },
     };
-    return (<div className={`${getBackgroundStyle()} border-5 ${getBorderStyle()} transition-all hover:-translate-y-1 hover:translate-x-1 relative`}>
-      
-      {isActionable && (<div className="absolute top-4 right-4 w-3 h-3 bg-chartreuse rounded-full animate-pulse shadow-brutal"></div>)}
+    return (<div className={`${themeStyles.background[colorTheme]} border-5 ${themeStyles.border[colorTheme]} transition-all hover:-translate-y-1 hover:translate-x-1 relative`}>
+
+      {isActionable && (<div className={`absolute top-4 right-4 w-3 h-3 ${themeStyles.pulse[colorTheme]} rounded-full animate-pulse shadow-brutal`}></div>)}
 
       
       <div className="p-6 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
@@ -133,7 +146,6 @@ export function RoundCard({ slashing }: RoundCardProps) {
                                         (slashing.isVetoed && slashing.status === 'quorum-reached') ||
                                         (isProtected && slashing.status === 'quorum-reached')) &&
                                         slashing.secondsUntilExpires !== undefined;
-            const showVetoButton = !slashing.isVetoed && !isProtected;
 
             return (<div className="mt-4 space-y-3">
 
@@ -171,17 +183,12 @@ export function RoundCard({ slashing }: RoundCardProps) {
                     </div>);
               })()}
 
-              {slashing.isVetoed ? (<div className="flex items-center gap-3 bg-brand-black border-3 border-aqua p-3">
+              {slashing.isVetoed && (<div className="flex items-center gap-3 bg-brand-black border-3 border-aqua p-3">
                   <svg className="w-6 h-6 text-aqua stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M6 18L18 6M6 6l12 12"/>
                   </svg>
                   <div className="text-aqua font-black uppercase text-sm">VETOED</div>
-                </div>) : showVetoButton ? (<div className="flex items-center gap-3 bg-brand-black border-3 border-chartreuse p-3">
-                  <svg className="w-6 h-6 text-chartreuse stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                  </svg>
-                  <div className="text-chartreuse font-black uppercase text-sm">VETO AVAILABLE NOW</div>
-                </div>) : null}
+                </div>)}
             </div>);
           })()}
       </div>
