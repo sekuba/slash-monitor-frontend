@@ -174,8 +174,9 @@ export class SlashingDetector {
     async detectExecutableRounds(currentRound: bigint, currentSlot: bigint): Promise<DetectedSlashing[]> {
         const executionDelay = BigInt(this.config.executionDelayInRounds);
         const lifetime = BigInt(this.config.lifetimeInRounds);
+        const lookbackRounds = BigInt(this.config.lookbackRounds);
         const slashingPeriodSize = executionDelay + lifetime + 1n;
-        console.log(`[Detection] Scanning rounds: current=${currentRound}, period size=${slashingPeriodSize}`);
+        console.log(`[Detection] Scanning rounds: current=${currentRound}, period size=${slashingPeriodSize}, lookback=${lookbackRounds}`);
         const roundsToCheck: bigint[] = [];
         const earlyWarningStart = currentRound - executionDelay + 1n;
         const earlyWarningEnd = currentRound;
@@ -184,7 +185,11 @@ export class SlashingDetector {
                 roundsToCheck.push(round);
             }
         }
-        const executableStart = currentRound - lifetime;
+        // Determine the start of the executable/historical window
+        // If lookbackRounds is set and greater than lifetime, use it to extend the scan window
+        const defaultExecutableStart = currentRound - lifetime;
+        const lookbackStart = lookbackRounds > 0n ? currentRound - lookbackRounds : defaultExecutableStart;
+        const executableStart = lookbackStart < defaultExecutableStart ? lookbackStart : defaultExecutableStart;
         const executableEnd = currentRound - executionDelay;
         for (let round = executableStart; round <= executableEnd; round++) {
             if (round >= 0n && round < earlyWarningStart) {
