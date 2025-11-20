@@ -72,7 +72,7 @@ export function SlashingTimeline() {
         Slashing Timeline
       </h2>
 
-      <div className="bg-brand-black border-5 border-whisper-white p-6 shadow-brutal">
+      <div className="bg-brand-black p-6">
         {/* Current State Badges */}
         <div className="mb-6 flex items-center gap-4 flex-wrap">
           <div className="bg-lapis border-3 border-aqua px-4 py-2">
