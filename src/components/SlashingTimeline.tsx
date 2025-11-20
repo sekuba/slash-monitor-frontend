@@ -32,10 +32,6 @@ export function SlashingTimeline() {
         const targetEpochStart = targetRound * roundSizeInEpochs;
         const targetEpochEnd = targetEpochStart + roundSizeInEpochs - 1n;
         if (currentSlot <= roundEndSlot) {
-            const currentRoundSlashing = detectedSlashings.get(round);
-            const voteInfo = currentRoundSlashing && config
-                ? ` (${currentRoundSlashing.voteCount.toString()}/${config.quorum} votes to slash)`
-                : '';
             phases.push({
                 name: 'Current Voting Round',
                 round,
@@ -44,7 +40,7 @@ export function SlashingTimeline() {
                 targetEpochStart,
                 targetEpochEnd,
                 status: 'current',
-                description: `Committee members vote on slashing offenses from epochs ${targetEpochStart.toString()}-${targetEpochEnd.toString()}${voteInfo}`,
+                description: `Committee members vote on slashing offenses from epochs ${targetEpochStart.toString()}-${targetEpochEnd.toString()}`,
                 color: 'blue',
             });
         }
@@ -143,7 +139,7 @@ export function SlashingTimeline() {
                       </h3>
                     </div>
                     <p className="text-sm font-bold mb-3">{phase.description}</p>
-                    <div className="flex items-center gap-4 text-xs font-bold uppercase">
+                    <div className="flex items-center gap-4 text-xs font-bold uppercase flex-wrap">
                       <div>
                         <span className="opacity-75">Slots:</span> {phase.startSlot.toString()} →{' '}
                         {phase.endSlot.toString()}
@@ -152,6 +148,17 @@ export function SlashingTimeline() {
                         <span className="opacity-75">Target Epochs:</span> {phase.targetEpochStart.toString()}{' '}
                         → {phase.targetEpochEnd.toString()}
                       </div>
+                      {phase.name === 'Current Voting Round' && (() => {
+                        const currentRoundSlashing = detectedSlashings.get(phase.round);
+                        if (currentRoundSlashing && config) {
+                          return (
+                            <div>
+                              <span className="opacity-75">Votes to Slash:</span> {currentRoundSlashing.voteCount.toString()}/{config.quorum}
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
                     </div>
                   </div>
                   <div className="text-right flex-shrink-0">
