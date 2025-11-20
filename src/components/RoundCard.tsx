@@ -87,7 +87,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
         if (!isActionable)
             return 'bg-malachite/20';
         if (displayStatus === 'quorum-reached')
-            return 'bg-lapis';
+            return 'bg-malachite';
         if (displayStatus === 'executable' || displayStatus === 'in-veto-window')
             return 'bg-oxblood';
         return 'bg-malachite/30';
