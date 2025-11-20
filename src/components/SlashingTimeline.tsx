@@ -23,6 +23,11 @@ export function SlashingTimeline() {
     const targetEpochStart = targetRound * roundSizeInEpochs;
     const targetEpochEnd = targetEpochStart + roundSizeInEpochs - 1n;
 
+    // Calculate how long ago the target round was
+    const roundsAgo = currentRound - targetRound;
+    const slotsAgo = Number(roundsAgo) * Number(roundSize);
+    const secondsAgo = slotsAgo * config.slotDuration;
+
     // Get voting data
     const currentRoundSlashing = detectedSlashings.get(currentRound);
     const voteCount = currentRoundSlashing?.voteCount.toString() ?? '0';
@@ -54,6 +59,8 @@ export function SlashingTimeline() {
         if (hours > 0) return `~${hours}h ${minutes}m`;
         return `~${minutes}m`;
     };
+
+    const timeAgo = formatTime(secondsAgo);
 
     return (<div className="mb-8">
       <h2 className="text-3xl font-black text-whisper-white mb-6 flex items-center gap-4 uppercase">
@@ -95,7 +102,7 @@ export function SlashingTimeline() {
                 </span>
               </div>
               <p className="text-sm font-bold text-whisper-white mb-3">
-                Committee members vote on slashing offenses from round {targetRound.toString()}
+                Committee members vote on slashing offenses from round {targetRound.toString()} ({timeAgo} ago)
               </p>
             </div>
             <div className="text-right flex-shrink-0">
