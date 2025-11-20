@@ -1,6 +1,7 @@
 import { useSlashingStore } from '@/store/slashingStore';
 
 const TARGET_VALIDATORS = 500;
+const PROGRESS_BAR_MIN_WIDTH_FOR_LABEL = 15; // Minimum percentage width to show label inside progress bar
 
 export function BootstrapBanner() {
   const { activeAttesterCount, entryQueueLength } = useSlashingStore();
@@ -46,7 +47,7 @@ export function BootstrapBanner() {
                 className="h-full bg-aqua transition-all duration-500 ease-out flex items-center justify-end pr-3"
                 style={{ width: `${progressPercentage}%` }}
               >
-                {progressPercentage > 15 && (
+                {progressPercentage > PROGRESS_BAR_MIN_WIDTH_FOR_LABEL && (
                   <span className="text-brand-black font-black text-sm uppercase">
                     {progressPercentage.toFixed(1)}%
                   </span>
@@ -55,7 +56,7 @@ export function BootstrapBanner() {
             </div>
 
             {/* Percentage outside bar if too narrow */}
-            {progressPercentage <= 15 && progressPercentage > 0 && (
+            {progressPercentage <= PROGRESS_BAR_MIN_WIDTH_FOR_LABEL && progressPercentage > 0 && (
               <div className="absolute left-2 top-0 h-10 flex items-center">
                 <span className="text-aqua font-black text-sm uppercase">
                   {progressPercentage.toFixed(1)}%

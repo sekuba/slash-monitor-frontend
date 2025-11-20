@@ -8,25 +8,79 @@ export function formatEther(wei: bigint, decimals = 4): string {
     const ether = Number(wei) / 1e18;
     return ether.toFixed(decimals);
 }
-export function formatTimeRemaining(seconds: number): string {
-    if (seconds <= 0) {
-        return 'Expired';
+/**
+ * Formats time duration in seconds to a human-readable string.
+ * @param seconds - Duration in seconds
+ * @param options - Optional configuration for formatting
+ * @returns Formatted time string
+ */
+export function formatTimeRemaining(
+    seconds: number,
+    options?: {
+        /** If true, uses approximate notation (~) and omits seconds */
+        approximate?: boolean;
+        /** Hours threshold for showing days instead of just hours (e.g., 24 for 24-hour day) */
+        hoursThresholdForDayDisplay?: number;
+        /** String to return when seconds <= 0 */
+        zeroLabel?: string;
     }
+): string {
+    const { approximate = false, hoursThresholdForDayDisplay, zeroLabel = 'Expired' } = options ?? {};
+
+    if (seconds <= 0) {
+        return approximate ? 'Now' : zeroLabel;
+    }
+
     const days = Math.floor(seconds / 86400);
     const hours = Math.floor((seconds % 86400) / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
-    if (days > 0) {
-        return `${days}d ${hours}h ${minutes}m ${secs}s`;
+
+    const prefix = approximate ? '~' : '';
+
+    // Use hoursThresholdForDayDisplay if provided
+    if (hoursThresholdForDayDisplay !== undefined) {
+        const totalHours = Math.floor(seconds / 3600);
+        if (totalHours > hoursThresholdForDayDisplay) {
+            const days = Math.floor(totalHours / hoursThresholdForDayDisplay);
+            const remainingHours = totalHours % hoursThresholdForDayDisplay;
+            return `${prefix}${days}d ${remainingHours}h`;
+        }
+        if (totalHours > 0) {
+            return `${prefix}${totalHours}h ${minutes}m`;
+        }
+        return `${prefix}${minutes}m`;
     }
-    else if (hours > 0) {
-        return `${hours}h ${minutes}m ${secs}s`;
-    }
-    else if (minutes > 0) {
-        return `${minutes}m ${secs}s`;
-    }
-    else {
-        return `${secs}s`;
+
+    // Standard formatting
+    if (approximate) {
+        // Approximate mode: omit seconds for cleaner display
+        if (days > 0) {
+            return `${days}d ${hours}h ${minutes}m`;
+        }
+        else if (hours > 0) {
+            return `${hours}h ${minutes}m`;
+        }
+        else if (minutes > 0) {
+            return `${minutes}m`;
+        }
+        else {
+            return `${secs}s`;
+        }
+    } else {
+        // Detailed mode: include seconds
+        if (days > 0) {
+            return `${days}d ${hours}h ${minutes}m ${secs}s`;
+        }
+        else if (hours > 0) {
+            return `${hours}h ${minutes}m ${secs}s`;
+        }
+        else if (minutes > 0) {
+            return `${minutes}m ${secs}s`;
+        }
+        else {
+            return `${secs}s`;
+        }
     }
 }
 export function formatSlotDuration(seconds: number): string {

@@ -1,5 +1,6 @@
 import { useSlashingStore } from '@/store/slashingStore';
 import { formatTimeRemaining } from '@/lib/utils';
+import { calculateProtectedRoundRange } from '@/lib/pauseProtection';
 
 export function SlashingTimeline() {
     const { config, currentRound, currentSlot, currentEpoch, detectedSlashings, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration } = useSlashingStore();
@@ -47,20 +48,10 @@ export function SlashingTimeline() {
     const slotsUntilExecutable = Number(executableAtSlot - currentSlot);
     const secondsUntilExecutable = Math.max(0, slotsUntilExecutable * config.slotDuration);
 
-    const formatTime = (seconds: number): string => {
-        if (seconds <= 0) return 'Now';
-        const hours = Math.floor(seconds / 3600);
-        const minutes = Math.floor((seconds % 3600) / 60);
-        if (hours > config.hoursThresholdForDayDisplay) {
-            const days = Math.floor(hours / config.hoursThresholdForDayDisplay);
-            const remainingHours = hours % config.hoursThresholdForDayDisplay;
-            return `~${days}d ${remainingHours}h`;
-        }
-        if (hours > 0) return `~${hours}h ${minutes}m`;
-        return `~${minutes}m`;
-    };
-
-    const timeAgo = formatTime(secondsAgo);
+    const timeAgo = formatTimeRemaining(secondsAgo, {
+        approximate: true,
+        hoursThresholdForDayDisplay: config.hoursThresholdForDayDisplay,
+    });
 
     return (<div className="mb-8">
       <h2 className="text-3xl font-black text-whisper-white mb-6 flex items-center gap-4 uppercase">
@@ -108,7 +99,7 @@ export function SlashingTimeline() {
           <div className="text-right flex-shrink-0">
             <div className="bg-brand-black border-3 border-aqua px-4 py-2">
               <div className="opacity-75 mb-1 text-xs font-black uppercase text-aqua">Ends In</div>
-              <div className="text-2xl font-black text-whisper-white">{formatTime(secondsRemaining)}</div>
+              <div className="text-2xl font-black text-whisper-white">{formatTimeRemaining(secondsRemaining, { approximate: true, hoursThresholdForDayDisplay: config.hoursThresholdForDayDisplay })}</div>
             </div>
           </div>
         </div>
@@ -145,7 +136,7 @@ export function SlashingTimeline() {
               </svg>
               <div>
                 <div className="text-vermillion font-black text-sm uppercase">
-                  Executable in {formatTime(secondsUntilExecutable)}
+                  Executable in {formatTimeRemaining(secondsUntilExecutable, { approximate: true, hoursThresholdForDayDisplay: config.hoursThresholdForDayDisplay })}
                 </div>
                 <div className="text-whisper-white/70 text-xs font-bold mt-1">
                   Slashing payload can be executed at slot {executableAtSlot.toString()} unless vetoed
@@ -179,25 +170,21 @@ export function SlashingTimeline() {
             const secondsUntilPauseEnds = Math.max(0, pauseEndsAt - now);
             const slotsUntilPauseEnds = Math.floor(secondsUntilPauseEnds / config.slotDuration);
 
-            // Slot and round calculations
+            // Calculate protected round range using shared utility
+            const {
+              firstProtectedRound,
+              lastProtectedRound,
+              slotWhenPauseEnds,
+              slotWhenPauseStarted,
+              roundWhenPauseEnds,
+              roundWhenPauseStarted,
+              firstProtectedEpoch,
+              lastProtectedEpoch,
+            } = calculateProtectedRoundRange(config, currentSlot, slashingDisabledUntil, slashingDisableDuration);
+
+            // Calculate timing values for display
             const roundSize = BigInt(config.slashingRoundSize);
-            const pauseDurationInSlots = BigInt(Math.floor(Number(slashingDisableDuration) / config.slotDuration));
-            const slotWhenPauseEnds = currentSlot + BigInt(slotsUntilPauseEnds);
-            const slotWhenPauseStarted = slotWhenPauseEnds - pauseDurationInSlots;
-            const roundWhenPauseEnds = slotWhenPauseEnds / roundSize;
-            const roundWhenPauseStarted = slotWhenPauseStarted / roundSize;
-
-            // Protected round range calculation
             const executionDelay = BigInt(config.executionDelayInRounds);
-            const lifetime = BigInt(config.lifetimeInRounds);
-            const firstProtectedRound = roundWhenPauseStarted - executionDelay;
-            const lastProtectedRound = roundWhenPauseEnds - lifetime - 1n;
-
-            // Convert to target epochs
-            const slashOffset = BigInt(config.slashOffsetInRounds);
-            const roundSizeInEpochs = BigInt(config.slashingRoundSizeInEpochs);
-            const firstProtectedEpoch = (firstProtectedRound - slashOffset) * roundSizeInEpochs;
-            const lastProtectedEpoch = (lastProtectedRound - slashOffset + 1n) * roundSizeInEpochs - 1n;
             const executionDelaySeconds = Number(executionDelay) * Number(roundSize) * config.slotDuration;
             const executionWindowSeconds = (config.lifetimeInRounds - config.executionDelayInRounds) * Number(roundSize) * config.slotDuration;
             const formatTimestamp = (seconds: number) => {
@@ -208,19 +195,6 @@ export function SlashingTimeline() {
                     hour: '2-digit',
                     minute: '2-digit',
                 });
-            };
-            const formatDuration = (seconds: number) => {
-                const hours = Math.floor(seconds / 3600);
-                const minutes = Math.floor((seconds % 3600) / 60);
-                if (hours > config.hoursThresholdForDayDisplay) {
-                    const days = Math.floor(hours / config.hoursThresholdForDayDisplay);
-                    const remainingHours = hours % config.hoursThresholdForDayDisplay;
-                    return `${days}d ${remainingHours}h`;
-                }
-                if (hours > 0) {
-                    return `${hours}h ${minutes}m`;
-                }
-                return `${minutes}m`;
             };
             return (<div className="mt-6 bg-malachite border-5 border-chartreuse p-6 shadow-brutal-chartreuse">
 
@@ -265,7 +239,7 @@ export function SlashingTimeline() {
               <div className="bg-brand-black border-3 border-chartreuse p-4">
                 <div className="text-chartreuse text-xs font-black uppercase mb-1">Time Remaining</div>
                 <div className="text-whisper-white text-lg font-black">
-                  {secondsUntilPauseEnds > 0 ? formatDuration(secondsUntilPauseEnds) : 'Ending Soon'}
+                  {secondsUntilPauseEnds > 0 ? formatTimeRemaining(secondsUntilPauseEnds, { hoursThresholdForDayDisplay: config.hoursThresholdForDayDisplay }) : 'Ending Soon'}
                 </div>
                 <div className="text-whisper-white/70 text-xs font-bold mt-1">
                   {slotsUntilPauseEnds} slots remaining

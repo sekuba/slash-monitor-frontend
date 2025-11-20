@@ -5,6 +5,10 @@ import { rollupAbi } from './contracts/rollupAbi';
 import { multicall, createCall } from './multicall';
 import { ImmutableAwareCache } from './immutableCache';
 import type { SlashAction, RoundInfo, SlashingMonitorConfig, } from '@/types/slashing';
+
+// Cache configuration constants
+const MAX_ROUND_CACHE_SIZE = 100; // Maximum number of mutable rounds to cache
+
 export class L1Monitor {
     private publicClient: PublicClient;
     private config: SlashingMonitorConfig;
@@ -13,7 +17,7 @@ export class L1Monitor {
     constructor(config: SlashingMonitorConfig) {
         this.config = config;
         this.mutableTTL = config.l1RoundCacheTTL;
-        this.roundCache = new ImmutableAwareCache<bigint, RoundInfo>((round) => round.toString(), (roundInfo) => roundInfo.isExecuted, { maxMutableSize: 100 });
+        this.roundCache = new ImmutableAwareCache<bigint, RoundInfo>((round) => round.toString(), (roundInfo) => roundInfo.isExecuted, { maxMutableSize: MAX_ROUND_CACHE_SIZE });
         const transport = Array.isArray(config.l1RpcUrl)
             ? fallback(config.l1RpcUrl.map(url => http(url)))
             : http(config.l1RpcUrl);

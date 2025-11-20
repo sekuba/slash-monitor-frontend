@@ -2,6 +2,10 @@ import type { Address } from 'viem';
 import { L1Monitor } from './l1Monitor';
 import { ImmutableAwareCache } from './immutableCache';
 import type { DetectedSlashing, RoundStatus, SlashingMonitorConfig, SlashAction, RoundInfo, } from '@/types/slashing';
+
+// Cache configuration constants
+const MAX_DETAILS_CACHE_SIZE = 50; // Maximum number of mutable round details to cache
+
 interface DetailedRoundCache {
     voteCount: bigint;
     committees: Address[][];
@@ -19,7 +23,7 @@ export class SlashingDetector {
         this.config = config;
         this.l1Monitor = l1Monitor;
         this.mutableTTL = config.detailsCacheTTL;
-        this.detailsCache = new ImmutableAwareCache<bigint, DetailedRoundCache>((round) => round.toString(), (details) => details.isExecuted, { maxMutableSize: 50 });
+        this.detailsCache = new ImmutableAwareCache<bigint, DetailedRoundCache>((round) => round.toString(), (details) => details.isExecuted, { maxMutableSize: MAX_DETAILS_CACHE_SIZE });
     }
     private getCachedDetails(round: bigint, voteCount: bigint): DetailedRoundCache | null {
         const cached = this.detailsCache.get(round);
@@ -37,38 +41,58 @@ export class SlashingDetector {
     logCacheStats() {
         console.log(`[SlashingDetector] ${this.detailsCache.getStatsString()}`);
     }
-    calculateRoundStatus(round: bigint, currentRound: bigint, currentSlot: bigint, isExecuted: boolean, hasQuorum: boolean): RoundStatus {
-        if (isExecuted) {
-            return 'executed';
-        }
+    /**
+     * Determines if a round has expired (past its lifetime).
+     */
+    private isRoundExpired(round: bigint, currentRound: bigint): boolean {
+        const roundsSinceEnd = currentRound - round;
+        const lifetime = BigInt(this.config.lifetimeInRounds);
+        return roundsSinceEnd > lifetime;
+    }
+
+    /**
+     * Determines if a round is in its veto window (newly executable).
+     */
+    private isInVetoWindow(round: bigint, currentRound: bigint, currentSlot: bigint): boolean {
+        const roundsSinceEnd = currentRound - round;
+        const executionDelay = BigInt(this.config.executionDelayInRounds);
+        const executableSlot = this.calculateExecutableSlot(round);
+        return roundsSinceEnd === executionDelay && currentSlot >= executableSlot;
+    }
+
+    /**
+     * Determines if a round is executable (past veto window but not expired).
+     */
+    private isRoundExecutable(round: bigint, currentRound: bigint, currentSlot: bigint): boolean {
         const roundsSinceEnd = currentRound - round;
         const executionDelay = BigInt(this.config.executionDelayInRounds);
         const lifetime = BigInt(this.config.lifetimeInRounds);
-        const roundSize = BigInt(this.config.slashingRoundSize);
-        const roundEndSlot = (round + 1n) * roundSize - 1n;
         const executableSlot = this.calculateExecutableSlot(round);
-        if (roundsSinceEnd > lifetime) {
+        return roundsSinceEnd > executionDelay &&
+               roundsSinceEnd <= lifetime &&
+               currentSlot >= executableSlot;
+    }
+
+    calculateRoundStatus(round: bigint, currentRound: bigint, currentSlot: bigint, isExecuted: boolean, hasQuorum: boolean): RoundStatus {
+        // Early returns for definitive states
+        if (isExecuted) {
+            return 'executed';
+        }
+
+        if (this.isRoundExpired(round, currentRound)) {
             return 'expired';
         }
-        if (roundsSinceEnd > executionDelay && roundsSinceEnd <= lifetime) {
-            if (currentSlot >= executableSlot) {
-                return 'executable';
-            }
-            return hasQuorum ? 'quorum-reached' : 'voting';
+
+        if (this.isRoundExecutable(round, currentRound, currentSlot)) {
+            return 'executable';
         }
-        if (roundsSinceEnd === executionDelay) {
-            if (currentSlot >= executableSlot) {
-                return 'in-veto-window';
-            }
-            return hasQuorum ? 'quorum-reached' : 'voting';
+
+        if (this.isInVetoWindow(round, currentRound, currentSlot)) {
+            return 'in-veto-window';
         }
-        if (roundsSinceEnd < executionDelay) {
-            if (currentSlot <= roundEndSlot) {
-                return hasQuorum ? 'quorum-reached' : 'voting';
-            }
-            return hasQuorum ? 'quorum-reached' : 'voting';
-        }
-        return 'voting';
+
+        // Round is either still voting or has reached quorum but not yet executable
+        return hasQuorum ? 'quorum-reached' : 'voting';
     }
     calculateExecutableSlot(round: bigint): bigint {
         const roundSize = BigInt(this.config.slashingRoundSize);

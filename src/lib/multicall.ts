@@ -61,18 +61,24 @@ export async function multicall<T extends readonly Call[]>(client: PublicClient,
         returnData: `0x${string}`;
     }[];
     return results.map((result, i) => {
+        const call = calls[i];
         if (!result.success) {
+            const argsInfo = call.args && call.args.length > 0
+                ? ` with args: ${JSON.stringify(call.args)}`
+                : '';
             return {
                 success: false,
-                error: new Error(`Call ${i} failed`),
+                error: new Error(
+                    `Multicall failed: ${call.functionName} on ${call.target}${argsInfo}`
+                ),
             };
         }
         try {
             const decoded = decodeFunctionResult({
-                abi: calls[i].abi,
-                functionName: calls[i].functionName,
+                abi: call.abi,
+                functionName: call.functionName,
                 data: result.returnData,
-                args: calls[i].args,
+                args: call.args,
             });
             return {
                 success: true,
@@ -80,9 +86,12 @@ export async function multicall<T extends readonly Call[]>(client: PublicClient,
             };
         }
         catch (error) {
+            const baseError = error instanceof Error ? error.message : 'Unknown error';
             return {
                 success: false,
-                error: error instanceof Error ? error : new Error('Decode failed'),
+                error: new Error(
+                    `Failed to decode result for ${call.functionName} on ${call.target}: ${baseError}`
+                ),
             };
         }
     }) as any;
