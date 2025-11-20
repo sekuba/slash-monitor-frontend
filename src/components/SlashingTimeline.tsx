@@ -144,10 +144,6 @@ export function SlashingTimeline() {
                         <span className="opacity-75">Slots:</span> {phase.startSlot.toString()} →{' '}
                         {phase.endSlot.toString()}
                       </div>
-                      <div>
-                        <span className="opacity-75">Target Epochs:</span> {phase.targetEpochStart.toString()}{' '}
-                        → {phase.targetEpochEnd.toString()}
-                      </div>
                       {phase.name === 'Current Voting Round' && (() => {
                         const currentRoundSlashing = detectedSlashings.get(phase.round);
                         if (currentRoundSlashing && config) {
