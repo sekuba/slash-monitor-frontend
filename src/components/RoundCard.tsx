@@ -78,8 +78,8 @@ export function RoundCard({ slashing }: RoundCardProps) {
         // Chartreuse for quorum-reached (not protected)
         if (displayStatus === 'quorum-reached')
             return 'border-chartreuse shadow-brutal-chartreuse';
-        // Default for other actionable states (executable, in-veto-window)
-        return 'border-chartreuse shadow-brutal-chartreuse';
+        // Vermillion for executable/in-veto-window (danger/urgency)
+        return 'border-vermillion shadow-brutal-vermillion';
     };
     const getBackgroundStyle = () => {
         if (slashing.isVetoed)
@@ -92,9 +92,16 @@ export function RoundCard({ slashing }: RoundCardProps) {
             return 'bg-oxblood';
         return 'bg-malachite/30';
     };
+    const getPulseColor = () => {
+        if (slashing.isVetoed || isProtected)
+            return 'bg-aqua';
+        if (displayStatus === 'quorum-reached')
+            return 'bg-chartreuse';
+        return 'bg-vermillion';
+    };
     return (<div className={`${getBackgroundStyle()} border-5 ${getBorderStyle()} transition-all hover:-translate-y-1 hover:translate-x-1 relative`}>
-      
-      {isActionable && (<div className="absolute top-4 right-4 w-3 h-3 bg-chartreuse rounded-full animate-pulse shadow-brutal"></div>)}
+
+      {isActionable && (<div className={`absolute top-4 right-4 w-3 h-3 ${getPulseColor()} rounded-full animate-pulse shadow-brutal`}></div>)}
 
       
       <div className="p-6 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
