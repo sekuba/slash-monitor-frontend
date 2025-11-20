@@ -69,39 +69,40 @@ export function RoundCard({ slashing }: RoundCardProps) {
         const adjustedSeconds = baseSeconds - elapsedSeconds;
         return Math.max(0, adjustedSeconds);
     };
-    const getBorderStyle = () => {
-        if (!isActionable)
-            return 'border-brand-black shadow-brutal';
-        // Aqua for vetoed or protected rounds
-        if (slashing.isVetoed || isProtected)
-            return 'border-aqua shadow-brutal-aqua';
-        // Chartreuse for quorum-reached (not protected)
-        if (displayStatus === 'quorum-reached')
-            return 'border-chartreuse shadow-brutal-chartreuse';
-        // Vermillion for executable/in-veto-window (danger/urgency)
-        return 'border-vermillion shadow-brutal-vermillion';
+    // Determine color theme based on status
+    const getColorTheme = (): 'aqua' | 'chartreuse' | 'vermillion' | 'default' => {
+        if (!isActionable) return 'default';
+        if (slashing.isVetoed || isProtected) return 'aqua';
+        if (displayStatus === 'quorum-reached') return 'chartreuse';
+        return 'vermillion';
     };
-    const getBackgroundStyle = () => {
-        if (slashing.isVetoed)
-            return 'bg-lapis';
-        if (!isActionable)
-            return 'bg-malachite/20';
-        if (displayStatus === 'quorum-reached')
-            return 'bg-malachite';
-        if (displayStatus === 'executable' || displayStatus === 'in-veto-window')
-            return 'bg-oxblood';
-        return 'bg-malachite/30';
-    };
-    const getPulseColor = () => {
-        if (slashing.isVetoed || isProtected)
-            return 'bg-aqua';
-        if (displayStatus === 'quorum-reached')
-            return 'bg-chartreuse';
-        return 'bg-vermillion';
-    };
-    return (<div className={`${getBackgroundStyle()} border-5 ${getBorderStyle()} transition-all hover:-translate-y-1 hover:translate-x-1 relative`}>
 
-      {isActionable && (<div className={`absolute top-4 right-4 w-3 h-3 ${getPulseColor()} rounded-full animate-pulse shadow-brutal`}></div>)}
+    const colorTheme = getColorTheme();
+
+    // Style mappings based on color theme
+    const themeStyles = {
+        border: {
+            aqua: 'border-aqua shadow-brutal-aqua',
+            chartreuse: 'border-chartreuse shadow-brutal-chartreuse',
+            vermillion: 'border-vermillion shadow-brutal-vermillion',
+            default: 'border-brand-black shadow-brutal',
+        },
+        background: {
+            aqua: 'bg-lapis',
+            chartreuse: 'bg-malachite',
+            vermillion: 'bg-oxblood',
+            default: 'bg-malachite/20',
+        },
+        pulse: {
+            aqua: 'bg-aqua',
+            chartreuse: 'bg-chartreuse',
+            vermillion: 'bg-vermillion',
+            default: 'bg-chartreuse',
+        },
+    };
+    return (<div className={`${themeStyles.background[colorTheme]} border-5 ${themeStyles.border[colorTheme]} transition-all hover:-translate-y-1 hover:translate-x-1 relative`}>
+
+      {isActionable && (<div className={`absolute top-4 right-4 w-3 h-3 ${themeStyles.pulse[colorTheme]} rounded-full animate-pulse shadow-brutal`}></div>)}
 
       
       <div className="p-6 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
