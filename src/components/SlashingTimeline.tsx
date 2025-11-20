@@ -88,14 +88,14 @@ export function SlashingTimeline() {
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-3">
                 <h3 className="font-black text-lg uppercase tracking-tight text-aqua">
-                  Current Voting Round
+                  Current Voting Round {currentRound.toString()}
                 </h3>
                 <span className="inline-flex items-center px-3 py-1 border-3 border-brand-black bg-chartreuse text-xs font-black uppercase text-brand-black">
                   ACTIVE
                 </span>
               </div>
               <p className="text-sm font-bold text-whisper-white mb-3">
-                Committee members vote on slashing offenses from epochs {targetEpochStart.toString()}-{targetEpochEnd.toString()}
+                Committee members vote on slashing offenses from round {targetRound.toString()}
               </p>
             </div>
             <div className="text-right flex-shrink-0">
@@ -141,7 +141,7 @@ export function SlashingTimeline() {
                     Executable in {formatTime(secondsUntilExecutable)}
                   </div>
                   <div className="text-whisper-white/70 text-xs font-bold mt-1">
-                    Slashing can be executed at slot {executableAtSlot.toString()} unless vetoed
+                    Slashing payload can be executed at slot {executableAtSlot.toString()} unless vetoed
                   </div>
                 </div>
               </div>
