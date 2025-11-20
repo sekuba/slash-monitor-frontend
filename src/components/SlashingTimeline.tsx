@@ -13,7 +13,7 @@ interface TimelinePhase {
     color: string;
 }
 export function SlashingTimeline() {
-    const { config, currentRound, currentSlot, currentEpoch, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration } = useSlashingStore();
+    const { config, currentRound, currentSlot, currentEpoch, detectedSlashings, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration } = useSlashingStore();
     const timeline = useMemo(() => {
         if (!config || currentRound === null || currentSlot === null || currentEpoch === null) {
             return [];
@@ -32,6 +32,10 @@ export function SlashingTimeline() {
         const targetEpochStart = targetRound * roundSizeInEpochs;
         const targetEpochEnd = targetEpochStart + roundSizeInEpochs - 1n;
         if (currentSlot <= roundEndSlot) {
+            const currentRoundSlashing = detectedSlashings.get(round);
+            const voteInfo = currentRoundSlashing && config
+                ? ` (${currentRoundSlashing.voteCount.toString()}/${config.quorum} votes to slash)`
+                : '';
             phases.push({
                 name: 'Current Voting Round',
                 round,
@@ -40,7 +44,7 @@ export function SlashingTimeline() {
                 targetEpochStart,
                 targetEpochEnd,
                 status: 'current',
-                description: `Committee members vote on slashing offenses from epochs ${targetEpochStart.toString()}-${targetEpochEnd.toString()}`,
+                description: `Committee members vote on slashing offenses from epochs ${targetEpochStart.toString()}-${targetEpochEnd.toString()}${voteInfo}`,
                 color: 'blue',
             });
         }

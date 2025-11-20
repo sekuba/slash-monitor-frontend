@@ -72,8 +72,13 @@ export function RoundCard({ slashing }: RoundCardProps) {
     const getBorderStyle = () => {
         if (!isActionable)
             return 'border-brand-black shadow-brutal';
-        if (displayStatus === 'quorum-reached')
+        // Aqua for vetoed or protected rounds
+        if (slashing.isVetoed || isProtected)
             return 'border-aqua shadow-brutal-aqua';
+        // Chartreuse for quorum-reached (not protected)
+        if (displayStatus === 'quorum-reached')
+            return 'border-chartreuse shadow-brutal-chartreuse';
+        // Default for other actionable states (executable, in-veto-window)
         return 'border-chartreuse shadow-brutal-chartreuse';
     };
     const getBackgroundStyle = () => {
@@ -133,7 +138,6 @@ export function RoundCard({ slashing }: RoundCardProps) {
                                         (slashing.isVetoed && slashing.status === 'quorum-reached') ||
                                         (isProtected && slashing.status === 'quorum-reached')) &&
                                         slashing.secondsUntilExpires !== undefined;
-            const showVetoButton = !slashing.isVetoed && !isProtected;
 
             return (<div className="mt-4 space-y-3">
 
@@ -171,17 +175,12 @@ export function RoundCard({ slashing }: RoundCardProps) {
                     </div>);
               })()}
 
-              {slashing.isVetoed ? (<div className="flex items-center gap-3 bg-brand-black border-3 border-aqua p-3">
+              {slashing.isVetoed && (<div className="flex items-center gap-3 bg-brand-black border-3 border-aqua p-3">
                   <svg className="w-6 h-6 text-aqua stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M6 18L18 6M6 6l12 12"/>
                   </svg>
                   <div className="text-aqua font-black uppercase text-sm">VETOED</div>
-                </div>) : showVetoButton ? (<div className="flex items-center gap-3 bg-brand-black border-3 border-chartreuse p-3">
-                  <svg className="w-6 h-6 text-chartreuse stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                  </svg>
-                  <div className="text-chartreuse font-black uppercase text-sm">VETO AVAILABLE NOW</div>
-                </div>) : null}
+                </div>)}
             </div>);
           })()}
       </div>
