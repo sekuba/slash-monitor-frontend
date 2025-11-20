@@ -21,6 +21,7 @@ export interface SlashingMonitorConfig {
     copyFeedbackDuration: number;
     hoursThresholdForDayDisplay: number;
     consoleLogProbability: number;
+    lookbackRounds: number;
 }
 export interface SlashAction {
     validator: Address;

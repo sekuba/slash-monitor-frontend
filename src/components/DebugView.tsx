@@ -64,6 +64,7 @@ export const DebugView: React.FC = () => {
           <ConfigItem label="Rollup.getSlotDuration()" value={config.slotDuration ? `${config.slotDuration}s` : 'Not loaded'} />
           <ConfigItem label="Rollup.getEpochDuration()" value={config.epochDuration ? `${config.epochDuration}s` : 'Not loaded'} />
           <ConfigItem label="Slasher.SLASHING_DISABLE_DURATION()" value={slashingDisableDuration ? `${slashingDisableDuration}s` : 'Not loaded'} />
+          <ConfigItem label="Monitor.LOOKBACK_ROUNDS" value={config.lookbackRounds?.toString() || '0 (disabled)'} />
         </div>
       </section>
 
@@ -220,6 +221,7 @@ export const DebugView: React.FC = () => {
           <ConfigItem label="Countdown Interval" value={`${config.realtimeCountdownInterval}ms`} />
           <ConfigItem label="Round Cache TTL" value={`${config.l1RoundCacheTTL}ms`} />
           <ConfigItem label="Details Cache TTL" value={`${config.detailsCacheTTL}ms`} />
+          <ConfigItem label="Lookback Rounds" value={config.lookbackRounds?.toString() || '0 (disabled)'} />
         </div>
       </section>
     </div>

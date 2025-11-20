@@ -13,6 +13,19 @@ interface ImportMetaEnv {
     readonly VITE_TESTNET_SLASHER_ADDRESS?: string;
     readonly VITE_TESTNET_ROLLUP_ADDRESS?: string;
     readonly VITE_TESTNET_NODE_ADMIN_URL?: string;
+
+    // Performance & Behavior Configuration
+    readonly VITE_L2_POLL_INTERVAL?: string;
+    readonly VITE_REALTIME_COUNTDOWN_INTERVAL?: string;
+    readonly VITE_L1_ROUND_CACHE_TTL?: string;
+    readonly VITE_DETAILS_CACHE_TTL?: string;
+    readonly VITE_COPY_FEEDBACK_DURATION?: string;
+    readonly VITE_HOURS_THRESHOLD_FOR_DAY_DISPLAY?: string;
+    readonly VITE_CONSOLE_LOG_PROBABILITY?: string;
+
+    // Historical Data Configuration
+    readonly VITE_LOOKBACK_ROUNDS?: string;
+    readonly VITE_TESTNET_LOOKBACK_ROUNDS?: string;
 }
 interface ImportMeta {
     readonly env: ImportMetaEnv;

@@ -53,6 +53,11 @@ const createConfig = (isTestnet: boolean): SlashingMonitorConfig => {
         copyFeedbackDuration: Number(import.meta.env.VITE_COPY_FEEDBACK_DURATION) || 2000,
         hoursThresholdForDayDisplay: Number(import.meta.env.VITE_HOURS_THRESHOLD_FOR_DAY_DISPLAY) || 24,
         consoleLogProbability: Number(import.meta.env.VITE_CONSOLE_LOG_PROBABILITY) || 0.2,
+        lookbackRounds: Number(
+            isTestnet
+                ? (import.meta.env.VITE_TESTNET_LOOKBACK_ROUNDS || import.meta.env.VITE_LOOKBACK_ROUNDS || 0)
+                : (import.meta.env.VITE_LOOKBACK_ROUNDS || 0)
+        ),
     };
 };
 
