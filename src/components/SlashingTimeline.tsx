@@ -101,7 +101,8 @@ export function SlashingTimeline() {
               </span>
             </div>
             <p className="text-sm font-bold text-whisper-white mb-3">
-              Committee members vote on slashing offenses from round {targetRound.toString()} ({timeAgo} ago)
+              Sequencers vote on slashing offenses from round {targetRound.toString()} ({timeAgo} ago)
+              <br></br>For each slot, its proposer can vote to slash the target round's offenders
             </p>
           </div>
           <div className="text-right flex-shrink-0">
