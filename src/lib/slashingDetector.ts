@@ -42,6 +42,16 @@ export class SlashingDetector {
         console.log(`[SlashingDetector] ${this.detailsCache.getStatsString()}`);
     }
     /**
+     * Determines if a round is currently being voted on.
+     * A round R is voted on during round (R + slashOffset).
+     */
+    private isBeingVotedOn(round: bigint, currentRound: bigint): boolean {
+        const slashOffset = BigInt(this.config.slashOffsetInRounds);
+        const votingRound = round + slashOffset;
+        return currentRound === votingRound;
+    }
+
+    /**
      * Determines if a round has expired (past its lifetime).
      */
     private isRoundExpired(round: bigint, currentRound: bigint): boolean {
@@ -91,8 +101,14 @@ export class SlashingDetector {
             return 'in-veto-window';
         }
 
-        // Round is either still voting or has reached quorum but not yet executable
-        return hasQuorum ? 'quorum-reached' : 'voting';
+        // Check if we're currently in the voting window for this round
+        if (this.isBeingVotedOn(round, currentRound)) {
+            return hasQuorum ? 'quorum-reached' : 'voting';
+        }
+
+        // If voting has ended but round hasn't reached executable state yet
+        // Show quorum-reached if quorum was met, otherwise treat as expired
+        return hasQuorum ? 'quorum-reached' : 'expired';
     }
     calculateExecutableSlot(round: bigint): bigint {
         const roundSize = BigInt(this.config.slashingRoundSize);
