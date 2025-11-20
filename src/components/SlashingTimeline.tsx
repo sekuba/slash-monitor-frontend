@@ -72,101 +72,99 @@ export function SlashingTimeline() {
         Slashing Timeline
       </h2>
 
-      <div className="bg-brand-black p-6">
-        {/* Current State Badges */}
-        <div className="mb-6 flex items-center gap-4 flex-wrap">
-          <div className="bg-lapis border-3 border-aqua px-4 py-2">
-            <span className="font-black text-aqua text-xs uppercase tracking-wider">Slot:</span>{' '}
-            <span className="font-black text-whisper-white text-lg">{currentSlot.toString()}</span>
+      {/* Current State Badges */}
+      <div className="mb-6 flex items-center gap-4 flex-wrap">
+        <div className="bg-lapis border-3 border-aqua px-4 py-2">
+          <span className="font-black text-aqua text-xs uppercase tracking-wider">Slot:</span>{' '}
+          <span className="font-black text-whisper-white text-lg">{currentSlot.toString()}</span>
+        </div>
+        <div className="bg-aubergine border-3 border-orchid px-4 py-2">
+          <span className="font-black text-orchid text-xs uppercase tracking-wider">Epoch:</span>{' '}
+          <span className="font-black text-whisper-white text-lg">{currentEpoch.toString()}</span>
+        </div>
+        <div className="bg-malachite border-3 border-chartreuse px-4 py-2">
+          <span className="font-black text-chartreuse text-xs uppercase tracking-wider">Round:</span>{' '}
+          <span className="font-black text-whisper-white text-lg">{currentRound.toString()}</span>
+        </div>
+      </div>
+
+      {/* Current Voting Round Section */}
+      <div className="bg-lapis border-5 border-aqua p-5 shadow-brutal-aqua animate-pulse">
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div className="flex-1">
+            <div className="flex items-center gap-3 mb-3">
+              <h3 className="font-black text-lg uppercase tracking-tight text-aqua">
+                Current Voting Round {currentRound.toString()}
+              </h3>
+              <span className="inline-flex items-center px-3 py-1 border-3 border-brand-black bg-chartreuse text-xs font-black uppercase text-brand-black">
+                ACTIVE
+              </span>
+            </div>
+            <p className="text-sm font-bold text-whisper-white mb-3">
+              Committee members vote on slashing offenses from round {targetRound.toString()} ({timeAgo} ago)
+            </p>
           </div>
-          <div className="bg-aubergine border-3 border-orchid px-4 py-2">
-            <span className="font-black text-orchid text-xs uppercase tracking-wider">Epoch:</span>{' '}
-            <span className="font-black text-whisper-white text-lg">{currentEpoch.toString()}</span>
-          </div>
-          <div className="bg-malachite border-3 border-chartreuse px-4 py-2">
-            <span className="font-black text-chartreuse text-xs uppercase tracking-wider">Round:</span>{' '}
-            <span className="font-black text-whisper-white text-lg">{currentRound.toString()}</span>
+          <div className="text-right flex-shrink-0">
+            <div className="bg-brand-black border-3 border-aqua px-4 py-2">
+              <div className="opacity-75 mb-1 text-xs font-black uppercase text-aqua">Ends In</div>
+              <div className="text-2xl font-black text-whisper-white">{formatTime(secondsRemaining)}</div>
+            </div>
           </div>
         </div>
 
-        {/* Current Voting Round Section */}
-        <div className="bg-lapis border-5 border-aqua p-5 shadow-brutal-aqua animate-pulse">
-          <div className="flex items-start justify-between gap-4 mb-4">
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-3">
-                <h3 className="font-black text-lg uppercase tracking-tight text-aqua">
-                  Current Voting Round {currentRound.toString()}
-                </h3>
-                <span className="inline-flex items-center px-3 py-1 border-3 border-brand-black bg-chartreuse text-xs font-black uppercase text-brand-black">
-                  ACTIVE
-                </span>
-              </div>
-              <p className="text-sm font-bold text-whisper-white mb-3">
-                Committee members vote on slashing offenses from round {targetRound.toString()} ({timeAgo} ago)
-              </p>
-            </div>
-            <div className="text-right flex-shrink-0">
-              <div className="bg-brand-black border-3 border-aqua px-4 py-2">
-                <div className="opacity-75 mb-1 text-xs font-black uppercase text-aqua">Ends In</div>
-                <div className="text-2xl font-black text-whisper-white">{formatTime(secondsRemaining)}</div>
-              </div>
+        {/* Round Details Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+          <div className="bg-brand-black border-3 border-aqua px-3 py-2">
+            <div className="text-aqua text-xs font-black uppercase mb-1">Voting Slots</div>
+            <div className="text-whisper-white text-sm font-bold">
+              {roundStartSlot.toString()} → {roundEndSlot.toString()}
             </div>
           </div>
-
-          {/* Round Details Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-            <div className="bg-brand-black border-3 border-aqua px-3 py-2">
-              <div className="text-aqua text-xs font-black uppercase mb-1">Voting Slots</div>
-              <div className="text-whisper-white text-sm font-bold">
-                {roundStartSlot.toString()} → {roundEndSlot.toString()}
-              </div>
-            </div>
-            <div className="bg-brand-black border-3 border-aqua px-3 py-2">
-              <div className="text-aqua text-xs font-black uppercase mb-1">Target Epochs</div>
-              <div className="text-whisper-white text-sm font-bold">
-                {targetEpochStart.toString()} → {targetEpochEnd.toString()}
-              </div>
-            </div>
-            <div className="bg-brand-black border-3 border-aqua px-3 py-2">
-              <div className="text-aqua text-xs font-black uppercase mb-1">Votes to Slash</div>
-              <div className="text-whisper-white text-sm font-bold">
-                {voteCount}/{quorum}
-                {hasReachedQuorum && <span className="ml-2 text-chartreuse">✓ QUORUM</span>}
-              </div>
+          <div className="bg-brand-black border-3 border-aqua px-3 py-2">
+            <div className="text-aqua text-xs font-black uppercase mb-1">Target Epochs</div>
+            <div className="text-whisper-white text-sm font-bold">
+              {targetEpochStart.toString()} → {targetEpochEnd.toString()}
             </div>
           </div>
+          <div className="bg-brand-black border-3 border-aqua px-3 py-2">
+            <div className="text-aqua text-xs font-black uppercase mb-1">Votes to Slash</div>
+            <div className="text-whisper-white text-sm font-bold">
+              {voteCount}/{quorum}
+              {hasReachedQuorum && <span className="ml-2 text-chartreuse">✓ QUORUM</span>}
+            </div>
+          </div>
+        </div>
 
-          {/* Execution Info */}
-          {hasReachedQuorum && (
-            <div className="bg-oxblood border-3 border-vermillion p-3 mb-4">
-              <div className="flex items-center gap-3">
-                <svg className="w-5 h-5 text-vermillion stroke-[3] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                </svg>
-                <div>
-                  <div className="text-vermillion font-black text-sm uppercase">
-                    Executable in {formatTime(secondsUntilExecutable)}
-                  </div>
-                  <div className="text-whisper-white/70 text-xs font-bold mt-1">
-                    Slashing payload can be executed at slot {executableAtSlot.toString()} unless vetoed
-                  </div>
+        {/* Execution Info */}
+        {hasReachedQuorum && (
+          <div className="bg-oxblood border-3 border-vermillion p-3 mb-4">
+            <div className="flex items-center gap-3">
+              <svg className="w-5 h-5 text-vermillion stroke-[3] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+              <div>
+                <div className="text-vermillion font-black text-sm uppercase">
+                  Executable in {formatTime(secondsUntilExecutable)}
+                </div>
+                <div className="text-whisper-white/70 text-xs font-bold mt-1">
+                  Slashing payload can be executed at slot {executableAtSlot.toString()} unless vetoed
                 </div>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* Progress Bar */}
-          <div className="pt-4 border-t-3 border-brand-black">
-            <div className="flex items-center gap-2 text-xs font-black uppercase mb-2 text-aqua">
-              <span>Voting Progress</span>
-              <span className="ml-auto">{progressPercent}%</span>
-            </div>
-            <div className="w-full bg-brand-black border-3 border-aqua h-4 overflow-hidden">
-              <div
-                className="bg-chartreuse h-full transition-all duration-500"
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
+        {/* Progress Bar */}
+        <div className="pt-4 border-t-3 border-brand-black">
+          <div className="flex items-center gap-2 text-xs font-black uppercase mb-2 text-aqua">
+            <span>Voting Progress</span>
+            <span className="ml-auto">{progressPercent}%</span>
+          </div>
+          <div className="w-full bg-brand-black border-3 border-aqua h-4 overflow-hidden">
+            <div
+              className="bg-chartreuse h-full transition-all duration-500"
+              style={{ width: `${progressPercent}%` }}
+            />
           </div>
         </div>
       </div>
