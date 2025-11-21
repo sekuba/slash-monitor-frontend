@@ -176,12 +176,13 @@ export class SlashingDetector {
                     isVetoed = cachedDetails.isVetoed;
                 }
                 else {
-                    committees = await this.l1Monitor.getSlashTargetCommittees(round);
-                    slashActions = await this.l1Monitor.getTally(round, committees);
+                    const targetRound = this.calculateTargetRound(round);
+                    committees = await this.l1Monitor.getSlashTargetCommittees(targetRound);
+                    slashActions = await this.l1Monitor.getTally(targetRound, committees);
                     if (slashActions.length === 0) {
                         return null;
                     }
-                    payloadAddress = await this.l1Monitor.getPayloadAddress(round, slashActions);
+                    payloadAddress = await this.l1Monitor.getPayloadAddress(targetRound, slashActions);
                     isVetoed = await this.l1Monitor.isPayloadVetoed(payloadAddress);
                     this.detailsCache.set(round, {
                         voteCount: roundInfo.voteCount,
@@ -320,9 +321,11 @@ export class SlashingDetector {
         if (roundsNeedingDetails.length > 0) {
             console.log(`[Detection] Batch fetching details for ${roundsNeedingDetails.length} rounds (uncached)`);
             try {
-                const allCommittees = await this.l1Monitor.batchGetSlashTargetCommittees(roundsNeedingDetails.map(r => r.round));
-                const roundsWithCommittees = roundsNeedingDetails.map((r, i) => ({
-                    round: r.round,
+                // Fetch data for target rounds (not voting rounds)
+                const targetRounds = roundsNeedingDetails.map(r => this.calculateTargetRound(r.round));
+                const allCommittees = await this.l1Monitor.batchGetSlashTargetCommittees(targetRounds);
+                const roundsWithCommittees = targetRounds.map((targetRound, i) => ({
+                    round: targetRound,
                     committees: allCommittees[i],
                 }));
                 const allTallies = await this.l1Monitor.batchGetTally(roundsWithCommittees);
@@ -339,7 +342,7 @@ export class SlashingDetector {
                 }
                 else {
                     const payloadAndVetoResults = await this.l1Monitor.batchGetPayloadAddressesAndVetoStatus(roundsWithActions.map(item => ({
-                        round: item.roundData.round,
+                        round: this.calculateTargetRound(item.roundData.round),
                         actions: item.slashActions,
                     })));
                     roundsWithActions.forEach((item, resultIndex) => {
