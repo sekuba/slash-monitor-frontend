@@ -166,7 +166,7 @@ export function Dashboard() {
         {slashings.length > activeSlashings.length && (<div>
             <h2 className="text-3xl font-black text-whisper-white mb-6 uppercase">Other Rounds</h2>
             <div className="grid gap-6">
-              {slashings.filter((s) => !isActionableStatus(s.status)).map((slashing) => (<RoundCard key={slashing.round.toString()} slashing={slashing}/>))}
+              {slashings.filter((s) => !isActionableStatus(s.status) && s.round !== currentRound).map((slashing) => (<RoundCard key={slashing.round.toString()} slashing={slashing}/>))}
             </div>
           </div>)}
 

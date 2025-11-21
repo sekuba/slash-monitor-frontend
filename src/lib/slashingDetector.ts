@@ -263,19 +263,15 @@ export class SlashingDetector {
             const shouldComputeDetails = (hasQuorum && (status === 'quorum-reached' || status === 'in-veto-window' || status === 'executable')) ||
                 status === 'executed';
             if (!shouldComputeDetails) {
-                // Only include rounds that have meaningful voting activity
-                // Exclude:
-                // 1. The current voting round (shown in SlashingTimeline instead)
-                // 2. Rounds with no quorum that are voting/expired (not interesting yet)
+                // Always include the current voting round (needed by SlashingTimeline)
                 const isCurrentVotingRound = round === currentRound;
-                const hasNoQuorum = !hasQuorum;
-                const isNotActionable = status === 'voting' || status === 'expired';
-
-                if (isCurrentVotingRound || (hasNoQuorum && isNotActionable)) {
+                if (isCurrentVotingRound) {
+                    simpleRounds.push(detected);
                     continue;
                 }
 
-                // Include rounds with some votes that might be interesting
+                // For other rounds, only include if they have votes
+                // This excludes future target rounds that haven't been voted on yet
                 if (roundInfo.voteCount > 0n) {
                     simpleRounds.push(detected);
                 }
