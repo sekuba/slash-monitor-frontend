@@ -16,8 +16,9 @@ export function Dashboard() {
 
     // Memoize sorted slashings to avoid re-sorting on every render
     const slashings = useMemo(() => Array.from(detectedSlashings.values()).sort((a, b) => Number(b.round - a.round)), [detectedSlashings]);
-    const activeSlashings = useMemo(() => slashings.filter((s) => isActionableStatus(s.status))
-        .sort((a, b) => Number(a.round - b.round)), [slashings]);
+    const activeSlashings = useMemo(() => slashings
+        .filter((s) => isActionableStatus(s.status) && s.round !== currentRound)
+        .sort((a, b) => Number(a.round - b.round)), [slashings, currentRound]);
 
     useEffect(() => {
         if ('Notification' in window && Notification.permission === 'default') {
@@ -166,7 +167,7 @@ export function Dashboard() {
         {slashings.length > activeSlashings.length && (<div>
             <h2 className="text-3xl font-black text-whisper-white mb-6 uppercase">Other Rounds</h2>
             <div className="grid gap-6">
-              {slashings.filter((s) => !isActionableStatus(s.status)).map((slashing) => (<RoundCard key={slashing.round.toString()} slashing={slashing}/>))}
+              {slashings.filter((s) => !isActionableStatus(s.status) && s.round !== currentRound).map((slashing) => (<RoundCard key={slashing.round.toString()} slashing={slashing}/>))}
             </div>
           </div>)}
 

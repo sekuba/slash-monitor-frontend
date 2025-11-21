@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import type { DetectedSlashing } from '@/types/slashing';
 import { useSlashingStore } from '@/store/slashingStore';
 import { formatAddress, formatEther, formatTimeRemaining, getStatusColor, getStatusText, isActionableStatus, findOffenseForValidator, getOffenseTypeName, getOffenseTypeColor, } from '@/lib/utils';
+import { isRoundProtectedByPause } from '@/lib/pauseProtection';
 interface RoundCardProps {
     slashing: DetectedSlashing;
 }
@@ -10,42 +11,16 @@ export function RoundCard({ slashing }: RoundCardProps) {
     const [currentTime, setCurrentTime] = useState(Date.now());
     const { offenses, config, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, currentSlot } = useSlashingStore();
 
-    const isProtectedByGlobalPause = (): boolean => {
-        if (!config || isSlashingEnabled || !slashingDisabledUntil || !slashingDisableDuration || !currentSlot) {
-            return false;
-        }
-
-        // Calculate when the pause ends
-        const now = Math.floor(Date.now() / 1000);
-        const pauseEndsAt = Number(slashingDisabledUntil);
-        const secondsUntilPauseEnds = Math.max(0, pauseEndsAt - now);
-        const slotsUntilPauseEnds = Math.floor(secondsUntilPauseEnds / config.slotDuration);
-        const slotWhenPauseEnds = currentSlot + BigInt(slotsUntilPauseEnds);
-
-        // Check if this round expires before the pause ends
-        const roundSize = BigInt(config.slashingRoundSize);
-        const lifetime = BigInt(config.lifetimeInRounds);
-        const roundExpiresAtSlot = (slashing.round + 1n + lifetime) * roundSize;
-
-        if (roundExpiresAtSlot > slotWhenPauseEnds) {
-            return false; // Round expires after pause, so NOT protected
-        }
-
-        // Calculate the protected round range
-        // Rounds that become executable during the pause but expire before it ends
-        const pauseDurationInSlots = BigInt(Math.floor(Number(slashingDisableDuration) / config.slotDuration));
-        const slotWhenPauseStarted = slotWhenPauseEnds - pauseDurationInSlots;
-        const executionDelay = BigInt(config.executionDelayInRounds);
-
-        // First protected round: becomes executable when pause starts
-        const firstProtectedRound = (slotWhenPauseStarted / roundSize) - executionDelay;
-        // Last protected round: expires before pause ends
-        const lastProtectedRound = (slotWhenPauseEnds / roundSize) - lifetime - 1n;
-
-        return slashing.round >= firstProtectedRound && slashing.round <= lastProtectedRound;
-    };
-
-    const isProtected = isProtectedByGlobalPause();
+    const isProtected = config && currentSlot
+        ? isRoundProtectedByPause(
+            slashing.round,
+            config,
+            currentSlot,
+            isSlashingEnabled,
+            slashingDisabledUntil,
+            slashingDisableDuration
+          )
+        : false;
 
     // Adjust status if protected by global pause - executable rounds become quorum-reached
     const displayStatus = (isProtected && (slashing.status === 'executable' || slashing.status === 'in-veto-window'))

@@ -2,6 +2,10 @@ import type { Address } from 'viem';
 import { L1Monitor } from './l1Monitor';
 import { ImmutableAwareCache } from './immutableCache';
 import type { DetectedSlashing, RoundStatus, SlashingMonitorConfig, SlashAction, RoundInfo, } from '@/types/slashing';
+
+// Cache configuration constants
+const MAX_DETAILS_CACHE_SIZE = 50; // Maximum number of mutable round details to cache
+
 interface DetailedRoundCache {
     voteCount: bigint;
     committees: Address[][];
@@ -19,7 +23,7 @@ export class SlashingDetector {
         this.config = config;
         this.l1Monitor = l1Monitor;
         this.mutableTTL = config.detailsCacheTTL;
-        this.detailsCache = new ImmutableAwareCache<bigint, DetailedRoundCache>((round) => round.toString(), (details) => details.isExecuted, { maxMutableSize: 50 });
+        this.detailsCache = new ImmutableAwareCache<bigint, DetailedRoundCache>((round) => round.toString(), (details) => details.isExecuted, { maxMutableSize: MAX_DETAILS_CACHE_SIZE });
     }
     private getCachedDetails(round: bigint, voteCount: bigint): DetailedRoundCache | null {
         const cached = this.detailsCache.get(round);
@@ -37,38 +41,75 @@ export class SlashingDetector {
     logCacheStats() {
         console.log(`[SlashingDetector] ${this.detailsCache.getStatsString()}`);
     }
-    calculateRoundStatus(round: bigint, currentRound: bigint, currentSlot: bigint, isExecuted: boolean, hasQuorum: boolean): RoundStatus {
-        if (isExecuted) {
-            return 'executed';
-        }
+    /**
+     * Determines if a voting round is currently active.
+     * A voting round is active when it equals the current round.
+     */
+    private isBeingVotedOn(votingRound: bigint, currentRound: bigint): boolean {
+        return currentRound === votingRound;
+    }
+
+    /**
+     * Determines if a round has expired (past its lifetime).
+     */
+    private isRoundExpired(round: bigint, currentRound: bigint): boolean {
+        const roundsSinceEnd = currentRound - round;
+        const lifetime = BigInt(this.config.lifetimeInRounds);
+        return roundsSinceEnd > lifetime;
+    }
+
+    /**
+     * Determines if a round is in its veto window (newly executable).
+     */
+    private isInVetoWindow(round: bigint, currentRound: bigint, currentSlot: bigint): boolean {
+        const roundsSinceEnd = currentRound - round;
+        const executionDelay = BigInt(this.config.executionDelayInRounds);
+        const executableSlot = this.calculateExecutableSlot(round);
+        return roundsSinceEnd === executionDelay && currentSlot >= executableSlot;
+    }
+
+    /**
+     * Determines if a round is executable (past veto window but not expired).
+     */
+    private isRoundExecutable(round: bigint, currentRound: bigint, currentSlot: bigint): boolean {
         const roundsSinceEnd = currentRound - round;
         const executionDelay = BigInt(this.config.executionDelayInRounds);
         const lifetime = BigInt(this.config.lifetimeInRounds);
-        const roundSize = BigInt(this.config.slashingRoundSize);
-        const roundEndSlot = (round + 1n) * roundSize - 1n;
         const executableSlot = this.calculateExecutableSlot(round);
-        if (roundsSinceEnd > lifetime) {
+        return roundsSinceEnd > executionDelay &&
+               roundsSinceEnd <= lifetime &&
+               currentSlot >= executableSlot;
+    }
+
+    calculateRoundStatus(round: bigint, currentRound: bigint, currentSlot: bigint, isExecuted: boolean, hasQuorum: boolean): RoundStatus {
+        // Early returns for definitive states
+        if (isExecuted) {
+            return 'executed';
+        }
+
+        if (this.isRoundExpired(round, currentRound)) {
             return 'expired';
         }
-        if (roundsSinceEnd > executionDelay && roundsSinceEnd <= lifetime) {
-            if (currentSlot >= executableSlot) {
+
+        // Only rounds with quorum can be executable or in veto window
+        if (hasQuorum) {
+            if (this.isRoundExecutable(round, currentRound, currentSlot)) {
                 return 'executable';
             }
-            return hasQuorum ? 'quorum-reached' : 'voting';
-        }
-        if (roundsSinceEnd === executionDelay) {
-            if (currentSlot >= executableSlot) {
+
+            if (this.isInVetoWindow(round, currentRound, currentSlot)) {
                 return 'in-veto-window';
             }
-            return hasQuorum ? 'quorum-reached' : 'voting';
         }
-        if (roundsSinceEnd < executionDelay) {
-            if (currentSlot <= roundEndSlot) {
-                return hasQuorum ? 'quorum-reached' : 'voting';
-            }
-            return hasQuorum ? 'quorum-reached' : 'voting';
+
+        // Check if we're currently in the voting window for this round
+        if (this.isBeingVotedOn(round, currentRound)) {
+            return 'quorum-reached'; // Current round always shows as quorum-reached (filtered from round cards, displayed in SlashingTimeline only)
         }
-        return 'voting';
+
+        // If voting has ended but round hasn't reached executable state yet
+        // Show quorum-reached if quorum was met, otherwise treat as expired
+        return hasQuorum ? 'quorum-reached' : 'expired';
     }
     calculateExecutableSlot(round: bigint): bigint {
         const roundSize = BigInt(this.config.slashingRoundSize);
@@ -87,10 +128,15 @@ export class SlashingDetector {
         const slotDifference = Number(targetSlot - currentSlot);
         return slotDifference * this.config.slotDuration;
     }
-    getTargetEpochs(round: bigint): bigint[] {
+    /**
+     * Gets the target epochs for a voting round.
+     * Takes a voting round number and returns the epochs from its target round.
+     * Example: voting round 61 with offset 2 → returns epochs from target round 59
+     */
+    getTargetEpochs(votingRound: bigint): bigint[] {
         const roundSizeInEpochs = BigInt(this.config.slashingRoundSizeInEpochs);
         const slashOffset = BigInt(this.config.slashOffsetInRounds);
-        const targetRound = round - slashOffset;
+        const targetRound = votingRound - slashOffset;
         const startEpoch = targetRound * roundSizeInEpochs;
         const epochs: bigint[] = [];
         for (let i = 0n; i < roundSizeInEpochs; i++) {
@@ -100,6 +146,10 @@ export class SlashingDetector {
     }
     async detectRound(round: bigint, currentRound: bigint, currentSlot: bigint): Promise<DetectedSlashing | null> {
         try {
+            // Note: 'round' is the voting round number
+            // - Vote count comes from this voting round
+            // - Payload/committees queried with this number return target round's data
+            // - targetEpochs are calculated from the target round (round - slashOffset)
             const roundInfo = await this.l1Monitor.getRound(round);
             const hasQuorum = roundInfo.voteCount >= this.config.quorum;
             const status = this.calculateRoundStatus(round, currentRound, currentSlot, roundInfo.isExecuted, hasQuorum);
@@ -223,13 +273,17 @@ export class SlashingDetector {
             const shouldComputeDetails = (hasQuorum && (status === 'quorum-reached' || status === 'in-veto-window' || status === 'executable')) ||
                 status === 'executed';
             if (!shouldComputeDetails) {
+                // Always include the current voting round (needed by SlashingTimeline)
+                const isCurrentVotingRound = round === currentRound;
+                if (isCurrentVotingRound) {
+                    simpleRounds.push(detected);
+                    continue;
+                }
+
+                // For other rounds, only include if they have votes
+                // This excludes future target rounds that haven't been voted on yet
                 if (roundInfo.voteCount > 0n) {
-                    const slashOffset = BigInt(this.config.slashOffsetInRounds);
-                    const votingRoundForThisRound = round + slashOffset;
-                    const isVotingWindowStillOpen = currentRound <= votingRoundForThisRound;
-                    if (isVotingWindowStillOpen) {
-                        simpleRounds.push(detected);
-                    }
+                    simpleRounds.push(detected);
                 }
                 continue;
             }
