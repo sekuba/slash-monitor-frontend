@@ -64,7 +64,7 @@ export async function multicall<T extends readonly Call[]>(client: PublicClient,
         const call = calls[i];
         if (!result.success) {
             const argsInfo = call.args && call.args.length > 0
-                ? ` with args: ${JSON.stringify(call.args)}`
+                ? ` with args: ${JSON.stringify(call.args, (_, v) => typeof v === 'bigint' ? v.toString() : v)}`
                 : '';
             return {
                 success: false,
