@@ -13,7 +13,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
 
     const isProtected = config && currentSlot
         ? isRoundProtectedByPause(
-            slashing.round,
+            slashing.targetRound,
             config,
             currentSlot,
             isSlashingEnabled,
@@ -199,7 +199,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
               <div className="space-y-3 max-h-64 overflow-y-auto">
                 {slashing.slashActions.map((action, idx) => {
                     const offense = slashing.targetEpochs
-                        ? findOffenseForValidator(action.validator, slashing.targetEpochs, offenses, slashing.round)
+                        ? findOffenseForValidator(action.validator, slashing.targetEpochs, offenses, slashing.targetRound)
                         : undefined;
                     return (<div key={idx} className="flex items-center justify-between bg-brand-black px-4 py-3 border-3 border-whisper-white gap-3">
                       <div className="flex items-center gap-3 flex-1 min-w-0">
