@@ -34,7 +34,8 @@ export interface RoundInfo {
 }
 export type RoundStatus = 'voting' | 'quorum-reached' | 'in-veto-window' | 'executable' | 'executed' | 'expired';
 export interface DetectedSlashing {
-    round: bigint;
+    round: bigint; // The voting round (when votes are cast)
+    targetRound: bigint; // The target round being slashed (round - slashOffset)
     status: RoundStatus;
     voteCount: bigint;
     isExecuted: boolean;

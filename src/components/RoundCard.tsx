@@ -85,7 +85,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
           <div className="flex items-center gap-4">
             <div className="bg-brand-black border-3 border-whisper-white px-4 py-2">
               <div className="text-xs text-chartreuse font-black uppercase tracking-wider">Round</div>
-              <div className="text-3xl font-black text-whisper-white">{slashing.round.toString()}</div>
+              <div className="text-3xl font-black text-whisper-white">{slashing.targetRound.toString()}</div>
             </div>
 
             <div className={`px-4 py-2 border-3 text-sm font-black uppercase tracking-wider ${getStatusColor(displayStatus)}`}>
