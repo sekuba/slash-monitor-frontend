@@ -178,13 +178,16 @@ export function SlashingTimeline() {
         <div className="pt-4 border-t-3 border-brand-black">
           <div className="flex items-center gap-2 text-xs font-black uppercase mb-2 text-aqua">
             <span>Voting Progress</span>
-            <span className="ml-auto">{progressPercent}%</span>
+            <span className="ml-auto">{progressPercent}% ({slotsElapsed}/{totalSlots} slots)</span>
           </div>
           <div className="w-full bg-brand-black border-3 border-aqua h-4 overflow-hidden">
             <div
               className="bg-chartreuse h-full transition-all duration-500"
               style={{ width: `${progressPercent}%` }}
             />
+          </div>
+          <div className="mt-2 text-whisper-white/70 text-xs font-bold">
+            For voting rounds that reach quorum, a {config.executionDelayInRounds}-round execution delay applies before they can be executed, if not vetoed.
           </div>
         </div>
       </div>
