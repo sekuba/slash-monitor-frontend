@@ -41,13 +41,6 @@ export class SlashingDetector {
     logCacheStats() {
         console.log(`[SlashingDetector] ${this.detailsCache.getStatsString()}`);
     }
-    /**
-     * Determines if a voting round is currently active.
-     * A voting round is active when it equals the current round.
-     */
-    private isBeingVotedOn(votingRound: bigint, currentRound: bigint): boolean {
-        return currentRound === votingRound;
-    }
 
     /**
      * Determines if a round has expired (past its lifetime).
