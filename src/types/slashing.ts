@@ -32,7 +32,7 @@ export interface RoundInfo {
     voteCount: bigint;
     isExecuted: boolean;
 }
-export type RoundStatus = 'voting' | 'quorum-reached' | 'in-veto-window' | 'executable' | 'executed' | 'expired';
+export type RoundStatus = 'quorum-reached' | 'in-veto-window' | 'executable' | 'executed' | 'expired';
 export interface DetectedSlashing {
     round: bigint; // The voting round (payload/committees indexed by this number on-chain)
     status: RoundStatus;

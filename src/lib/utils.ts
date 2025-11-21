@@ -115,7 +115,6 @@ const STATUS_COLORS: Record<RoundStatus, string> = {
     'executable': 'bg-oxblood text-vermillion border-5 border-vermillion shadow-brutal-vermillion',
     'executed': 'bg-oxblood/50 text-vermillion border-5 border-vermillion/50 shadow-brutal',
     'expired': 'bg-malachite/30 text-whisper-white/60 border-5 border-brand-black shadow-brutal',
-    'voting': 'bg-lapis/50 text-whisper-white border-5 border-brand-black shadow-brutal',
 };
 
 export function getStatusColor(status: RoundStatus): string {
@@ -128,7 +127,6 @@ const STATUS_TEXT: Record<RoundStatus, string> = {
     'executable': 'Executable',
     'executed': 'Executed',
     'expired': 'Expired',
-    'voting': 'Voting',
 };
 
 export function getStatusText(status: RoundStatus): string {

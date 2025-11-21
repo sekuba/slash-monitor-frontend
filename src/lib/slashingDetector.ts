@@ -104,7 +104,7 @@ export class SlashingDetector {
 
         // Check if we're currently in the voting window for this round
         if (this.isBeingVotedOn(round, currentRound)) {
-            return hasQuorum ? 'quorum-reached' : 'voting';
+            return 'quorum-reached'; // Current round always shows as quorum-reached (displayed in SlashingTimeline only)
         }
 
         // If voting has ended but round hasn't reached executable state yet
