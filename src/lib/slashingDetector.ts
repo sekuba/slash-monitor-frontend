@@ -102,13 +102,9 @@ export class SlashingDetector {
             }
         }
 
-        // Check if we're currently in the voting window for this round
-        if (this.isBeingVotedOn(round, currentRound)) {
-            return 'quorum-reached'; // Current round always shows as quorum-reached (filtered from round cards, displayed in SlashingTimeline only)
-        }
-
-        // If voting has ended but round hasn't reached executable state yet
+        // For all remaining rounds (including current voting round):
         // Show quorum-reached if quorum was met, otherwise treat as expired
+        // Note: Current round is filtered from active slashing rounds in Dashboard and stats calculation
         return hasQuorum ? 'quorum-reached' : 'expired';
     }
     calculateExecutableSlot(round: bigint): bigint {
