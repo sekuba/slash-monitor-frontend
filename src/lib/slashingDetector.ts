@@ -128,10 +128,15 @@ export class SlashingDetector {
         const slotDifference = Number(targetSlot - currentSlot);
         return slotDifference * this.config.slotDuration;
     }
-    getTargetEpochs(round: bigint): bigint[] {
+    /**
+     * Gets the target epochs for a voting round.
+     * Takes a voting round number and returns the epochs from its target round.
+     * Example: voting round 61 with offset 2 → returns epochs from target round 59
+     */
+    getTargetEpochs(votingRound: bigint): bigint[] {
         const roundSizeInEpochs = BigInt(this.config.slashingRoundSizeInEpochs);
         const slashOffset = BigInt(this.config.slashOffsetInRounds);
-        const targetRound = round - slashOffset;
+        const targetRound = votingRound - slashOffset;
         const startEpoch = targetRound * roundSizeInEpochs;
         const epochs: bigint[] = [];
         for (let i = 0n; i < roundSizeInEpochs; i++) {
@@ -141,6 +146,10 @@ export class SlashingDetector {
     }
     async detectRound(round: bigint, currentRound: bigint, currentSlot: bigint): Promise<DetectedSlashing | null> {
         try {
+            // Note: 'round' is the voting round number
+            // - Vote count comes from this voting round
+            // - Payload/committees queried with this number return target round's data
+            // - targetEpochs are calculated from the target round (round - slashOffset)
             const roundInfo = await this.l1Monitor.getRound(round);
             const hasQuorum = roundInfo.voteCount >= this.config.quorum;
             const status = this.calculateRoundStatus(round, currentRound, currentSlot, roundInfo.isExecuted, hasQuorum);
