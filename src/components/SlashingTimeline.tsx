@@ -46,6 +46,11 @@ export function SlashingTimeline() {
     // Conviction: percentage of elapsed slots that voted to slash
     const conviction = slotsElapsed > 0 ? Math.round((numVotes / slotsElapsed) * 100) : 0;
 
+    // Determine if quorum is still achievable and has momentum
+    const canReachQuorum = numVotes + slotsLeft >= quorum;
+    const hasMinimumMomentum = numVotes >= quorum * 0.2;
+    const isQuorumViable = canReachQuorum && hasMinimumMomentum;
+
     // Calculate time remaining
     const slotsRemaining = Number(roundEndSlot - currentSlot);
     const secondsRemaining = Math.max(0, slotsRemaining * config.slotDuration);
@@ -128,21 +133,21 @@ export function SlashingTimeline() {
 
         {/* Voting Metrics Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-          <div className="bg-brand-black border-3 border-aqua px-3 py-2">
-            <div className="text-aqua text-xs font-black uppercase mb-1">Votes to Slash</div>
+          <div className={`bg-brand-black border-3 px-3 py-2 ${isQuorumViable ? 'border-vermillion' : 'border-aqua'}`}>
+            <div className={`text-xs font-black uppercase mb-1 ${isQuorumViable ? 'text-vermillion' : 'text-aqua'}`}>Votes to Slash</div>
             <div className="text-whisper-white text-sm font-bold">
               {voteCount}/{quorum}
               {hasReachedQuorum && <span className="ml-2 text-chartreuse">✓ QUORUM</span>}
             </div>
           </div>
-          <div className="bg-brand-black border-3 border-chartreuse px-3 py-2">
-            <div className="text-chartreuse text-xs font-black uppercase mb-1">Slots Left</div>
+          <div className={`bg-brand-black border-3 px-3 py-2 ${isQuorumViable ? 'border-vermillion' : 'border-aqua'}`}>
+            <div className={`text-xs font-black uppercase mb-1 ${isQuorumViable ? 'text-vermillion' : 'text-aqua'}`}>Slots Left</div>
             <div className="text-whisper-white text-sm font-bold">
               {slotsLeft} slot{slotsLeft !== 1 ? 's' : ''}
             </div>
           </div>
-          <div className={`bg-brand-black border-3 px-3 py-2 ${conviction >= 50 ? 'border-vermillion' : 'border-whisper-white'}`}>
-            <div className={`text-xs font-black uppercase mb-1 ${conviction >= 50 ? 'text-vermillion' : 'text-whisper-white'}`}>Conviction</div>
+          <div className={`bg-brand-black border-3 px-3 py-2 ${isQuorumViable ? 'border-vermillion' : 'border-aqua'}`}>
+            <div className={`text-xs font-black uppercase mb-1 ${isQuorumViable ? 'text-vermillion' : 'text-aqua'}`}>Conviction</div>
             <div className="text-whisper-white text-sm font-bold">
               {conviction}%
               <span className="ml-2 text-whisper-white/70 text-xs">({numVotes}/{slotsElapsed})</span>

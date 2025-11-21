@@ -153,8 +153,13 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
             const activeSlashings = detectedSlashings.filter((s) => s.status === 'quorum-reached' || s.status === 'in-veto-window' || s.status === 'executable').length;
             const vetoedPayloads = detectedSlashings.filter((s) => s.isVetoed).length;
             const executedRounds = detectedSlashings.filter((s) => s.isExecuted).length;
-            const totalValidatorsSlashed = detectedSlashings.reduce((sum, s) => sum + (s.affectedValidatorCount ?? 0), 0);
-            const totalSlashAmount = detectedSlashings.reduce((sum, s) => sum + (s.totalSlashAmount ?? 0n), 0n);
+            // Only count validators and slash amounts for executed rounds
+            const totalValidatorsSlashed = detectedSlashings
+                .filter((s) => s.isExecuted)
+                .reduce((sum, s) => sum + (s.affectedValidatorCount ?? 0), 0);
+            const totalSlashAmount = detectedSlashings
+                .filter((s) => s.isExecuted)
+                .reduce((sum, s) => sum + (s.totalSlashAmount ?? 0n), 0n);
             updateStats({
                 currentRound,
                 totalRoundsMonitored: detectedSlashings.length,
