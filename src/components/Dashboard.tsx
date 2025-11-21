@@ -9,10 +9,15 @@ import { BootstrapBanner } from './BootstrapBanner';
 import { isActionableStatus } from '@/lib/utils';
 import { requestNotificationPermission, areNotificationsEnabled } from '@/lib/notifications';
 export function Dashboard() {
-    const { detectedSlashings, isInitialized, isScanning, currentRound } = useSlashingStore();
+    const { detectedSlashings, isInitialized, isScanning, currentRound, config } = useSlashingStore();
     const [showNotificationBanner, setShowNotificationBanner] = useState(false);
     const [isRequestingNotifications, setIsRequestingNotifications] = useState(false);
     const [showDebugView, setShowDebugView] = useState(false);
+
+    // Calculate current target round
+    const currentTargetRound = config && currentRound !== null
+        ? currentRound - BigInt(config.slashOffsetInRounds)
+        : null;
 
     // Memoize sorted slashings to avoid re-sorting on every render
     const slashings = useMemo(() => Array.from(detectedSlashings.values()).sort((a, b) => Number(b.round - a.round)), [detectedSlashings]);
@@ -166,7 +171,7 @@ export function Dashboard() {
         {slashings.length > activeSlashings.length && (<div>
             <h2 className="text-3xl font-black text-whisper-white mb-6 uppercase">Other Rounds</h2>
             <div className="grid gap-6">
-              {slashings.filter((s) => !isActionableStatus(s.status) && s.round !== currentRound).map((slashing) => (<RoundCard key={slashing.round.toString()} slashing={slashing}/>))}
+              {slashings.filter((s) => !isActionableStatus(s.status) && (currentTargetRound === null || s.targetRound !== currentTargetRound)).map((slashing) => (<RoundCard key={slashing.round.toString()} slashing={slashing}/>))}
             </div>
           </div>)}
 
