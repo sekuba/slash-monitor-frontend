@@ -13,7 +13,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
 
     const isProtected = config && currentSlot
         ? isRoundProtectedByPause(
-            slashing.targetRound,
+            slashing.round,
             config,
             currentSlot,
             isSlashingEnabled,
@@ -85,7 +85,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
           <div className="flex items-center gap-4">
             <div className="bg-brand-black border-3 border-whisper-white px-4 py-2">
               <div className="text-xs text-chartreuse font-black uppercase tracking-wider">Round</div>
-              <div className="text-3xl font-black text-whisper-white">{slashing.targetRound.toString()}</div>
+              <div className="text-3xl font-black text-whisper-white">{slashing.round.toString()}</div>
             </div>
 
             <div className={`px-4 py-2 border-3 text-sm font-black uppercase tracking-wider ${getStatusColor(displayStatus)}`}>
@@ -199,7 +199,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
               <div className="space-y-3 max-h-64 overflow-y-auto">
                 {slashing.slashActions.map((action, idx) => {
                     const offense = slashing.targetEpochs
-                        ? findOffenseForValidator(action.validator, slashing.targetEpochs, offenses, slashing.targetRound)
+                        ? findOffenseForValidator(action.validator, slashing.targetEpochs, offenses, slashing.round)
                         : undefined;
                     return (<div key={idx} className="flex items-center justify-between bg-brand-black px-4 py-3 border-3 border-whisper-white gap-3">
                       <div className="flex items-center gap-3 flex-1 min-w-0">

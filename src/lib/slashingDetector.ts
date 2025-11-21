@@ -42,15 +42,6 @@ export class SlashingDetector {
         console.log(`[SlashingDetector] ${this.detailsCache.getStatsString()}`);
     }
     /**
-     * Calculates the target round for a given voting round.
-     * The target round is what's being slashed (round - slashOffset).
-     */
-    private calculateTargetRound(votingRound: bigint): bigint {
-        const slashOffset = BigInt(this.config.slashOffsetInRounds);
-        return votingRound - slashOffset;
-    }
-
-    /**
      * Determines if a voting round is currently active.
      * A voting round is active when it equals the current round.
      */
@@ -155,7 +146,6 @@ export class SlashingDetector {
             const status = this.calculateRoundStatus(round, currentRound, currentSlot, roundInfo.isExecuted, hasQuorum);
             const detected: DetectedSlashing = {
                 round,
-                targetRound: this.calculateTargetRound(round),
                 status,
                 voteCount: roundInfo.voteCount,
                 isExecuted: roundInfo.isExecuted,
@@ -266,7 +256,6 @@ export class SlashingDetector {
             const status = this.calculateRoundStatus(round, currentRound, currentSlot, roundInfo.isExecuted, hasQuorum);
             const detected: DetectedSlashing = {
                 round,
-                targetRound: this.calculateTargetRound(round),
                 status,
                 voteCount: roundInfo.voteCount,
                 isExecuted: roundInfo.isExecuted,
@@ -362,7 +351,6 @@ export class SlashingDetector {
                         const targetEpochs = this.getTargetEpochs(round);
                         roundsWithDetails.set(round, {
                             round,
-                            targetRound: this.calculateTargetRound(round),
                             status,
                             voteCount: roundInfo.voteCount,
                             isExecuted: roundInfo.isExecuted,
