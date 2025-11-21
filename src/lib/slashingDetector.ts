@@ -51,12 +51,10 @@ export class SlashingDetector {
     }
 
     /**
-     * Determines if a round is currently being voted on.
-     * A round R is voted on during round (R + slashOffset).
+     * Determines if a voting round is currently active.
+     * A voting round is active when it equals the current round.
      */
-    private isBeingVotedOn(round: bigint, currentRound: bigint): boolean {
-        const slashOffset = BigInt(this.config.slashOffsetInRounds);
-        const votingRound = round + slashOffset;
+    private isBeingVotedOn(votingRound: bigint, currentRound: bigint): boolean {
         return currentRound === votingRound;
     }
 
