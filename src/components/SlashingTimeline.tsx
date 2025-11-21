@@ -40,6 +40,12 @@ export function SlashingTimeline() {
     const slotsElapsed = Number(currentSlot - roundStartSlot);
     const progressPercent = Math.min(100, Math.round((slotsElapsed / totalSlots) * 100));
 
+    // Calculate voting metrics
+    const slotsLeft = Math.max(0, Number(roundEndSlot - currentSlot + 1n));
+    const numVotes = Number(currentRoundSlashing?.voteCount ?? 0n);
+    // Conviction: percentage of elapsed slots that voted to slash
+    const conviction = slotsElapsed > 0 ? Math.round((numVotes / slotsElapsed) * 100) : 0;
+
     // Calculate time remaining
     const slotsRemaining = Number(roundEndSlot - currentSlot);
     const secondsRemaining = Math.max(0, slotsRemaining * config.slotDuration);
@@ -105,7 +111,7 @@ export function SlashingTimeline() {
         </div>
 
         {/* Round Details Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
           <div className="bg-brand-black border-3 border-aqua px-3 py-2">
             <div className="text-aqua text-xs font-black uppercase mb-1">Voting Slots</div>
             <div className="text-whisper-white text-sm font-bold">
@@ -118,11 +124,28 @@ export function SlashingTimeline() {
               {targetEpochStart.toString()} → {targetEpochEnd.toString()}
             </div>
           </div>
+        </div>
+
+        {/* Voting Metrics Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
           <div className="bg-brand-black border-3 border-aqua px-3 py-2">
             <div className="text-aqua text-xs font-black uppercase mb-1">Votes to Slash</div>
             <div className="text-whisper-white text-sm font-bold">
               {voteCount}/{quorum}
               {hasReachedQuorum && <span className="ml-2 text-chartreuse">✓ QUORUM</span>}
+            </div>
+          </div>
+          <div className="bg-brand-black border-3 border-chartreuse px-3 py-2">
+            <div className="text-chartreuse text-xs font-black uppercase mb-1">Slots Left</div>
+            <div className="text-whisper-white text-sm font-bold">
+              {slotsLeft} slot{slotsLeft !== 1 ? 's' : ''}
+            </div>
+          </div>
+          <div className={`bg-brand-black border-3 px-3 py-2 ${conviction >= 50 ? 'border-vermillion' : 'border-whisper-white'}`}>
+            <div className={`text-xs font-black uppercase mb-1 ${conviction >= 50 ? 'text-vermillion' : 'text-whisper-white'}`}>Conviction</div>
+            <div className="text-whisper-white text-sm font-bold">
+              {conviction}%
+              <span className="ml-2 text-whisper-white/70 text-xs">({numVotes}/{slotsElapsed})</span>
             </div>
           </div>
         </div>
