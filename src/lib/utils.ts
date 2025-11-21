@@ -128,7 +128,7 @@ const STATUS_TEXT: Record<RoundStatus, string> = {
     'executable': 'Executable',
     'executed': 'Executed',
     'expired': 'Expired',
-    'voting': 'Voting',
+    'voting': 'Voting Target',
 };
 
 export function getStatusText(status: RoundStatus): string {

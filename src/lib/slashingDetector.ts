@@ -100,12 +100,15 @@ export class SlashingDetector {
             return 'expired';
         }
 
-        if (this.isRoundExecutable(round, currentRound, currentSlot)) {
-            return 'executable';
-        }
+        // Only rounds with quorum can be executable or in veto window
+        if (hasQuorum) {
+            if (this.isRoundExecutable(round, currentRound, currentSlot)) {
+                return 'executable';
+            }
 
-        if (this.isInVetoWindow(round, currentRound, currentSlot)) {
-            return 'in-veto-window';
+            if (this.isInVetoWindow(round, currentRound, currentSlot)) {
+                return 'in-veto-window';
+            }
         }
 
         // Check if we're currently in the voting window for this round
