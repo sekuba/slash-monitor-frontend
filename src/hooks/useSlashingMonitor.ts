@@ -150,7 +150,11 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
             });
             const offenses = await nodeRpcRef.current.getSlashOffenses('all');
             setOffenses(offenses);
-            const activeSlashings = detectedSlashings.filter((s) => s.status === 'quorum-reached' || s.status === 'in-veto-window' || s.status === 'executable').length;
+            // Active slashings: actionable rounds excluding current round (still being voted on)
+            const activeSlashings = detectedSlashings.filter((s) =>
+                (s.status === 'quorum-reached' || s.status === 'in-veto-window' || s.status === 'executable') &&
+                s.round !== currentRound
+            ).length;
             const vetoedPayloads = detectedSlashings.filter((s) => s.isVetoed).length;
             const executedRounds = detectedSlashings.filter((s) => s.isExecuted).length;
             // Only count validators and slash amounts for executed rounds
