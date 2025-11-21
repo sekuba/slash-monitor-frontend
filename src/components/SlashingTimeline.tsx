@@ -187,7 +187,10 @@ export function SlashingTimeline() {
             />
           </div>
           <div className="mt-2 text-whisper-white/70 text-xs font-bold">
-            For voting rounds that reach quorum, a {config.executionDelayInRounds}-round execution delay applies before they can be executed, if not vetoed.
+            For voting rounds that reach quorum, a {formatTimeRemaining(
+              config.executionDelayInRounds * config.slashingRoundSize * config.slotDuration,
+              { approximate: true, hoursThresholdForDayDisplay: config.hoursThresholdForDayDisplay }
+            )} execution delay applies before they can be executed, if not vetoed.
           </div>
         </div>
       </div>
