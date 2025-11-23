@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { DetectedSlashing } from '@/types/slashing';
 import { useSlashingStore } from '@/store/slashingStore';
-import { formatAddress, formatEther, formatTimeRemaining, getStatusColor, getStatusText, isActionableStatus, findOffenseForValidator, getOffenseTypeName, getOffenseTypeColor, } from '@/lib/utils';
+import { formatAddress, formatEther, formatTimeRemaining, getStatusColor, getStatusText, findOffenseForValidator, getOffenseTypeName, getOffenseTypeColor, deriveRoundDisplayState, } from '@/lib/utils';
 import { isRoundProtectedByPause } from '@/lib/pauseProtection';
 interface RoundCardProps {
     slashing: DetectedSlashing;
@@ -22,12 +22,13 @@ export function RoundCard({ slashing }: RoundCardProps) {
           )
         : false;
 
-    // Adjust status if protected by global pause - executable rounds become quorum-reached
-    const displayStatus = (isProtected && (slashing.status === 'executable' || slashing.status === 'in-veto-window'))
-        ? 'quorum-reached'
-        : slashing.status;
+    const displayState = deriveRoundDisplayState(slashing, {
+        isProtected,
+        now: currentTime,
+    });
+    const displayStatus = displayState.status;
 
-    const isActionable = isActionableStatus(displayStatus);
+    const isActionable = displayState.isActionable;
     useEffect(() => {
         if (!config)
             return;
@@ -36,20 +37,16 @@ export function RoundCard({ slashing }: RoundCardProps) {
         }, config.realtimeCountdownInterval);
         return () => clearInterval(interval);
     }, [config]);
-    const getAdjustedSecondsRemaining = (baseSeconds: number | undefined): number | undefined => {
-        if (baseSeconds === undefined || slashing.lastUpdatedTimestamp === undefined) {
-            return baseSeconds;
-        }
-        const elapsedSeconds = Math.floor((currentTime - slashing.lastUpdatedTimestamp) / 1000);
-        const adjustedSeconds = baseSeconds - elapsedSeconds;
-        return Math.max(0, adjustedSeconds);
-    };
+
     // Determine color theme based on status
     const getColorTheme = (): 'aqua' | 'chartreuse' | 'vermillion' | 'default' => {
-        if (!isActionable) return 'default';
-        if (slashing.isVetoed || isProtected) return 'aqua';
-        if (displayStatus === 'quorum-reached') return 'chartreuse';
-        return 'vermillion';
+        if (displayStatus === 'vetoed' || isProtected)
+            return 'aqua';
+        if (displayStatus === 'quorum-reached')
+            return 'chartreuse';
+        if (displayStatus === 'in-veto-window' || displayStatus === 'executable')
+            return 'vermillion';
+        return 'default';
     };
 
     const colorTheme = getColorTheme();
@@ -112,16 +109,23 @@ export function RoundCard({ slashing }: RoundCardProps) {
               </svg>
             </div>
           </div>
-        </div>
+      </div>
 
 
-        {isActionable && (() => {
-            const showExecutableTimer = !slashing.isVetoed && !isProtected && slashing.status === 'quorum-reached' && slashing.secondsUntilExecutable !== undefined;
-            const showExpirationTimer = (slashing.status === 'in-veto-window' || slashing.status === 'executable' ||
-                                        (slashing.isVetoed && slashing.status === 'quorum-reached') ||
-                                        (isProtected && slashing.status === 'quorum-reached')) &&
-                                        slashing.secondsUntilExpires !== undefined;
-
+        {(() => {
+            const showExecutableTimer = !slashing.isVetoed &&
+                !isProtected &&
+                displayStatus === 'quorum-reached' &&
+                displayState.secondsUntilExecutable !== undefined;
+            const showExpirationTimer = (displayStatus === 'in-veto-window' ||
+                displayStatus === 'executable' ||
+                displayStatus === 'vetoed' ||
+                displayStatus === 'expired' ||
+                (isProtected && displayStatus === 'quorum-reached')) &&
+                displayState.secondsUntilExpires !== undefined;
+            const shouldShow = isProtected || showExecutableTimer || showExpirationTimer || slashing.isVetoed;
+            if (!shouldShow)
+                return null;
             return (<div className="mt-4 space-y-3">
 
               {isProtected && (<div className="flex items-center gap-3 bg-brand-black border-3 border-aqua p-3">
@@ -137,7 +141,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
                   </svg>
                   <div>
                     <div className="text-vermillion font-black uppercase text-sm">
-                      EXECUTABLE IN {formatTimeRemaining(getAdjustedSecondsRemaining(slashing.secondsUntilExecutable) ?? 0)}
+                      EXECUTABLE IN {formatTimeRemaining(displayState.secondsUntilExecutable ?? 0)}
                     </div>
                     <div className="text-whisper-white/70 text-xs font-bold uppercase mt-1">
                       Veto now to prevent execution
@@ -146,8 +150,8 @@ export function RoundCard({ slashing }: RoundCardProps) {
                 </div>)}
 
               {showExpirationTimer && (() => {
-                  const adjustedSeconds = getAdjustedSecondsRemaining(slashing.secondsUntilExpires) ?? 0;
-                  const isExpired = adjustedSeconds === 0;
+                  const adjustedSeconds = displayState.secondsUntilExpires ?? 0;
+                  const isExpired = displayState.isExpired || adjustedSeconds === 0;
                   return (<div className={`flex items-center gap-3 bg-brand-black border-3 border-vermillion p-3 ${!isExpired ? 'animate-pulse' : ''}`}>
                       <svg className="w-6 h-6 text-vermillion stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
@@ -165,7 +169,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
                   <div className="text-aqua font-black uppercase text-sm">VETOED</div>
                 </div>)}
             </div>);
-          })()}
+        })()}
       </div>
 
       

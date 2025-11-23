@@ -6,19 +6,33 @@ import { Header } from './Header';
 import { SlashingTimeline } from './SlashingTimeline';
 import { DebugView } from './DebugView';
 import { BootstrapBanner } from './BootstrapBanner';
-import { isActionableStatus } from '@/lib/utils';
+import { deriveRoundDisplayState } from '@/lib/utils';
 import { requestNotificationPermission, areNotificationsEnabled } from '@/lib/notifications';
+import { isRoundProtectedByPause } from '@/lib/pauseProtection';
 export function Dashboard() {
-    const { detectedSlashings, isInitialized, isScanning, currentRound } = useSlashingStore();
+    const { detectedSlashings, isInitialized, isScanning, currentRound, config, currentSlot, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, } = useSlashingStore();
     const [showNotificationBanner, setShowNotificationBanner] = useState(false);
     const [isRequestingNotifications, setIsRequestingNotifications] = useState(false);
     const [showDebugView, setShowDebugView] = useState(false);
 
     // Memoize sorted slashings to avoid re-sorting on every render
     const slashings = useMemo(() => Array.from(detectedSlashings.values()).sort((a, b) => Number(b.round - a.round)), [detectedSlashings]);
-    const activeSlashings = useMemo(() => slashings
-        .filter((s) => isActionableStatus(s.status) && s.round !== currentRound)
-        .sort((a, b) => Number(a.round - b.round)), [slashings, currentRound]);
+    const slashingStates = useMemo(() => slashings.map((slashing) => {
+        const isProtected = config && currentSlot !== null
+            ? isRoundProtectedByPause(slashing.round, config, currentSlot, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration)
+            : false;
+        return {
+            slashing,
+            display: deriveRoundDisplayState(slashing, { isProtected }),
+        };
+    }), [slashings, config, currentSlot, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration]);
+    const activeSlashings = useMemo(() => slashingStates
+        .filter(({ display, slashing }) => display.isActionable && slashing.round !== currentRound)
+        .map(({ slashing }) => slashing)
+        .sort((a, b) => Number(a.round - b.round)), [slashingStates, currentRound]);
+    const inactiveSlashings = useMemo(() => slashingStates
+        .filter(({ display, slashing }) => !display.isActionable && slashing.round !== currentRound)
+        .map(({ slashing }) => slashing), [slashingStates, currentRound]);
 
     useEffect(() => {
         if ('Notification' in window && Notification.permission === 'default') {
@@ -164,10 +178,10 @@ export function Dashboard() {
         </div>
 
         
-        {slashings.length > activeSlashings.length && (<div>
+        {inactiveSlashings.length > 0 && (<div>
             <h2 className="text-3xl font-black text-whisper-white mb-6 uppercase">Other Rounds</h2>
             <div className="grid gap-6">
-              {slashings.filter((s) => !isActionableStatus(s.status) && s.round !== currentRound).map((slashing) => (<RoundCard key={slashing.round.toString()} slashing={slashing}/>))}
+              {inactiveSlashings.map((slashing) => (<RoundCard key={slashing.round.toString()} slashing={slashing}/>))}
             </div>
           </div>)}
 

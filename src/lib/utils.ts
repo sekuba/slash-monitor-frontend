@@ -1,6 +1,15 @@
 import type { Address } from 'viem';
-import type { RoundStatus, Offense } from '@/types/slashing';
+import type { RoundStatus, Offense, DetectedSlashing } from '@/types/slashing';
 import { OffenseType } from '@/types/slashing';
+
+export type RoundDisplayStatus = RoundStatus | 'vetoed';
+export interface RoundDisplayState {
+    status: RoundDisplayStatus;
+    isActionable: boolean;
+    isExpired: boolean;
+    secondsUntilExecutable?: number;
+    secondsUntilExpires?: number;
+}
 export function formatAddress(address: Address, chars = 6): string {
     return `${address.slice(0, chars + 2)}...${address.slice(-chars)}`;
 }
@@ -104,32 +113,90 @@ export function formatRoundDuration(seconds: number): string {
 export function formatNumber(num: number | bigint): string {
     return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
-export function isActionableStatus(status: RoundStatus): boolean {
+export function isActionableStatus(status: RoundDisplayStatus): boolean {
     return (status === 'quorum-reached' ||
         status === 'in-veto-window' ||
         status === 'executable');
 }
-const STATUS_COLORS: Record<RoundStatus, string> = {
+export function getAdjustedSecondsRemaining(slashing: DetectedSlashing, baseSeconds: number | undefined, now: number): number | undefined {
+    if (baseSeconds === undefined || slashing.lastUpdatedTimestamp === undefined) {
+        return baseSeconds;
+    }
+    const elapsedSeconds = Math.floor((now - slashing.lastUpdatedTimestamp) / 1000);
+    const adjustedSeconds = baseSeconds - elapsedSeconds;
+    return Math.max(0, adjustedSeconds);
+}
+// Normalize a round's display state for the UI (executed → expired → vetoed → pause-adjusted → base status)
+export function deriveRoundDisplayState(slashing: DetectedSlashing, options?: {
+    isProtected?: boolean;
+    now?: number;
+}): RoundDisplayState {
+    const now = options?.now ?? Date.now();
+    const secondsUntilExecutable = getAdjustedSecondsRemaining(slashing, slashing.secondsUntilExecutable, now);
+    const secondsUntilExpires = getAdjustedSecondsRemaining(slashing, slashing.secondsUntilExpires, now);
+    const hasExpired = slashing.status === 'expired' || secondsUntilExpires === 0;
+    if (slashing.isExecuted || slashing.status === 'executed') {
+        return {
+            status: 'executed',
+            isActionable: false,
+            isExpired: false,
+            secondsUntilExecutable,
+            secondsUntilExpires,
+        };
+    }
+    if (hasExpired) {
+        return {
+            status: 'expired',
+            isActionable: false,
+            isExpired: true,
+            secondsUntilExecutable,
+            secondsUntilExpires,
+        };
+    }
+    if (slashing.isVetoed) {
+        return {
+            status: 'vetoed',
+            isActionable: false,
+            isExpired: false,
+            secondsUntilExecutable,
+            secondsUntilExpires,
+        };
+    }
+    const isProtected = options?.isProtected ?? false;
+    const baseStatus: RoundDisplayStatus = (isProtected && (slashing.status === 'executable' || slashing.status === 'in-veto-window'))
+        ? 'quorum-reached'
+        : slashing.status;
+    return {
+        status: baseStatus,
+        isActionable: isActionableStatus(baseStatus) && !isProtected,
+        isExpired: false,
+        secondsUntilExecutable,
+        secondsUntilExpires,
+    };
+}
+const STATUS_COLORS: Record<RoundDisplayStatus, string> = {
     'quorum-reached': 'bg-malachite text-chartreuse border-5 border-chartreuse shadow-brutal-chartreuse',
     'in-veto-window': 'bg-oxblood text-vermillion border-5 border-vermillion shadow-brutal-vermillion',
     'executable': 'bg-oxblood text-vermillion border-5 border-vermillion shadow-brutal-vermillion',
     'executed': 'bg-oxblood/50 text-vermillion border-5 border-vermillion/50 shadow-brutal',
     'expired': 'bg-malachite/30 text-whisper-white/60 border-5 border-brand-black shadow-brutal',
+    'vetoed': 'bg-lapis text-aqua border-5 border-aqua shadow-brutal-aqua',
 };
 
-export function getStatusColor(status: RoundStatus): string {
+export function getStatusColor(status: RoundDisplayStatus): string {
     return STATUS_COLORS[status] ?? STATUS_COLORS['quorum-reached'];
 }
 
-const STATUS_TEXT: Record<RoundStatus, string> = {
+const STATUS_TEXT: Record<RoundDisplayStatus, string> = {
     'quorum-reached': 'Quorum Reached',
     'in-veto-window': 'Newly Executable',
     'executable': 'Executable',
     'executed': 'Executed',
     'expired': 'Expired',
+    'vetoed': 'Vetoed',
 };
 
-export function getStatusText(status: RoundStatus): string {
+export function getStatusText(status: RoundDisplayStatus): string {
     return STATUS_TEXT[status] ?? 'Pending';
 }
 export function getOffenseTypeName(offenseType: OffenseType): string {

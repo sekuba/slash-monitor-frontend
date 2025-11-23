@@ -12,6 +12,8 @@ import {
     notifyNetworkLaunched,
 } from '@/lib/notifications';
 import type { SlashingMonitorConfig } from '@/types/slashing';
+import { deriveRoundDisplayState } from '@/lib/utils';
+import { isRoundProtectedByPause } from '@/lib/pauseProtection';
 
 interface RoundState {
     isVetoed: boolean;
@@ -151,10 +153,14 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
             const offenses = await nodeRpcRef.current.getSlashOffenses('all');
             setOffenses(offenses);
             // Active slashings: actionable rounds excluding current round (still being voted on)
-            const activeSlashings = detectedSlashings.filter((s) =>
-                (s.status === 'quorum-reached' || s.status === 'in-veto-window' || s.status === 'executable') &&
-                s.round !== currentRound
-            ).length;
+            const storeConfig = useSlashingStore.getState().config;
+            const activeSlashings = detectedSlashings.filter((s) => {
+                const isProtected = storeConfig
+                    ? isRoundProtectedByPause(s.round, storeConfig, currentSlot, isEnabled, slashingDisabledUntil, slashingDisableDuration)
+                    : false;
+                const displayState = deriveRoundDisplayState(s, { isProtected });
+                return displayState.isActionable && s.round !== currentRound;
+            }).length;
             const vetoedPayloads = detectedSlashings.filter((s) => s.isVetoed).length;
             const executedRounds = detectedSlashings.filter((s) => s.isExecuted).length;
             // Only count validators and slash amounts for executed rounds

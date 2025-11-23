@@ -149,7 +149,7 @@ export class SlashingDetector {
                 isExecuted: roundInfo.isExecuted,
                 isVetoed: false,
             };
-            const shouldComputeDetails = (hasQuorum && (status === 'quorum-reached' || status === 'in-veto-window' || status === 'executable')) ||
+            const shouldComputeDetails = (hasQuorum && (status === 'quorum-reached' || status === 'in-veto-window' || status === 'executable' || status === 'expired')) ||
                 status === 'executed';
             if (shouldComputeDetails) {
                 const cachedDetails = this.getCachedDetails(round, roundInfo.voteCount);
@@ -259,7 +259,7 @@ export class SlashingDetector {
                 isExecuted: roundInfo.isExecuted,
                 isVetoed: false,
             };
-            const shouldComputeDetails = (hasQuorum && (status === 'quorum-reached' || status === 'in-veto-window' || status === 'executable')) ||
+            const shouldComputeDetails = (hasQuorum && (status === 'quorum-reached' || status === 'in-veto-window' || status === 'executable' || status === 'expired')) ||
                 status === 'executed';
             if (!shouldComputeDetails) {
                 // Always include the current voting round (needed by SlashingTimeline)
