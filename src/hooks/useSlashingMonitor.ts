@@ -3,22 +3,14 @@ import { useSlashingStore } from '@/store/slashingStore';
 import { L1Monitor } from '@/lib/l1Monitor';
 import { NodeRpcClient } from '@/lib/nodeRpcClient';
 import { SlashingDetector } from '@/lib/slashingDetector';
-import {
-    notifyQuorumReached,
-    notifyRoundVetoed,
-    notifyGlobalPauseStarted,
-    notifyGlobalPauseEnded,
-    notifyRoundExecuted,
-    notifyNetworkLaunched,
-} from '@/lib/notifications';
-import type { SlashingMonitorConfig } from '@/types/slashing';
+import { notifyQuorumReached, notifyRoundVetoed, notifyGlobalPauseStarted, notifyRoundExecuted, } from '@/lib/notifications';
+import type { RoundStatus, SlashingMonitorConfig } from '@/types/slashing';
 import { deriveRoundDisplayState } from '@/lib/utils';
 import { isRoundProtectedByPause } from '@/lib/pauseProtection';
 
 interface RoundState {
+    status: RoundStatus;
     isVetoed: boolean;
-    isExecuted: boolean;
-    quorumReachedNotified: boolean;
 }
 
 export function useSlashingMonitor(config: SlashingMonitorConfig) {
@@ -29,10 +21,7 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
     const intervalRef = useRef<NodeJS.Timeout | null>(null);
     const previousRoundStatesRef = useRef<Map<string, RoundState>>(new Map());
     const previousSlashingEnabledRef = useRef<boolean | null>(null);
-    const previousActiveAttesterCountRef = useRef<bigint | null>(null);
-    const previousEntryQueueLengthRef = useRef<bigint | null>(null);
     const isFirstScanRef = useRef<boolean>(true);
-    const bootstrapNotifiedRef = useRef<boolean>(false);
     const initialize = useCallback(async () => {
         console.log('Initializing slashing monitor...');
         try {
@@ -81,73 +70,52 @@ export function useSlashingMonitor(config: SlashingMonitorConfig) {
             setActiveAttesterCount(activeAttesterCount);
             setEntryQueueLength(entryQueueLength);
             // Detect global pause state changes
-            if (previousSlashingEnabledRef.current !== null && previousSlashingEnabledRef.current !== isEnabled) {
-                if (isEnabled) {
-                    notifyGlobalPauseEnded();
-                }
-                else {
-                    notifyGlobalPauseStarted();
-                }
-            }
-
-            // Detect bootstrap phase completion (network launch indicators)
-            if (!bootstrapNotifiedRef.current && !isFirstScanRef.current) {
-                // Trigger when entry queue length transitions from < 500 to >= 500
-                const queueLengthTransition = previousEntryQueueLengthRef.current !== null &&
-                    previousEntryQueueLengthRef.current < 500n &&
-                    entryQueueLength >= 500n;
-
-                // Trigger when active attester count transitions from 0 to > 0
-                const attesterCountTransition = previousActiveAttesterCountRef.current !== null &&
-                    previousActiveAttesterCountRef.current === 0n &&
-                    activeAttesterCount > 0n;
-
-                if (queueLengthTransition || attesterCountTransition) {
-                    notifyNetworkLaunched();
-                    bootstrapNotifiedRef.current = true;
-                }
+            if (previousSlashingEnabledRef.current !== null &&
+                previousSlashingEnabledRef.current !== isEnabled &&
+                !isEnabled) {
+                notifyGlobalPauseStarted();
             }
 
             // Update previous values for transition detection
             previousSlashingEnabledRef.current = isEnabled;
-            previousActiveAttesterCountRef.current = activeAttesterCount;
-            previousEntryQueueLengthRef.current = entryQueueLength;
             const detectedSlashings = await detectorRef.current.detectExecutableRounds(currentRound, currentSlot);
 
             detectedSlashings.forEach((slashing) => {
                 const roundKey = slashing.round.toString();
                 const previousState = previousRoundStatesRef.current.get(roundKey);
-                const currentState: RoundState = {
-                    isVetoed: slashing.isVetoed,
-                    isExecuted: slashing.isExecuted,
-                    quorumReachedNotified: previousState?.quorumReachedNotified ?? false,
-                };
+                const hasQuorumStatus = slashing.status === 'quorum-reached' ||
+                    slashing.status === 'in-veto-window' ||
+                    slashing.status === 'executable';
+                const hadQuorumStatus = previousState
+                    ? previousState.status === 'quorum-reached' ||
+                        previousState.status === 'in-veto-window' ||
+                        previousState.status === 'executable'
+                    : false;
+                const wasVetoed = previousState?.isVetoed ?? false;
 
                 // Skip notifications on first scan to avoid spam
                 if (!isFirstScanRef.current && slashing.slashActions && slashing.slashActions.length > 0) {
-                    // Detect round executed (transition from not executed to executed)
-                    if (slashing.isExecuted && previousState && !previousState.isExecuted) {
-                        notifyRoundExecuted(slashing);
-                    }
-
                     // Detect round vetoed (transition from not vetoed to vetoed)
-                    if (slashing.isVetoed && previousState && !previousState.isVetoed) {
+                    if (slashing.isVetoed && !wasVetoed) {
                         notifyRoundVetoed(slashing);
                     }
 
-                    // Detect quorum reached (only if not vetoed and not globally paused)
-                    const hasQuorum = slashing.status === 'quorum-reached' ||
-                        slashing.status === 'in-veto-window' ||
-                        slashing.status === 'executable';
+                    // Detect round executed
+                    if (slashing.isExecuted && (!previousState || previousState.status !== 'executed')) {
+                        notifyRoundExecuted(slashing);
+                    }
 
-                    if (hasQuorum && !slashing.isVetoed && !slashing.isExecuted && isEnabled && !currentState.quorumReachedNotified) {
+                    // Detect quorum reached (only if not vetoed and not globally paused)
+                    if (hasQuorumStatus && !hadQuorumStatus && !slashing.isVetoed && !slashing.isExecuted && isEnabled) {
                         notifyQuorumReached(slashing);
-                        currentState.quorumReachedNotified = true;
                     }
                 }
 
                 // Update the state tracking
-                previousRoundStatesRef.current.set(roundKey, currentState);
+                previousRoundStatesRef.current.set(roundKey, {
+                    status: slashing.status,
+                    isVetoed: slashing.isVetoed,
+                });
                 addDetectedSlashing(slashing);
             });
             const offenses = await nodeRpcRef.current.getSlashOffenses('all');
