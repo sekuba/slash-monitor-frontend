@@ -104,7 +104,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
               </div>)}
 
             <div className="bg-whisper-white border-3 border-brand-black p-2">
-              <svg className={`w-6 h-6 text-brand-black stroke-[3] transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className={`w-6 h-6 text-brand-black stroke-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M19 9l-7 7-7-7"/>
               </svg>
             </div>
@@ -129,14 +129,14 @@ export function RoundCard({ slashing }: RoundCardProps) {
             return (<div className="mt-4 space-y-3">
 
               {isProtected && (<div className="flex items-center gap-3 bg-brand-black border-3 border-aqua p-3">
-                  <svg className="w-6 h-6 text-aqua stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="w-6 h-6 text-aqua stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
                   </svg>
                   <div className="text-aqua font-black uppercase text-sm">PROTECTED BY GLOBAL PAUSE</div>
                 </div>)}
 
               {showExecutableTimer && (<div className="flex items-center gap-3 bg-brand-black border-3 border-vermillion p-3 animate-pulse">
-                  <svg className="w-6 h-6 text-vermillion stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="w-6 h-6 text-vermillion stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
                   </svg>
                   <div>
@@ -153,7 +153,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
                   const adjustedSeconds = displayState.secondsUntilExpires ?? 0;
                   const isExpired = displayState.isExpired || adjustedSeconds === 0;
                   return (<div className={`flex items-center gap-3 bg-brand-black border-3 border-vermillion p-3 ${!isExpired ? 'animate-pulse' : ''}`}>
-                      <svg className="w-6 h-6 text-vermillion stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg className="w-6 h-6 text-vermillion stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
                       </svg>
                       <div className="text-vermillion font-black uppercase text-sm">
@@ -163,7 +163,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
               })()}
 
               {slashing.isVetoed && (<div className="flex items-center gap-3 bg-brand-black border-3 border-aqua p-3">
-                  <svg className="w-6 h-6 text-aqua stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="w-6 h-6 text-aqua stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M6 18L18 6M6 6l12 12"/>
                   </svg>
                   <div className="text-aqua font-black uppercase text-sm">VETOED</div>
@@ -180,7 +180,7 @@ export function RoundCard({ slashing }: RoundCardProps) {
               <div className="font-mono text-sm text-whisper-white bg-brand-black px-4 py-3 border-3 border-chartreuse flex items-center justify-between">
                 <span>{slashing.payloadAddress}</span>
                 <button onClick={() => navigator.clipboard.writeText(slashing.payloadAddress!)} className="bg-chartreuse border-3 border-brand-black p-2 hover:translate-x-1 hover:-translate-y-1 transition-transform shadow-brutal" title="Copy address">
-                  <svg className="w-5 h-5 text-brand-black stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="w-5 h-5 text-brand-black stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
                   </svg>
                 </button>
@@ -208,8 +208,8 @@ export function RoundCard({ slashing }: RoundCardProps) {
                     return (<div key={idx} className="flex items-center justify-between bg-brand-black px-4 py-3 border-3 border-whisper-white gap-3">
                       <div className="flex items-center gap-3 flex-1 min-w-0">
                         <span className="font-mono text-sm text-whisper-white font-bold truncate">{formatAddress(action.validator)}</span>
-                        <button onClick={() => navigator.clipboard.writeText(action.validator)} className="flex-shrink-0 bg-whisper-white border-3 border-brand-black p-1 hover:translate-x-1 hover:-translate-y-1 transition-transform shadow-brutal" title="Copy sequencer address">
-                          <svg className="w-4 h-4 text-brand-black stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <button onClick={() => navigator.clipboard.writeText(action.validator)} className="shrink-0 bg-whisper-white border-3 border-brand-black p-1 hover:translate-x-1 hover:-translate-y-1 transition-transform shadow-brutal" title="Copy sequencer address">
+                          <svg className="w-4 h-4 text-brand-black stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
                           </svg>
                         </button>

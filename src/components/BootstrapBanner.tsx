@@ -18,8 +18,8 @@ export function BootstrapBanner() {
     <div className="bg-lapis border-5 border-aqua p-6 mb-6 shadow-brutal-aqua">
       <div className="flex items-start gap-4">
         {/* Icon */}
-        <div className="flex-shrink-0 bg-aqua border-3 border-brand-black p-3">
-          <svg className="w-10 h-10 text-brand-black stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className="shrink-0 bg-aqua border-3 border-brand-black p-3">
+          <svg className="w-10 h-10 text-brand-black stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M13 10V3L4 14h7v7l9-11h-7z"/>
           </svg>
         </div>
@@ -67,7 +67,7 @@ export function BootstrapBanner() {
 
           {/* Entry Queue Info */}
           <div className="mt-4 flex items-center gap-2">
-            <svg className="w-5 h-5 text-aqua stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-5 h-5 text-aqua stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
             </svg>
             <span className="text-whisper-white/80 text-xs font-bold uppercase">

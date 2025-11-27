@@ -1,9 +1,51 @@
 /* Import Space Grotesk font for neo-brutalist aesthetic */
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700;800&display=swap')
+layer(base);
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+@theme {
+  --color-whisper-white: #f2eee1;
+  --color-brand-black: #1a1400;
+  --color-chartreuse: #d4ff28;
+  --color-orchid: #ff2df4;
+  --color-aqua: #2bfae9;
+  --color-vermillion: #ff1a1a;
+  --color-malachite: #001f18;
+  --color-aubergine: #2e0026;
+  --color-lapis: #00122e;
+  --color-oxblood: #2e0700;
+
+  --shadow-brutal: 6px 6px 0px #1a1400;
+  --shadow-brutal-lg: 10px 10px 0px #1a1400;
+  --shadow-brutal-xl: 15px 15px 0px #1a1400;
+  --shadow-brutal-aqua: 6px 6px 0px #2bfae9;
+  --shadow-brutal-chartreuse: 6px 6px 0px #d4ff28;
+  --shadow-brutal-vermillion: 6px 6px 0px #ff1a1a;
+  --shadow-brutal-orchid: 6px 6px 0px #ff2df4;
+
+  --border-width-3: 3px;
+  --border-width-5: 5px;
+  --border-width-6: 6px;
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
 
 :root {
   font-family: 'Space Grotesk', 'Inter', system-ui, -apple-system, sans-serif;

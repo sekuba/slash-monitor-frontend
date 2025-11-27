@@ -113,8 +113,8 @@ export function Dashboard() {
 
         {showNotificationBanner && !areNotificationsEnabled() && (<div className="bg-lapis border-5 border-aqua p-6 mb-6 shadow-brutal-aqua">
             <div className="flex items-start gap-4">
-              <div className="flex-shrink-0 bg-aqua border-3 border-brand-black p-2">
-                <svg className="w-8 h-8 text-brand-black stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <div className="shrink-0 bg-aqua border-3 border-brand-black p-2">
+                <svg className="w-8 h-8 text-brand-black stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
                 </svg>
               </div>
@@ -132,8 +132,8 @@ export function Dashboard() {
                   </button>
                 </div>
               </div>
-              <button onClick={() => setShowNotificationBanner(false)} className="flex-shrink-0 text-aqua hover:text-whisper-white transition-colors" aria-label="Dismiss">
-                <svg className="w-6 h-6 stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <button onClick={() => setShowNotificationBanner(false)} className="shrink-0 text-aqua hover:text-whisper-white transition-colors" aria-label="Dismiss">
+                <svg className="w-6 h-6 stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M6 18L18 6M6 6l12 12"/>
                 </svg>
               </button>
@@ -164,7 +164,7 @@ export function Dashboard() {
 
           {activeSlashings.length === 0 ? (<div className="bg-malachite/20 border-5 border-brand-black p-12 text-center shadow-brutal">
               <div className="bg-chartreuse border-3 border-brand-black p-4 inline-block mb-4">
-                <svg className="w-16 h-16 text-brand-black stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="w-16 h-16 text-brand-black stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
                 </svg>
               </div>
