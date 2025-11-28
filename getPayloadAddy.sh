@@ -3,7 +3,9 @@
 set -euo pipefail
 
 # get the payload address for a given round, needs foundry cast
-ROUND=61
+
+# get round number from first arg
+ROUND=${1:-0}
 
 ADDR=0x7a318c3DaA9f21f8fc8238c65755eB0394Fbf189
 RPC=https://eth.drpc.org
@@ -38,4 +40,5 @@ payload=$(
     --rpc-url "$RPC"
 )
 
-echo "$payload"
+echo "tally:        $tally"
+echo "payload addy: $payload"
