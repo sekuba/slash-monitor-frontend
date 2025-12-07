@@ -5,8 +5,9 @@ import { formatAddress, formatEther, formatTimeRemaining, getStatusColor, getSta
 import { isRoundProtectedByPause } from '@/lib/pauseProtection';
 interface RoundCardProps {
     slashing: DetectedSlashing;
+    sequencerOccurrences?: Map<string, number>;
 }
-export function RoundCard({ slashing }: RoundCardProps) {
+export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
     const [isExpanded, setIsExpanded] = useState(false);
     const [currentTime, setCurrentTime] = useState(Date.now());
     const { offenses, config, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, currentSlot } = useSlashingStore();
@@ -211,9 +212,14 @@ export function RoundCard({ slashing }: RoundCardProps) {
                     const offense = slashing.targetEpochs
                         ? findOffenseForValidator(action.validator, slashing.targetEpochs, offenses, slashing.round)
                         : undefined;
+                    const occurrences = sequencerOccurrences?.get(action.validator.toLowerCase()) ?? 1;
+                    const showOccurrences = occurrences > 1;
                     return (<div key={idx} className="flex items-center justify-between bg-brand-black px-4 py-3 border-3 border-whisper-white gap-3">
                       <div className="flex items-center gap-3 flex-1 min-w-0">
                         <span className="font-mono text-sm text-whisper-white font-bold truncate">{formatAddress(action.validator, 9)}</span>
+                        {showOccurrences && (<span className="shrink-0 inline-flex items-center gap-1 px-2 py-1 bg-oxblood text-vermillion border-3 border-vermillion text-xs font-black uppercase whitespace-nowrap" title="This sequencer appears multiple times in the rounds over which we scanned">
+                            ×{occurrences}
+                          </span>)}
                         <button onClick={() => navigator.clipboard.writeText(action.validator)} className="shrink-0 bg-whisper-white border-3 border-brand-black p-1 hover:translate-x-1 hover:-translate-y-1 transition-transform shadow-brutal" title="Copy sequencer address">
                           <svg className="w-4 h-4 text-brand-black stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>

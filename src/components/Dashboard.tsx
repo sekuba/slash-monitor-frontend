@@ -33,6 +33,16 @@ export function Dashboard() {
     const inactiveSlashings = useMemo(() => slashingStates
         .filter(({ display, slashing }) => !display.isActionable && slashing.round !== currentRound)
         .map(({ slashing }) => slashing), [slashingStates, currentRound]);
+    const sequencerOccurrences = useMemo(() => {
+        const counts = new Map<string, number>();
+        slashings.forEach((slashing) => {
+            slashing.slashActions?.forEach((action) => {
+                const key = action.validator.toLowerCase();
+                counts.set(key, (counts.get(key) ?? 0) + 1);
+            });
+        });
+        return counts;
+    }, [slashings]);
 
     useEffect(() => {
         if ('Notification' in window && Notification.permission === 'default') {
@@ -173,7 +183,7 @@ export function Dashboard() {
                 Monitoring Round {currentRound?.toString()}
               </p>
             </div>) : (<div className="grid gap-6">
-              {activeSlashings.map((slashing) => (<RoundCard key={slashing.round.toString()} slashing={slashing}/>))}
+              {activeSlashings.map((slashing) => (<RoundCard key={slashing.round.toString()} slashing={slashing} sequencerOccurrences={sequencerOccurrences}/>))}
             </div>)}
         </div>
 
@@ -181,7 +191,7 @@ export function Dashboard() {
         {inactiveSlashings.length > 0 && (<div>
             <h2 className="text-3xl font-black text-whisper-white mb-6 uppercase">Other Rounds</h2>
             <div className="grid gap-6">
-              {inactiveSlashings.map((slashing) => (<RoundCard key={slashing.round.toString()} slashing={slashing}/>))}
+              {inactiveSlashings.map((slashing) => (<RoundCard key={slashing.round.toString()} slashing={slashing} sequencerOccurrences={sequencerOccurrences}/>))}
             </div>
           </div>)}
 
