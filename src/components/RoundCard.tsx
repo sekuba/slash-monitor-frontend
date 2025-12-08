@@ -217,8 +217,12 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
                     return (<div key={idx} className="flex items-center justify-between bg-brand-black px-4 py-3 border-3 border-whisper-white gap-3">
                       <div className="flex items-center gap-3 flex-1 min-w-0">
                         <span className="font-mono text-sm text-whisper-white font-bold truncate">{formatAddress(action.validator, 9)}</span>
-                        {showOccurrences && (<span className="shrink-0 inline-flex items-center gap-1 px-2 py-1 bg-oxblood text-vermillion border-3 border-vermillion text-xs font-black uppercase whitespace-nowrap" title="This sequencer appears multiple times in the rounds over which we scanned">
-                            ×{occurrences}
+                        {showOccurrences && (<span className="shrink-0 inline-flex items-center gap-1 px-2 py-1 bg-oxblood text-vermillion border-3 border-vermillion text-xs font-black uppercase whitespace-nowrap" title="This sequencer address shows up in multiple rounds in this monitor window">
+                            <svg className="w-4 h-4 text-vermillion stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                              <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12z"/>
+                              <circle cx="12" cy="12" r="3" strokeWidth={3}/>
+                            </svg>
+                            <span className="font-black">{occurrences}</span>
                           </span>)}
                         <button onClick={() => navigator.clipboard.writeText(action.validator)} className="shrink-0 bg-whisper-white border-3 border-brand-black p-1 hover:translate-x-1 hover:-translate-y-1 transition-transform shadow-brutal" title="Copy sequencer address">
                           <svg className="w-4 h-4 text-brand-black stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
