@@ -62,7 +62,7 @@ export const DebugView: React.FC = () => {
           <ConfigItem label="TallyProposer.SLASH_OFFSET_IN_ROUNDS()" value={config.slashOffsetInRounds?.toString() || 'Not loaded'} />
           <ConfigItem label="TallyProposer.COMMITTEE_SIZE()" value={config.committeeSize?.toString() || 'Not loaded'} />
           <ConfigItem label="Rollup.getSlotDuration()" value={config.slotDuration ? `${config.slotDuration}s` : 'Not loaded'} />
-          <ConfigItem label="Rollup.getEpochDuration()" value={config.epochDuration ? `${config.epochDuration}s` : 'Not loaded'} />
+          <ConfigItem label="Rollup.getEpochDuration()" value={config.epochDuration ? `${config.epochDuration}slots` : 'Not loaded'} />
           <ConfigItem label="Slasher.SLASHING_DISABLE_DURATION()" value={slashingDisableDuration ? `${slashingDisableDuration}s` : 'Not loaded'} />
           <ConfigItem label="Monitor.LOOKBACK_ROUNDS" value={config.lookbackRounds?.toString() || '0 (disabled)'} />
         </div>
