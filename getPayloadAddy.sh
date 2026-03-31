@@ -7,8 +7,8 @@ set -euo pipefail
 # get round number from first arg
 ROUND=${1:-0}
 
-ADDR=0x7a318c3DaA9f21f8fc8238c65755eB0394Fbf189
-RPC=https://eth.drpc.org
+ADDR=${ADDR:-0xa4a38fD0108C00983E75616b638Ff3321FD26958}
+RPC=${RPC:-https://eth.drpc.org}
 
 committees=$(
   cast call "$ADDR" \

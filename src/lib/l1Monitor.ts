@@ -1,8 +1,8 @@
-import { createPublicClient, http, fallback, type Address, type PublicClient, } from 'viem';
+import { createPublicClient, decodeFunctionResult, encodeFunctionData, fallback, http, type Address, type PublicClient, } from 'viem';
 import { tallySlashingProposerAbi } from './contracts/tallySlashingProposerAbi';
 import { slasherAbi } from './contracts/slasherAbi';
 import { rollupAbi } from './contracts/rollupAbi';
-import { multicall, createCall } from './multicall';
+import { createCall, multicall } from './multicall';
 import { ImmutableAwareCache } from './immutableCache';
 import type { SlashAction, RoundInfo, SlashingMonitorConfig, } from '@/types/slashing';
 
@@ -108,15 +108,11 @@ export class L1Monitor {
             functionName: 'getRound',
             args: [round],
         });
-        const [isExecuted, , voteCount] = result as [
-            boolean,
-            boolean,
-            bigint
-        ];
+        const [isExecuted, voteCount] = result as [boolean, bigint];
         const roundInfo = {
             round,
-            isExecuted: isExecuted as boolean,
-            voteCount: voteCount as bigint,
+            isExecuted,
+            voteCount,
         };
         this.roundCache.set(round, roundInfo, this.mutableTTL);
         return roundInfo;
@@ -142,11 +138,7 @@ export class L1Monitor {
         results.forEach((result, i) => {
             if (result.success && result.data) {
                 const round = roundsToFetch[i];
-                const [isExecuted, , voteCount] = result.data as [
-                    boolean,
-                    boolean,
-                    bigint
-                ];
+                const [isExecuted, voteCount] = result.data as [boolean, bigint];
                 const roundInfo: RoundInfo = {
                     round,
                     isExecuted,
@@ -169,11 +161,21 @@ export class L1Monitor {
         return ready as boolean;
     }
     async getSlashTargetCommittees(round: bigint): Promise<Address[][]> {
-        const committees = await this.publicClient.readContract({
-            address: this.config.tallySlashingProposerAddress,
+        const result = await this.publicClient.call({
+            to: this.config.tallySlashingProposerAddress,
+            data: encodeFunctionData({
+                abi: tallySlashingProposerAbi,
+                functionName: 'getSlashTargetCommittees',
+                args: [round],
+            }),
+        });
+        if (!result.data) {
+            throw new Error(`Empty response for getSlashTargetCommittees(${round})`);
+        }
+        const committees = decodeFunctionResult({
             abi: tallySlashingProposerAbi,
             functionName: 'getSlashTargetCommittees',
-            args: [round],
+            data: result.data,
         });
         return committees as Address[][];
     }

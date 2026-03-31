@@ -13,7 +13,6 @@ export const tallySlashingProposerAbi = [
         inputs: [{ name: '_round', type: 'uint256' }],
         outputs: [
             { name: 'isExecuted', type: 'bool' },
-            { name: 'readyToExecute', type: 'bool' },
             { name: 'voteCount', type: 'uint256' },
         ],
     },
@@ -40,7 +39,7 @@ export const tallySlashingProposerAbi = [
     {
         type: 'function',
         name: 'getSlashTargetCommittees',
-        stateMutability: 'view',
+        stateMutability: 'nonpayable',
         inputs: [{ name: '_round', type: 'uint256' }],
         outputs: [{ name: 'committees', type: 'address[][]' }],
     },
