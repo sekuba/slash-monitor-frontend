@@ -6,6 +6,7 @@ import { Header } from './Header';
 import { SlashingTimeline } from './SlashingTimeline';
 import { DebugView } from './DebugView';
 import { BootstrapBanner } from './BootstrapBanner';
+import { SlashingHelpModal } from './SlashingHelpModal';
 import { deriveRoundDisplayState } from '@/lib/utils';
 import { requestNotificationPermission, areNotificationsEnabled } from '@/lib/notifications';
 import { isRoundProtectedByPause } from '@/lib/pauseProtection';
@@ -14,6 +15,7 @@ export function Dashboard() {
     const [showNotificationBanner, setShowNotificationBanner] = useState(false);
     const [isRequestingNotifications, setIsRequestingNotifications] = useState(false);
     const [showDebugView, setShowDebugView] = useState(false);
+    const [showSlashingHelpModal, setShowSlashingHelpModal] = useState(false);
 
     // Memoize sorted slashings to avoid re-sorting on every render
     const slashings = useMemo(() => Array.from(detectedSlashings.values()).sort((a, b) => Number(b.round - a.round)), [detectedSlashings]);
@@ -74,6 +76,7 @@ export function Dashboard() {
     }
     return (<div className="min-h-screen">
       <Header />
+      <SlashingHelpModal isOpen={showSlashingHelpModal} onClose={() => setShowSlashingHelpModal(false)} />
 
       {/* Debug View Toggle Button */}
       <div className="fixed bottom-6 right-6 z-50">
@@ -110,6 +113,24 @@ export function Dashboard() {
           <DebugView />
         ) : (
           <>
+        <div className="mb-8 bg-aubergine border-5 border-orchid p-5 shadow-brutal-orchid">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-orchid text-xs font-black uppercase tracking-wider mb-2">Operator Help</p>
+              <p className="text-whisper-white text-sm font-bold">
+                Need to check whether your own node offense could turn into a slashing payload and when veto becomes urgent?
+              </p>
+            </div>
+
+            <button
+              onClick={() => setShowSlashingHelpModal(true)}
+              className="shrink-0 bg-chartreuse text-brand-black border-5 border-brand-black px-6 py-3 normal-case tracking-normal text-base font-black shadow-brutal hover:-translate-y-0.5 transition-transform"
+            >
+              am i getting slashed
+            </button>
+          </div>
+        </div>
+
         <StatsPanel />
 
         
