@@ -2,7 +2,11 @@ import { useSlashingStore } from '@/store/slashingStore';
 import { formatTimeRemaining } from '@/lib/utils';
 import { calculateProtectedRoundRange } from '@/lib/pauseProtection';
 
-export function SlashingTimeline() {
+interface SlashingTimelineProps {
+    onOpenHelp: () => void;
+}
+
+export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
     const { config, currentRound, currentSlot, currentEpoch, detectedSlashings, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration } = useSlashingStore();
 
     if (!config || currentRound === null || currentSlot === null || currentEpoch === null) {
@@ -65,28 +69,36 @@ export function SlashingTimeline() {
     });
 
     return (<div className="mb-8">
-      <h2 className="text-3xl font-black text-whisper-white mb-6 flex items-center gap-4 uppercase">
-        <div className="bg-aqua border-3 border-brand-black p-2">
-          <svg className="w-8 h-8 text-brand-black stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-          </svg>
-        </div>
-        Slashing Timeline
-      </h2>
+      <div className="mb-6">
+        <h2 className="text-3xl font-black text-whisper-white mb-4 flex items-center gap-4 uppercase">
+          <div className="bg-aqua border-3 border-brand-black p-2">
+            <svg className="w-8 h-8 text-brand-black stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+            </svg>
+          </div>
+          slash vote progress
+        </h2>
 
-      {/* Current State Badges */}
-      <div className="mb-6 flex items-center gap-4 flex-wrap">
-        <div className="bg-lapis border-3 border-aqua px-4 py-2">
-          <span className="font-black text-aqua text-xs uppercase tracking-wider">Slot:</span>{' '}
-          <span className="font-black text-whisper-white text-lg">{currentSlot.toString()}</span>
-        </div>
-        <div className="bg-aubergine border-3 border-orchid px-4 py-2">
-          <span className="font-black text-orchid text-xs uppercase tracking-wider">Epoch:</span>{' '}
-          <span className="font-black text-whisper-white text-lg">{currentEpoch.toString()}</span>
-        </div>
-        <div className="bg-malachite border-3 border-chartreuse px-4 py-2">
-          <span className="font-black text-chartreuse text-xs uppercase tracking-wider">Round:</span>{' '}
-          <span className="font-black text-whisper-white text-lg">{currentRound.toString()}</span>
+        {/* Current State Badges */}
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="bg-lapis border-3 border-aqua px-4 py-2">
+            <span className="font-black text-aqua text-xs uppercase tracking-wider">Slot:</span>{' '}
+            <span className="font-black text-whisper-white text-lg">{currentSlot.toString()}</span>
+          </div>
+          <div className="bg-aubergine border-3 border-orchid px-4 py-2">
+            <span className="font-black text-orchid text-xs uppercase tracking-wider">Epoch:</span>{' '}
+            <span className="font-black text-whisper-white text-lg">{currentEpoch.toString()}</span>
+          </div>
+          <div className="bg-malachite border-3 border-chartreuse px-4 py-2">
+            <span className="font-black text-chartreuse text-xs uppercase tracking-wider">Round:</span>{' '}
+            <span className="font-black text-whisper-white text-lg">{currentRound.toString()}</span>
+          </div>
+        <button
+          onClick={onOpenHelp}
+          className="shrink-0 bg-chartreuse text-brand-black border-5 border-brand-black px-6 py-3 normal-case tracking-normal text-base font-black shadow-brutal hover:-translate-y-0.5 transition-transform"
+        >
+          am i getting slashed?
+        </button>
         </div>
       </div>
 

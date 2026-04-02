@@ -113,24 +113,6 @@ export function Dashboard() {
           <DebugView />
         ) : (
           <>
-        <div className="mb-8 bg-aubergine border-5 border-orchid p-5 shadow-brutal-orchid">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="text-orchid text-xs font-black uppercase tracking-wider mb-2">Operator Help</p>
-              <p className="text-whisper-white text-sm font-bold">
-                Need to check whether your own node offense could turn into a slashing payload and when veto becomes urgent?
-              </p>
-            </div>
-
-            <button
-              onClick={() => setShowSlashingHelpModal(true)}
-              className="shrink-0 bg-chartreuse text-brand-black border-5 border-brand-black px-6 py-3 normal-case tracking-normal text-base font-black shadow-brutal hover:-translate-y-0.5 transition-transform"
-            >
-              am i getting slashed
-            </button>
-          </div>
-        </div>
-
         <StatsPanel />
 
         
@@ -138,9 +120,7 @@ export function Dashboard() {
 
         {/* Bootstrap Banner */}
         <BootstrapBanner />
-
-
-        <SlashingTimeline />
+        <SlashingTimeline onOpenHelp={() => setShowSlashingHelpModal(true)} />
 
         {showNotificationBanner && !areNotificationsEnabled() && (<div className="bg-lapis border-5 border-aqua p-6 mb-6 shadow-brutal-aqua">
             <div className="flex items-start gap-4">

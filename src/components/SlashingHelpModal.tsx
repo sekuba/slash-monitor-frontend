@@ -75,10 +75,10 @@ export function SlashingHelpModal({ isOpen, onClose }: SlashingHelpModalProps) {
                 <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b-6 border-chartreuse bg-brand-black p-6">
                     <div>
                         <div className="mb-3 inline-flex items-center gap-2 border-3 border-brand-black bg-aqua px-3 py-1 text-xs font-black uppercase tracking-wider text-brand-black">
-                            Node Help
+                            Operator Help
                         </div>
                         <h2 id="slashing-help-title" className="text-3xl font-black text-chartreuse">
-                            Am I Getting Slashed
+                            Am I Getting Slashed?
                         </h2>
                         <p className="mt-2 max-w-3xl text-sm font-bold text-whisper-white">
                             How to tell whether your node is in a slashing payload, when it can show up on this
@@ -145,8 +145,8 @@ export function SlashingHelpModal({ isOpen, onClose }: SlashingHelpModalProps) {
                             <div className="border-5 border-brand-black bg-whisper-white p-4 text-brand-black shadow-brutal">
                                 <div className="mb-2 text-xs font-black uppercase tracking-wider">1. Offense Happens</div>
                                 <p className="text-sm font-bold">
-                                    A node offense or misbehaviour happens first. This dashboard does not show that
-                                    instantly because the chain slashes it later through voting.
+                                    A node offense or misbehaviour happens first. This dashboard does not show it
+                                    instantly because the other sequencers first need to vote on each potential offense.
                                 </p>
                             </div>
 
