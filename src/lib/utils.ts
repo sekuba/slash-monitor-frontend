@@ -1,6 +1,6 @@
 import type { Address } from 'viem';
-import type { RoundStatus, Offense, DetectedSlashing } from '@/types/slashing';
-import { OffenseType } from '@/types/slashing';
+import type { ResolvedMonitorConfig, RoundStatus, DetectedSlashing } from '@/types/slashing';
+import { isRoundProtectedByPause } from './pauseProtection';
 
 export type RoundDisplayStatus = RoundStatus | 'vetoed';
 export interface RoundDisplayState {
@@ -9,6 +9,10 @@ export interface RoundDisplayState {
     isExpired: boolean;
     secondsUntilExecutable?: number;
     secondsUntilExpires?: number;
+}
+
+export interface RoundPresentation extends RoundDisplayState {
+    isProtected: boolean;
 }
 export function formatAddress(address: Address, chars = 6): string {
     return `${address.slice(0, chars + 2)}...${address.slice(-chars)}`;
@@ -174,6 +178,34 @@ export function deriveRoundDisplayState(slashing: DetectedSlashing, options?: {
         secondsUntilExpires,
     };
 }
+
+export function deriveRoundPresentation(slashing: DetectedSlashing, options: {
+    config: ResolvedMonitorConfig | null;
+    currentSlot: bigint | null;
+    isSlashingEnabled: boolean;
+    slashingDisabledUntil: bigint | null;
+    slashingDisableDuration: bigint | null;
+    now?: number;
+}): RoundPresentation {
+    const isProtected = options.config && options.currentSlot !== null
+        ? isRoundProtectedByPause(
+            slashing.round,
+            options.config,
+            options.currentSlot,
+            options.isSlashingEnabled,
+            options.slashingDisabledUntil,
+            options.slashingDisableDuration
+        )
+        : false;
+
+    return {
+        ...deriveRoundDisplayState(slashing, {
+            isProtected,
+            now: options.now,
+        }),
+        isProtected,
+    };
+}
 const STATUS_COLORS: Record<RoundDisplayStatus, string> = {
     'quorum-reached': 'bg-malachite text-chartreuse border-5 border-chartreuse shadow-brutal-chartreuse',
     'in-veto-window': 'bg-oxblood text-vermillion border-5 border-vermillion shadow-brutal-vermillion',
@@ -198,80 +230,4 @@ const STATUS_TEXT: Record<RoundDisplayStatus, string> = {
 
 export function getStatusText(status: RoundDisplayStatus): string {
     return STATUS_TEXT[status] ?? 'Pending';
-}
-export function getOffenseTypeName(offenseType: OffenseType): string {
-    switch (offenseType) {
-        case OffenseType.DATA_WITHHOLDING:
-            return 'Data Withholding';
-        case OffenseType.VALID_EPOCH_PRUNED:
-            return 'Epoch Pruned';
-        case OffenseType.INACTIVITY:
-            return 'Inactivity';
-        case OffenseType.BROADCASTED_INVALID_BLOCK_PROPOSAL:
-            return 'Invalid Broadcast';
-        case OffenseType.PROPOSED_INSUFFICIENT_ATTESTATIONS:
-            return 'Insufficient Attestations';
-        case OffenseType.PROPOSED_INCORRECT_ATTESTATIONS:
-            return 'Incorrect Attestations';
-        case OffenseType.ATTESTED_DESCENDANT_OF_INVALID:
-            return 'Attested Invalid';
-        case OffenseType.UNKNOWN:
-        default:
-            return 'Unknown';
-    }
-}
-export function getOffenseTypeColor(offenseType: OffenseType): string {
-    switch (offenseType) {
-        case OffenseType.DATA_WITHHOLDING:
-            return 'bg-oxblood text-vermillion border-3 border-vermillion';
-        case OffenseType.VALID_EPOCH_PRUNED:
-            return 'bg-oxblood/70 text-vermillion border-3 border-vermillion/70';
-        case OffenseType.INACTIVITY:
-            return 'bg-malachite text-chartreuse border-3 border-chartreuse';
-        case OffenseType.BROADCASTED_INVALID_BLOCK_PROPOSAL:
-            return 'bg-aubergine text-orchid border-3 border-orchid';
-        case OffenseType.PROPOSED_INSUFFICIENT_ATTESTATIONS:
-            return 'bg-aubergine/70 text-orchid border-3 border-orchid/70';
-        case OffenseType.PROPOSED_INCORRECT_ATTESTATIONS:
-            return 'bg-aubergine/50 text-orchid/80 border-3 border-orchid/80';
-        case OffenseType.ATTESTED_DESCENDANT_OF_INVALID:
-            return 'bg-lapis text-aqua border-3 border-aqua';
-        case OffenseType.UNKNOWN:
-        default:
-            return 'bg-malachite/30 text-whisper-white border-3 border-brand-black';
-    }
-}
-export function findOffenseForValidator(validator: Address, targetEpochs: bigint[], offenses: Offense[], round?: bigint): Offense | undefined {
-    const normalizedValidator = validator.toLowerCase();
-    const exactMatch = offenses.find((offense) => {
-        if (offense.validator.toLowerCase() !== normalizedValidator) {
-            return false;
-        }
-        if (offense.epoch !== undefined) {
-            return targetEpochs.some(epoch => epoch === offense.epoch);
-        }
-        return false;
-    });
-    if (exactMatch)
-        return exactMatch;
-    if (round !== undefined) {
-        const roundMatch = offenses.find((offense) => {
-            if (offense.validator.toLowerCase() !== normalizedValidator) {
-                return false;
-            }
-            if (offense.round !== undefined) {
-                return offense.round === round;
-            }
-            return false;
-        });
-        if (roundMatch)
-            return roundMatch;
-    }
-    const validatorMatch = offenses.find((offense) => {
-        if (offense.validator.toLowerCase() !== normalizedValidator) {
-            return false;
-        }
-        return offense.epoch === undefined && offense.round === undefined;
-    });
-    return validatorMatch;
 }

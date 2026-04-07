@@ -7,11 +7,11 @@ export function BootstrapBanner() {
   const { activeAttesterCount, entryQueueLength } = useSlashingStore();
 
   // Don't show banner if there are active sequencers
-  if (activeAttesterCount === null || activeAttesterCount > 0n) {
+  if (activeAttesterCount > 0n) {
     return null;
   }
 
-  const currentValidators = Number(entryQueueLength || 0n);
+  const currentValidators = Number(entryQueueLength);
   const progressPercentage = Math.min((currentValidators / TARGET_VALIDATORS) * 100, 100);
 
   return (

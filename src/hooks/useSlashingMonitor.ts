@@ -1,202 +1,243 @@
-import { useEffect, useRef, useCallback } from 'react';
-import { useSlashingStore } from '@/store/slashingStore';
+import { useCallback, useEffect, useRef } from 'react';
 import { L1Monitor } from '@/lib/l1Monitor';
-import { NodeRpcClient } from '@/lib/nodeRpcClient';
+import { notifyGlobalPauseStarted, notifyQuorumReached, notifyRoundExecuted, notifyRoundVetoed } from '@/lib/notifications';
 import { SlashingDetector } from '@/lib/slashingDetector';
-import { notifyQuorumReached, notifyRoundVetoed, notifyGlobalPauseStarted, notifyRoundExecuted, } from '@/lib/notifications';
-import type { RoundStatus, SlashingMonitorConfig } from '@/types/slashing';
-import { deriveRoundDisplayState } from '@/lib/utils';
-import { isRoundProtectedByPause } from '@/lib/pauseProtection';
+import { deriveRoundPresentation } from '@/lib/utils';
+import { useSlashingStore } from '@/store/slashingStore';
+import type { CurrentChainState, DetectedSlashing, MonitorAudit, MonitorConfigInput, MonitorIssue, MonitorSnapshot, RoundStatus, SlashingStats } from '@/types/slashing';
 
 interface RoundState {
     status: RoundStatus;
     isVetoed: boolean;
 }
 
-export function useSlashingMonitor(config: SlashingMonitorConfig) {
-    const { setConfig, setInitialized, setIsScanning, setCurrentRound, setCurrentSlot, setCurrentEpoch, setSlashingEnabled, setSlashingDisabledUntil, setSlashingDisableDuration, setActiveAttesterCount, setEntryQueueLength, addDetectedSlashing, setOffenses, updateStats, } = useSlashingStore();
+export function useSlashingMonitor(config: MonitorConfigInput) {
+    const { initialize, setIsScanning, applySnapshot } = useSlashingStore();
     const l1MonitorRef = useRef<L1Monitor | null>(null);
-    const nodeRpcRef = useRef<NodeRpcClient | null>(null);
     const detectorRef = useRef<SlashingDetector | null>(null);
-    const intervalRef = useRef<NodeJS.Timeout | null>(null);
+    const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const previousRoundStatesRef = useRef<Map<string, RoundState>>(new Map());
     const previousSlashingEnabledRef = useRef<boolean | null>(null);
-    const isFirstScanRef = useRef<boolean>(true);
-    const initialize = useCallback(async () => {
-        console.log('Initializing slashing monitor...');
-        try {
-            l1MonitorRef.current = new L1Monitor(config);
-            nodeRpcRef.current = new NodeRpcClient(config.nodeAdminUrl);
-            const contractParams = await l1MonitorRef.current.loadContractParameters();
-            const fullConfig = { ...config, ...contractParams };
-            detectorRef.current = new SlashingDetector(fullConfig, l1MonitorRef.current);
-            setConfig(fullConfig);
-            const currentRound = await l1MonitorRef.current.getCurrentRound();
-            const currentSlot = await l1MonitorRef.current.getCurrentSlot();
-            const currentEpoch = await l1MonitorRef.current.getCurrentEpoch();
-            const isEnabled = await l1MonitorRef.current.isSlashingEnabled();
-            setCurrentRound(currentRound);
-            setCurrentSlot(currentSlot);
-            setCurrentEpoch(currentEpoch);
-            setSlashingEnabled(isEnabled);
-            console.log('Slashing monitor initialized', {
-                currentRound: currentRound.toString(),
-                currentSlot: currentSlot.toString(),
-                currentEpoch: currentEpoch.toString(),
-                isEnabled,
-            });
-            previousSlashingEnabledRef.current = isEnabled;
-            setInitialized(true);
-        }
-        catch (error) {
-            console.error('Failed to initialize slashing monitor:', error);
-            throw error;
-        }
-    }, [config, setConfig, setInitialized, setCurrentRound, setCurrentSlot, setCurrentEpoch, setSlashingEnabled]);
-    const poll = useCallback(async () => {
-        if (!l1MonitorRef.current || !detectorRef.current || !nodeRpcRef.current)
+    const isFirstScanRef = useRef(true);
+    const isPollingRef = useRef(false);
+    const isActiveRef = useRef(true);
+
+    const initializeMonitor = useCallback(async () => {
+        const l1Monitor = new L1Monitor(config);
+        const contractParameters = await l1Monitor.loadContractParameters();
+        const fullConfig = { ...config, ...contractParameters };
+        const currentState = await l1Monitor.getCurrentState();
+
+        l1MonitorRef.current = l1Monitor;
+        detectorRef.current = new SlashingDetector(fullConfig, l1Monitor);
+        previousSlashingEnabledRef.current = currentState.isSlashingEnabled;
+        initialize(fullConfig, currentState);
+        return currentState;
+    }, [config, initialize]);
+
+    const poll = useCallback(async (seedState?: CurrentChainState) => {
+        if (isPollingRef.current || !l1MonitorRef.current || !detectorRef.current) {
             return;
+        }
+
+        isPollingRef.current = true;
+
         try {
             if (isFirstScanRef.current) {
                 setIsScanning(true);
             }
-            const { currentRound, currentSlot, currentEpoch, isSlashingEnabled: isEnabled, slashingDisabledUntil, slashingDisableDuration, activeAttesterCount, entryQueueLength } = await l1MonitorRef.current.getCurrentState();
-            setCurrentRound(currentRound);
-            setCurrentSlot(currentSlot);
-            setCurrentEpoch(currentEpoch);
-            setSlashingEnabled(isEnabled);
-            setSlashingDisabledUntil(slashingDisabledUntil);
-            setSlashingDisableDuration(slashingDisableDuration);
-            setActiveAttesterCount(activeAttesterCount);
-            setEntryQueueLength(entryQueueLength);
-            // Detect global pause state changes
+
+            const currentState = seedState ?? await l1MonitorRef.current.getCurrentState();
+            const previousStoreState = useSlashingStore.getState();
+            let detectedSlashings = Array.from(previousStoreState.detectedSlashings.values());
+            let issues: MonitorIssue[] = [];
+
+            try {
+                const detectionResult = await detectorRef.current.detectExecutableRounds(currentState.currentRound, currentState.currentSlot);
+                detectedSlashings = detectionResult.detectedSlashings;
+                issues = detectionResult.issues;
+            }
+            catch (error) {
+                issues = [{
+                    source: 'l1-rpc',
+                    scope: 'rounds',
+                    message: error instanceof Error ? error.message : 'Unknown detection error',
+                }];
+            }
+
+            const audit = buildAudit(issues);
+            emitNotificationsForPoll(detectedSlashings, currentState.isSlashingEnabled, previousRoundStatesRef.current, isFirstScanRef.current);
+
             if (previousSlashingEnabledRef.current !== null &&
-                previousSlashingEnabledRef.current !== isEnabled &&
-                !isEnabled) {
+                previousSlashingEnabledRef.current !== currentState.isSlashingEnabled &&
+                !currentState.isSlashingEnabled) {
                 notifyGlobalPauseStarted();
             }
 
-            // Update previous values for transition detection
-            previousSlashingEnabledRef.current = isEnabled;
-            const detectedSlashings = await detectorRef.current.detectExecutableRounds(currentRound, currentSlot);
+            previousSlashingEnabledRef.current = currentState.isSlashingEnabled;
 
-            detectedSlashings.forEach((slashing) => {
-                const roundKey = slashing.round.toString();
-                const previousState = previousRoundStatesRef.current.get(roundKey);
-                const hasQuorumStatus = slashing.status === 'quorum-reached' ||
-                    slashing.status === 'in-veto-window' ||
-                    slashing.status === 'executable';
-                const hadQuorumStatus = previousState
-                    ? previousState.status === 'quorum-reached' ||
-                        previousState.status === 'in-veto-window' ||
-                        previousState.status === 'executable'
-                    : false;
-                const wasVetoed = previousState?.isVetoed ?? false;
+            const snapshot = buildSnapshot(currentState, detectedSlashings, audit);
+            applySnapshot(snapshot);
 
-                // Skip notifications on first scan to avoid spam
-                if (!isFirstScanRef.current && slashing.slashActions && slashing.slashActions.length > 0) {
-                    // Detect round vetoed (transition from not vetoed to vetoed)
-                    if (slashing.isVetoed && !wasVetoed) {
-                        notifyRoundVetoed(slashing);
-                    }
-
-                    // Detect round executed
-                    if (slashing.isExecuted && (!previousState || previousState.status !== 'executed')) {
-                        notifyRoundExecuted(slashing);
-                    }
-
-                    // Detect quorum reached (only if not vetoed and not globally paused)
-                    if (hasQuorumStatus && !hadQuorumStatus && !slashing.isVetoed && !slashing.isExecuted && isEnabled) {
-                        notifyQuorumReached(slashing);
-                    }
-                }
-
-                // Update the state tracking
-                previousRoundStatesRef.current.set(roundKey, {
-                    status: slashing.status,
-                    isVetoed: slashing.isVetoed,
-                });
-                addDetectedSlashing(slashing);
-            });
-            const offenses = await nodeRpcRef.current.getSlashOffenses('all');
-            setOffenses(offenses);
-            // Active slashings: actionable rounds excluding current round (still being voted on)
-            const storeConfig = useSlashingStore.getState().config;
-            const activeSlashings = detectedSlashings.filter((s) => {
-                const isProtected = storeConfig
-                    ? isRoundProtectedByPause(s.round, storeConfig, currentSlot, isEnabled, slashingDisabledUntil, slashingDisableDuration)
-                    : false;
-                const displayState = deriveRoundDisplayState(s, { isProtected });
-                return displayState.isActionable && s.round !== currentRound;
-            }).length;
-            const vetoedPayloads = detectedSlashings.filter((s) => s.isVetoed).length;
-            const executedRounds = detectedSlashings.filter((s) => s.isExecuted).length;
-            // Only count validators and slash amounts for executed rounds
-            const totalValidatorsSlashed = detectedSlashings
-                .filter((s) => s.isExecuted)
-                .reduce((sum, s) => sum + (s.affectedValidatorCount ?? 0), 0);
-            const totalSlashAmount = detectedSlashings
-                .filter((s) => s.isExecuted)
-                .reduce((sum, s) => sum + (s.totalSlashAmount ?? 0n), 0n);
-            updateStats({
-                currentRound,
-                totalRoundsMonitored: detectedSlashings.length,
-                activeSlashings,
-                vetoedPayloads,
-                executedRounds,
-                totalValidatorsSlashed,
-                totalSlashAmount,
-            });
-            if (isFirstScanRef.current) {
-                console.log(`Initial scan complete: ${detectedSlashings.length} rounds detected`);
-                isFirstScanRef.current = false;
-                setIsScanning(false);
-            }
             if (Math.random() < config.consoleLogProbability) {
-                console.log(`Poll complete: ${detectedSlashings.length} rounds, ${offenses.length} offenses`);
-                if (l1MonitorRef.current && detectorRef.current) {
-                    l1MonitorRef.current.logCacheStats();
-                    detectorRef.current.logCacheStats();
-                }
+                console.log(`Poll complete: ${detectedSlashings.length} rounds, audit=${audit.status}`);
+                l1MonitorRef.current.logCacheStats();
+                detectorRef.current.logCacheStats();
             }
         }
         catch (error) {
             console.error('Poll error:', error);
+        }
+        finally {
             if (isFirstScanRef.current) {
                 isFirstScanRef.current = false;
                 setIsScanning(false);
             }
-        }
-    }, [setCurrentRound, setCurrentSlot, setCurrentEpoch, setSlashingEnabled, setSlashingDisabledUntil, setSlashingDisableDuration, setActiveAttesterCount, setEntryQueueLength, setIsScanning, addDetectedSlashing, setOffenses, updateStats]);
-    const startPolling = useCallback(() => {
-        poll();
-        intervalRef.current = setInterval(poll, config.l2PollInterval);
-        console.log(`Polling started with interval ${config.l2PollInterval}ms`);
-    }, [poll, config.l2PollInterval]);
-    const cleanup = useCallback(() => {
-        console.log('Cleaning up slashing monitor...');
-        if (intervalRef.current) {
-            clearInterval(intervalRef.current);
-            intervalRef.current = null;
-        }
-    }, []);
-    useEffect(() => {
-        let isMounted = true;
 
-        const initAndPoll = async () => {
-            if (isMounted) {
-                await initialize();
-                if (isMounted) {
-                    startPolling();
+            isPollingRef.current = false;
+        }
+    }, [applySnapshot, config.consoleLogProbability, setIsScanning]);
+
+    const scheduleNextPoll = useCallback(() => {
+        if (!isActiveRef.current) {
+            return;
+        }
+
+        timeoutRef.current = setTimeout(async () => {
+            if (!isActiveRef.current) {
+                return;
+            }
+
+            await poll();
+            if (isActiveRef.current) {
+                scheduleNextPoll();
+            }
+        }, config.l2PollInterval);
+    }, [config.l2PollInterval, poll]);
+
+    useEffect(() => {
+        let cancelled = false;
+        isActiveRef.current = true;
+
+        const start = async () => {
+            try {
+                const initialState = await initializeMonitor();
+                if (cancelled) {
+                    return;
                 }
+
+                await poll(initialState);
+                if (!cancelled) {
+                    scheduleNextPoll();
+                }
+            }
+            catch (error) {
+                console.error('Failed to initialize slashing monitor:', error);
+                setIsScanning(false);
             }
         };
 
-        initAndPoll();
+        start();
 
         return () => {
-            isMounted = false;
-            cleanup();
+            cancelled = true;
+            isActiveRef.current = false;
+            if (timeoutRef.current) {
+                clearTimeout(timeoutRef.current);
+                timeoutRef.current = null;
+            }
         };
-    }, [initialize, startPolling, cleanup]);
+    }, [initializeMonitor, poll, scheduleNextPoll, setIsScanning]);
+}
+
+function buildSnapshot(
+    currentState: CurrentChainState,
+    detectedSlashings: DetectedSlashing[],
+    audit: MonitorAudit
+): MonitorSnapshot {
+    return {
+        ...currentState,
+        detectedSlashings: new Map(detectedSlashings.map((slashing) => [slashing.round, slashing])),
+        stats: buildStats(currentState, detectedSlashings),
+        audit,
+    };
+}
+
+function buildStats(currentState: CurrentChainState, detectedSlashings: DetectedSlashing[]): SlashingStats {
+    const storeState = useSlashingStore.getState();
+    const activeSlashings = detectedSlashings.filter((slashing) => {
+        const presentation = deriveRoundPresentation(slashing, {
+            config: storeState.config,
+            currentSlot: currentState.currentSlot,
+            isSlashingEnabled: currentState.isSlashingEnabled,
+            slashingDisabledUntil: currentState.slashingDisabledUntil,
+            slashingDisableDuration: currentState.slashingDisableDuration,
+        });
+
+        return presentation.isActionable && slashing.round !== currentState.currentRound;
+    }).length;
+
+    return {
+        currentRound: currentState.currentRound,
+        totalRoundsMonitored: detectedSlashings.length,
+        activeSlashings,
+        vetoedPayloads: detectedSlashings.filter((slashing) => slashing.isVetoed).length,
+        executedRounds: detectedSlashings.filter((slashing) => slashing.isExecuted).length,
+        totalValidatorsSlashed: detectedSlashings
+            .filter((slashing) => slashing.isExecuted)
+            .reduce((sum, slashing) => sum + (slashing.affectedValidatorCount ?? 0), 0),
+        totalSlashAmount: detectedSlashings
+            .filter((slashing) => slashing.isExecuted)
+            .reduce((sum, slashing) => sum + (slashing.totalSlashAmount ?? 0n), 0n),
+    };
+}
+
+function buildAudit(issues: MonitorIssue[]): MonitorAudit {
+    return {
+        status: issues.length === 0 ? 'ok' : 'partial',
+        issues,
+        updatedAt: Date.now(),
+    };
+}
+
+function emitNotificationsForPoll(
+    detectedSlashings: DetectedSlashing[],
+    isSlashingEnabled: boolean,
+    previousRoundStates: Map<string, RoundState>,
+    isFirstScan: boolean
+) {
+    for (const slashing of detectedSlashings) {
+        if (slashing.verificationStatus !== 'verified' || !slashing.slashActions || slashing.slashActions.length === 0) {
+            continue;
+        }
+
+        const roundKey = slashing.round.toString();
+        const previousState = previousRoundStates.get(roundKey);
+        const hasQuorumStatus = isQuorumStatus(slashing.status);
+        const hadQuorumStatus = previousState ? isQuorumStatus(previousState.status) : false;
+        const wasVetoed = previousState?.isVetoed ?? false;
+
+        if (!isFirstScan) {
+            if (slashing.isVetoed && !wasVetoed) {
+                notifyRoundVetoed(slashing);
+            }
+
+            if (slashing.isExecuted && (!previousState || previousState.status !== 'executed')) {
+                notifyRoundExecuted(slashing);
+            }
+
+            if (hasQuorumStatus && !hadQuorumStatus && !slashing.isVetoed && !slashing.isExecuted && isSlashingEnabled) {
+                notifyQuorumReached(slashing);
+            }
+        }
+
+        previousRoundStates.set(roundKey, {
+            status: slashing.status,
+            isVetoed: slashing.isVetoed,
+        });
+    }
+}
+
+function isQuorumStatus(status: RoundStatus) {
+    return status === 'quorum-reached' || status === 'in-veto-window' || status === 'executable';
 }

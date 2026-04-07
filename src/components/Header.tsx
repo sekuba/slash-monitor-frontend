@@ -1,7 +1,9 @@
-import { useNetwork } from '@/NetworkContext';
+interface HeaderProps {
+    network: 'mainnet' | 'testnet';
+    onToggleNetwork: () => void;
+}
 
-export function Header() {
-    const { network, toggleNetwork } = useNetwork();
+export function Header({ network, onToggleNetwork }: HeaderProps) {
 
     const isMainnet = network === 'mainnet';
     const networkBorderClass = isMainnet ? 'border-vermillion' : 'border-aqua';
@@ -24,7 +26,7 @@ export function Header() {
           </div>
 
           <div className="flex items-center gap-4">
-            <button onClick={toggleNetwork} className={`bg-brand-black border-5 ${networkBorderClass} px-4 py-3 ${networkShadowClass} hover:-translate-y-1 hover:translate-x-1 hover:shadow-none transition-all duration-100 cursor-pointer`} aria-label={`Switch to ${isMainnet ? 'Testnet' : 'Mainnet'}`}>
+            <button onClick={onToggleNetwork} className={`bg-brand-black border-5 ${networkBorderClass} px-4 py-3 ${networkShadowClass} hover:-translate-y-1 hover:translate-x-1 hover:shadow-none transition-all duration-100 cursor-pointer`} aria-label={`Switch to ${isMainnet ? 'Testnet' : 'Mainnet'}`}>
               <div className="flex items-center gap-2">
                 <div className={`w-3 h-3 rounded-full ${isMainnet ? 'bg-vermillion' : 'bg-aqua'} animate-pulse`}></div>
                 <span className={`text-sm font-bold uppercase tracking-wider ${networkTextClass}`}>

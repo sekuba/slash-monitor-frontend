@@ -1,32 +1,25 @@
 import { useState, useEffect } from 'react';
 import type { DetectedSlashing } from '@/types/slashing';
 import { useSlashingStore } from '@/store/slashingStore';
-import { formatAddress, formatEther, formatTimeRemaining, getStatusColor, getStatusText, findOffenseForValidator, getOffenseTypeName, getOffenseTypeColor, deriveRoundDisplayState, } from '@/lib/utils';
-import { isRoundProtectedByPause } from '@/lib/pauseProtection';
+import { formatAddress, formatEther, formatTimeRemaining, getStatusColor, getStatusText, deriveRoundPresentation, } from '@/lib/utils';
 interface RoundCardProps {
     slashing: DetectedSlashing;
     sequencerOccurrences?: Map<string, number>;
 }
 export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
     const [isExpanded, setIsExpanded] = useState(false);
-    const [currentTime, setCurrentTime] = useState(Date.now());
-    const { offenses, config, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, currentSlot } = useSlashingStore();
+    const [currentTime, setCurrentTime] = useState<number | null>(null);
+    const { config, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, currentSlot } = useSlashingStore();
 
-    const isProtected = config && currentSlot
-        ? isRoundProtectedByPause(
-            slashing.round,
-            config,
-            currentSlot,
-            isSlashingEnabled,
-            slashingDisabledUntil,
-            slashingDisableDuration
-          )
-        : false;
-
-    const displayState = deriveRoundDisplayState(slashing, {
-        isProtected,
-        now: currentTime,
+    const displayState = deriveRoundPresentation(slashing, {
+        config,
+        currentSlot,
+        isSlashingEnabled,
+        slashingDisabledUntil,
+        slashingDisableDuration,
+        now: currentTime ?? undefined,
     });
+    const isProtected = displayState.isProtected;
     const displayStatus = displayState.status;
 
     const isActionable = displayState.isActionable;
@@ -135,6 +128,20 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
                 return null;
             return (<div className="mt-4 space-y-3">
 
+              {slashing.verificationStatus === 'partial' && (
+                <div className="flex items-center gap-3 bg-brand-black border-3 border-vermillion p-3">
+                  <svg className="w-6 h-6 text-vermillion stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                  </svg>
+                  <div>
+                    <div className="text-vermillion font-black uppercase text-sm">PARTIAL VERIFICATION</div>
+                    <div className="text-whisper-white/70 text-xs font-bold uppercase mt-1">
+                      {slashing.issues?.[0] ?? 'Round details are incomplete on the current RPCs'}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {isProtected && (<div className="flex items-center gap-3 bg-brand-black border-3 border-aqua p-3">
                   <svg className="w-6 h-6 text-aqua stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
@@ -209,9 +216,6 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
               <div className="text-xs text-whisper-white font-black uppercase tracking-wider mb-3">Sequencers To Slash</div>
               <div className="space-y-3 max-h-64 overflow-y-auto">
                 {slashing.slashActions.map((action, idx) => {
-                    const offense = slashing.targetEpochs
-                        ? findOffenseForValidator(action.validator, slashing.targetEpochs, offenses, slashing.round)
-                        : undefined;
                     const occurrences = sequencerOccurrences?.get(action.validator.toLowerCase()) ?? 1;
                     const showOccurrences = occurrences > 1;
                     return (<div key={idx} className="flex items-center justify-between bg-brand-black px-4 py-3 border-3 border-whisper-white gap-3">
@@ -229,9 +233,6 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
                             <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
                           </svg>
                         </button>
-                        {offense && (<span className={`px-2 py-1 border-3 text-xs font-black uppercase whitespace-nowrap ${getOffenseTypeColor(offense.offenseType)}`}>
-                            {getOffenseTypeName(offense.offenseType)}
-                          </span>)}
                       </div>
                       <span className="text-vermillion font-black text-lg whitespace-nowrap">{parseInt(formatEther(action.slashAmount), 10)} AZTEC</span>
                     </div>);

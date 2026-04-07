@@ -1,79 +1,43 @@
-import { createPublicClient, decodeFunctionResult, encodeFunctionData, fallback, http, type Address, type PublicClient, } from 'viem';
+import { createPublicClient, type Address, type PublicClient } from 'viem';
+import type { CurrentChainState, MonitorConfigInput, RoundInfo, SlashAction, SlashingContractParameters } from '@/types/slashing';
 import { tallySlashingProposerAbi } from './contracts/tallySlashingProposerAbi';
-import { slasherAbi } from './contracts/slasherAbi';
 import { rollupAbi } from './contracts/rollupAbi';
-import { createCall, multicall } from './multicall';
+import { slasherAbi } from './contracts/slasherAbi';
 import { ImmutableAwareCache } from './immutableCache';
-import type { SlashAction, RoundInfo, SlashingMonitorConfig, } from '@/types/slashing';
+import { createCall, multicall, type MulticallResult } from './multicall';
+import { createPublicRpcTransport } from './rpc';
 
-// Cache configuration constants
-const MAX_ROUND_CACHE_SIZE = 100; // Maximum number of mutable rounds to cache
+const MAX_ROUND_CACHE_SIZE = 100;
 
 export class L1Monitor {
-    private publicClient: PublicClient;
-    private config: SlashingMonitorConfig;
-    private roundCache: ImmutableAwareCache<bigint, RoundInfo>;
-    private mutableTTL: number;
-    constructor(config: SlashingMonitorConfig) {
+    private readonly publicClient: PublicClient;
+    private readonly config: MonitorConfigInput;
+    private readonly roundCache: ImmutableAwareCache<bigint, RoundInfo>;
+    private readonly mutableTTL: number;
+
+    constructor(config: MonitorConfigInput) {
         this.config = config;
         this.mutableTTL = config.l1RoundCacheTTL;
-        this.roundCache = new ImmutableAwareCache<bigint, RoundInfo>((round) => round.toString(), (roundInfo) => roundInfo.isExecuted, { maxMutableSize: MAX_ROUND_CACHE_SIZE });
-        const transport = Array.isArray(config.l1RpcUrl)
-            ? fallback(config.l1RpcUrl.map(url => http(url)))
-            : http(config.l1RpcUrl);
+        this.roundCache = new ImmutableAwareCache(
+            (round) => round.toString(),
+            (roundInfo) => roundInfo.isExecuted,
+            { maxMutableSize: MAX_ROUND_CACHE_SIZE }
+        );
         this.publicClient = createPublicClient({
-            transport,
+            transport: createPublicRpcTransport(config.l1RpcUrl),
         });
     }
-    clearCache(round?: bigint) {
-        if (round !== undefined) {
-            this.roundCache.delete(round);
-        }
-        else {
-            this.roundCache.clear();
-        }
-    }
+
     getCacheStats() {
         return this.roundCache.getStats();
     }
+
     logCacheStats() {
         console.log(`[L1Monitor] ${this.roundCache.getStatsString()}`);
     }
-    async getCurrentRound(): Promise<bigint> {
-        const round = await this.publicClient.readContract({
-            address: this.config.tallySlashingProposerAddress,
-            abi: tallySlashingProposerAbi,
-            functionName: 'getCurrentRound',
-        });
-        return round as bigint;
-    }
-    async getCurrentSlot(): Promise<bigint> {
-        const slot = await this.publicClient.readContract({
-            address: this.config.rollupAddress,
-            abi: rollupAbi,
-            functionName: 'getCurrentSlot',
-        });
-        return slot as bigint;
-    }
-    async getCurrentEpoch(): Promise<bigint> {
-        const epoch = await this.publicClient.readContract({
-            address: this.config.rollupAddress,
-            abi: rollupAbi,
-            functionName: 'getCurrentEpoch',
-        });
-        return epoch as bigint;
-    }
-    async getCurrentState(): Promise<{
-        currentRound: bigint;
-        currentSlot: bigint;
-        currentEpoch: bigint;
-        isSlashingEnabled: boolean;
-        slashingDisabledUntil: bigint;
-        slashingDisableDuration: bigint;
-        activeAttesterCount: bigint;
-        entryQueueLength: bigint;
-    }> {
-        const calls = [
+
+    async getCurrentState(): Promise<CurrentChainState> {
+        const results = await multicall(this.publicClient, [
             createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'getCurrentRound'),
             createCall(this.config.rollupAddress, rollupAbi, 'getCurrentSlot'),
             createCall(this.config.rollupAddress, rollupAbi, 'getCurrentEpoch'),
@@ -82,267 +46,176 @@ export class L1Monitor {
             createCall(this.config.slasherAddress, slasherAbi, 'SLASHING_DISABLE_DURATION'),
             createCall(this.config.rollupAddress, rollupAbi, 'getActiveAttesterCount'),
             createCall(this.config.rollupAddress, rollupAbi, 'getEntryQueueLength'),
-        ];
-        const results = await multicall(this.publicClient, calls);
+        ]);
+
         return {
-            currentRound: results[0].data as bigint,
-            currentSlot: results[1].data as bigint,
-            currentEpoch: results[2].data as bigint,
-            isSlashingEnabled: results[3].data as boolean,
-            slashingDisabledUntil: results[4].data as bigint,
-            slashingDisableDuration: results[5].data as bigint,
-            activeAttesterCount: results[6].data as bigint,
-            entryQueueLength: results[7].data as bigint,
+            currentRound: requireResult(results[0], 'getCurrentRound'),
+            currentSlot: requireResult(results[1], 'getCurrentSlot'),
+            currentEpoch: requireResult(results[2], 'getCurrentEpoch'),
+            isSlashingEnabled: requireResult(results[3], 'isSlashingEnabled'),
+            slashingDisabledUntil: requireResult(results[4], 'slashingDisabledUntil'),
+            slashingDisableDuration: requireResult(results[5], 'SLASHING_DISABLE_DURATION'),
+            activeAttesterCount: requireResult(results[6], 'getActiveAttesterCount'),
+            entryQueueLength: requireResult(results[7], 'getEntryQueueLength'),
         };
     }
-    async getRound(round: bigint, skipCache = false): Promise<RoundInfo> {
-        if (!skipCache) {
-            const cached = this.roundCache.get(round);
-            if (cached) {
-                return cached;
-            }
-        }
-        const result = await this.publicClient.readContract({
-            address: this.config.tallySlashingProposerAddress,
-            abi: tallySlashingProposerAbi,
-            functionName: 'getRound',
-            args: [round],
-        });
-        const [isExecuted, voteCount] = result as [boolean, bigint];
-        const roundInfo = {
-            round,
-            isExecuted,
-            voteCount,
-        };
-        this.roundCache.set(round, roundInfo, this.mutableTTL);
-        return roundInfo;
-    }
-    async getRounds(rounds: bigint[]): Promise<Map<bigint, RoundInfo>> {
+
+    async getRounds(rounds: bigint[]): Promise<Map<bigint, MulticallResult<RoundInfo>>> {
+        const results = new Map<bigint, MulticallResult<RoundInfo>>();
         const roundsToFetch: bigint[] = [];
-        const cachedRounds = new Map<bigint, RoundInfo>();
+
         for (const round of rounds) {
             const cached = this.roundCache.get(round);
             if (cached) {
-                cachedRounds.set(round, cached);
+                results.set(round, { success: true, data: cached });
+                continue;
             }
-            else {
-                roundsToFetch.push(round);
-            }
+
+            roundsToFetch.push(round);
         }
+
         if (roundsToFetch.length === 0) {
-            return cachedRounds;
+            return results;
         }
-        const calls = roundsToFetch.map((round) => createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'getRound', [round]));
-        const results = await multicall(this.publicClient, calls);
-        const allRounds = new Map(cachedRounds);
-        results.forEach((result, i) => {
-            if (result.success && result.data) {
-                const round = roundsToFetch[i];
-                const [isExecuted, voteCount] = result.data as [boolean, bigint];
-                const roundInfo: RoundInfo = {
-                    round,
-                    isExecuted,
-                    voteCount,
-                };
-                this.roundCache.set(round, roundInfo, this.mutableTTL);
-                allRounds.set(round, roundInfo);
+
+        const fetchedResults = await multicall(
+            this.publicClient,
+            roundsToFetch.map((round) =>
+                createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'getRound', [round])
+            )
+        );
+
+        fetchedResults.forEach((result, index) => {
+            const round = roundsToFetch[index];
+
+            if (!result.success) {
+                results.set(round, result);
+                return;
             }
+
+            const [isExecuted, voteCount] = result.data as [boolean, bigint];
+            const roundInfo: RoundInfo = {
+                round,
+                isExecuted,
+                voteCount,
+            };
+
+            this.roundCache.set(round, roundInfo, this.mutableTTL);
+            results.set(round, { success: true, data: roundInfo });
         });
-        return allRounds;
+
+        return results;
     }
-    async isRoundReadyToExecute(round: bigint, slot?: bigint): Promise<boolean> {
-        const currentSlot = slot ?? (await this.getCurrentSlot());
-        const ready = await this.publicClient.readContract({
-            address: this.config.tallySlashingProposerAddress,
-            abi: tallySlashingProposerAbi,
-            functionName: 'isRoundReadyToExecute',
-            args: [round, currentSlot],
-        });
-        return ready as boolean;
-    }
-    async getSlashTargetCommittees(round: bigint): Promise<Address[][]> {
-        const result = await this.publicClient.call({
-            to: this.config.tallySlashingProposerAddress,
-            data: encodeFunctionData({
-                abi: tallySlashingProposerAbi,
-                functionName: 'getSlashTargetCommittees',
-                args: [round],
-            }),
-        });
-        if (!result.data) {
-            throw new Error(`Empty response for getSlashTargetCommittees(${round})`);
+
+    async batchGetSlashTargetCommittees(rounds: bigint[]): Promise<MulticallResult<Address[][]>[]> {
+        if (rounds.length === 0) {
+            return [];
         }
-        const committees = decodeFunctionResult({
-            abi: tallySlashingProposerAbi,
-            functionName: 'getSlashTargetCommittees',
-            data: result.data,
-        });
-        return committees as Address[][];
-    }
-    async batchGetSlashTargetCommittees(rounds: bigint[]): Promise<Address[][][]> {
-        if (rounds.length === 0)
-            return [];
-        const calls = rounds.map((round) => createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'getSlashTargetCommittees', [round]));
-        const results = await multicall(this.publicClient, calls);
+
+        const results = await multicall(
+            this.publicClient,
+            rounds.map((round) =>
+                createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'getSlashTargetCommittees', [round])
+            )
+        );
+
         return results.map((result) => {
-            if (result.success && result.data) {
-                return result.data as Address[][];
+            if (!result.success) {
+                return result;
             }
-            return [];
+
+            return {
+                success: true,
+                data: result.data as Address[][],
+            };
         });
     }
-    async getTally(round: bigint, committees: Address[][]): Promise<SlashAction[]> {
-        const actions = await this.publicClient.readContract({
-            address: this.config.tallySlashingProposerAddress,
-            abi: tallySlashingProposerAbi,
-            functionName: 'getTally',
-            args: [round, committees],
-        });
-        return (actions as any[]).map((action) => ({
-            validator: action.validator as Address,
-            slashAmount: action.slashAmount as bigint,
-        }));
-    }
-    async batchGetTally(roundsWithCommittees: Array<{
-        round: bigint;
-        committees: Address[][];
-    }>): Promise<SlashAction[][]> {
-        if (roundsWithCommittees.length === 0)
+
+    async batchGetTally(roundsWithCommittees: Array<{ round: bigint; committees: Address[][] }>): Promise<MulticallResult<SlashAction[]>[]> {
+        if (roundsWithCommittees.length === 0) {
             return [];
-        const calls = roundsWithCommittees.map(({ round, committees }) => createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'getTally', [round, committees]));
-        const results = await multicall(this.publicClient, calls);
-        return results.map((result) => {
-            if (result.success && result.data) {
-                return (result.data as any[]).map((action) => ({
-                    validator: action.validator as Address,
-                    slashAmount: action.slashAmount as bigint,
-                }));
-            }
-            return [];
-        });
-    }
-    async getPayloadAddress(round: bigint, actions: SlashAction[]): Promise<Address> {
-        if (actions.length === 0) {
-            return '0x0000000000000000000000000000000000000000';
         }
-        const address = await this.publicClient.readContract({
-            address: this.config.tallySlashingProposerAddress,
-            abi: tallySlashingProposerAbi,
-            functionName: 'getPayloadAddress',
-            args: [round, actions as readonly {
-                    validator: Address;
-                    slashAmount: bigint;
-                }[]],
-        });
-        return address as Address;
-    }
-    async batchGetPayloadAddress(roundsWithActions: Array<{
-        round: bigint;
-        actions: SlashAction[];
-    }>): Promise<Address[]> {
-        if (roundsWithActions.length === 0)
-            return [];
-        const calls = roundsWithActions.map(({ round, actions }) => {
-            if (actions.length === 0) {
-                return null;
-            }
-            return createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'getPayloadAddress', [round, actions as readonly {
-                    validator: Address;
-                    slashAmount: bigint;
-                }[]]);
-        });
-        const validCalls: ReturnType<typeof createCall>[] = [];
-        const validIndices: number[] = [];
-        calls.forEach((call, i) => {
-            if (call) {
-                validCalls.push(call);
-                validIndices.push(i);
-            }
-        });
-        const results = validCalls.length > 0 ? await multicall(this.publicClient, validCalls) : [];
-        const addresses: Address[] = new Array(roundsWithActions.length).fill('0x0000000000000000000000000000000000000000');
-        results.forEach((result, i) => {
-            const originalIndex = validIndices[i];
-            if (result.success && result.data) {
-                addresses[originalIndex] = result.data as Address;
-            }
-        });
-        return addresses;
-    }
-    async isPayloadVetoed(payloadAddress: Address): Promise<boolean> {
-        const vetoed = await this.publicClient.readContract({
-            address: this.config.slasherAddress,
-            abi: slasherAbi,
-            functionName: 'vetoedPayloads',
-            args: [payloadAddress],
-        });
-        return vetoed as boolean;
-    }
-    async batchIsPayloadVetoed(payloadAddresses: Address[]): Promise<boolean[]> {
-        if (payloadAddresses.length === 0)
-            return [];
-        const calls = payloadAddresses.map((address) => createCall(this.config.slasherAddress, slasherAbi, 'vetoedPayloads', [address]));
-        const results = await multicall(this.publicClient, calls);
+
+        const results = await multicall(
+            this.publicClient,
+            roundsWithCommittees.map(({ round, committees }) =>
+                createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'getTally', [round, committees])
+            )
+        );
+
         return results.map((result) => {
-            if (result.success && result.data !== undefined) {
-                return result.data as boolean;
+            if (!result.success) {
+                return result;
             }
-            return false;
+
+            return {
+                success: true,
+                data: mapSlashActions(result.data as any[]),
+            };
         });
     }
-    async batchGetPayloadAddressesAndVetoStatus(roundsWithActions: Array<{
-        round: bigint;
-        actions: SlashAction[];
-    }>): Promise<Array<{
+
+    async batchGetPayloadAddressesAndVetoStatus(roundsWithActions: Array<{ round: bigint; actions: SlashAction[] }>): Promise<MulticallResult<{
         payloadAddress: Address;
         isVetoed: boolean;
-    }>> {
-        if (roundsWithActions.length === 0)
+    }>[]> {
+        if (roundsWithActions.length === 0) {
             return [];
-        const allCalls: ReturnType<typeof createCall>[] = [];
-        const payloadCallIndices: number[] = [];
-        roundsWithActions.forEach((item, i) => {
-            if (item.actions.length > 0) {
-                payloadCallIndices.push(i);
-                allCalls.push(createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'getPayloadAddress', [item.round, item.actions as readonly {
-                        validator: Address;
-                        slashAmount: bigint;
-                    }[]]));
-            }
-        });
-        if (allCalls.length === 0) {
-            return roundsWithActions.map(() => ({
-                payloadAddress: '0x0000000000000000000000000000000000000000' as Address,
-                isVetoed: false
-            }));
         }
-        const payloadResults = await multicall(this.publicClient, allCalls);
-        const payloadAddresses: Address[] = new Array(roundsWithActions.length).fill('0x0000000000000000000000000000000000000000');
-        payloadResults.forEach((result, i) => {
-            const originalIndex = payloadCallIndices[i];
-            if (result.success && result.data) {
-                payloadAddresses[originalIndex] = result.data as Address;
+
+        const payloadResults = await multicall(
+            this.publicClient,
+            roundsWithActions.map(({ round, actions }) =>
+                createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'getPayloadAddress', [round, actions])
+            )
+        );
+
+        const vetoInputs: Address[] = [];
+        const vetoResultIndexByRound = new Map<number, number>();
+
+        payloadResults.forEach((result, index) => {
+            if (!result.success) {
+                return;
             }
+
+            vetoResultIndexByRound.set(index, vetoInputs.length);
+            vetoInputs.push(result.data as Address);
         });
-        const vetoStatusCalls = payloadAddresses.map((address) => createCall(this.config.slasherAddress, slasherAbi, 'vetoedPayloads', [address]));
-        const vetoResults = await multicall(this.publicClient, vetoStatusCalls);
-        return roundsWithActions.map((_, i) => ({
-            payloadAddress: payloadAddresses[i],
-            isVetoed: vetoResults[i].success && vetoResults[i].data !== undefined
-                ? (vetoResults[i].data as boolean)
-                : false
-        }));
-    }
-    async isSlashingEnabled(): Promise<boolean> {
-        const enabled = await this.publicClient.readContract({
-            address: this.config.slasherAddress,
-            abi: slasherAbi,
-            functionName: 'isSlashingEnabled',
+
+        const vetoResults = vetoInputs.length === 0
+            ? []
+            : await multicall(
+                this.publicClient,
+                vetoInputs.map((address) =>
+                    createCall(this.config.slasherAddress, slasherAbi, 'vetoedPayloads', [address])
+                )
+            );
+
+        return payloadResults.map((payloadResult, index) => {
+            if (!payloadResult.success) {
+                return payloadResult;
+            }
+
+            const vetoResult = vetoResults[vetoResultIndexByRound.get(index) ?? -1];
+            if (!vetoResult || !vetoResult.success) {
+                return {
+                    success: false,
+                    error: vetoResult?.error ?? new Error(`Missing veto status for round ${roundsWithActions[index].round}`),
+                };
+            }
+
+            return {
+                success: true,
+                data: {
+                    payloadAddress: payloadResult.data as Address,
+                    isVetoed: vetoResult.data as boolean,
+                },
+            };
         });
-        return enabled as boolean;
     }
-    async loadContractParameters(): Promise<Partial<SlashingMonitorConfig>> {
-        const calls = [
+
+    async loadContractParameters(): Promise<SlashingContractParameters> {
+        const results = await multicall(this.publicClient, [
             createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'QUORUM'),
             createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'ROUND_SIZE'),
             createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'ROUND_SIZE_IN_EPOCHS'),
@@ -352,18 +225,33 @@ export class L1Monitor {
             createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'COMMITTEE_SIZE'),
             createCall(this.config.rollupAddress, rollupAbi, 'getSlotDuration'),
             createCall(this.config.rollupAddress, rollupAbi, 'getEpochDuration'),
-        ];
-        const results = await multicall(this.publicClient, calls);
+        ]);
+
         return {
-            quorum: Number(results[0].data),
-            slashingRoundSize: Number(results[1].data),
-            slashingRoundSizeInEpochs: Number(results[2].data),
-            executionDelayInRounds: Number(results[3].data),
-            lifetimeInRounds: Number(results[4].data),
-            slashOffsetInRounds: Number(results[5].data),
-            committeeSize: Number(results[6].data),
-            slotDuration: Number(results[7].data),
-            epochDuration: Number(results[8].data),
+            quorum: Number(requireResult(results[0], 'QUORUM')),
+            slashingRoundSize: Number(requireResult(results[1], 'ROUND_SIZE')),
+            slashingRoundSizeInEpochs: Number(requireResult(results[2], 'ROUND_SIZE_IN_EPOCHS')),
+            executionDelayInRounds: Number(requireResult(results[3], 'EXECUTION_DELAY_IN_ROUNDS')),
+            lifetimeInRounds: Number(requireResult(results[4], 'LIFETIME_IN_ROUNDS')),
+            slashOffsetInRounds: Number(requireResult(results[5], 'SLASH_OFFSET_IN_ROUNDS')),
+            committeeSize: Number(requireResult(results[6], 'COMMITTEE_SIZE')),
+            slotDuration: Number(requireResult(results[7], 'getSlotDuration')),
+            epochDuration: Number(requireResult(results[8], 'getEpochDuration')),
         };
     }
+}
+
+function requireResult<T>(result: MulticallResult<T>, label: string): T {
+    if (!result.success) {
+        throw new Error(`${label} failed: ${result.error.message}`);
+    }
+
+    return result.data;
+}
+
+function mapSlashActions(actions: any[]): SlashAction[] {
+    return actions.map((action) => ({
+        validator: action.validator as Address,
+        slashAmount: action.slashAmount as bigint,
+    }));
 }

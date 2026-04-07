@@ -9,7 +9,7 @@ interface SlashingTimelineProps {
 export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
     const { config, currentRound, currentSlot, currentEpoch, detectedSlashings, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration } = useSlashingStore();
 
-    if (!config || currentRound === null || currentSlot === null || currentEpoch === null) {
+    if (!config) {
         return null;
     }
 
@@ -37,7 +37,7 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
     const currentRoundSlashing = detectedSlashings.get(currentRound);
     const voteCount = currentRoundSlashing?.voteCount.toString() ?? '0';
     const quorum = config.quorum;
-    const hasReachedQuorum = currentRoundSlashing && currentRoundSlashing.voteCount >= BigInt(quorum);
+    const hasReachedQuorum = currentRoundSlashing !== undefined && currentRoundSlashing.voteCount >= BigInt(quorum);
 
     // Calculate progress
     const totalSlots = Number(roundEndSlot - roundStartSlot + 1n);

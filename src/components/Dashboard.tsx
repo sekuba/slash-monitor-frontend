@@ -7,11 +7,16 @@ import { SlashingTimeline } from './SlashingTimeline';
 import { DebugView } from './DebugView';
 import { BootstrapBanner } from './BootstrapBanner';
 import { SlashingHelpModal } from './SlashingHelpModal';
-import { deriveRoundDisplayState } from '@/lib/utils';
+import { deriveRoundPresentation } from '@/lib/utils';
 import { requestNotificationPermission, areNotificationsEnabled } from '@/lib/notifications';
-import { isRoundProtectedByPause } from '@/lib/pauseProtection';
-export function Dashboard() {
-    const { detectedSlashings, isInitialized, isScanning, currentRound, config, currentSlot, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, } = useSlashingStore();
+
+interface DashboardProps {
+    network: 'mainnet' | 'testnet';
+    onToggleNetwork: () => void;
+}
+
+export function Dashboard({ network, onToggleNetwork }: DashboardProps) {
+    const { detectedSlashings, isInitialized, isScanning, currentRound, config, currentSlot, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, audit } = useSlashingStore();
     const [showNotificationBanner, setShowNotificationBanner] = useState(false);
     const [isRequestingNotifications, setIsRequestingNotifications] = useState(false);
     const [showDebugView, setShowDebugView] = useState(false);
@@ -20,12 +25,15 @@ export function Dashboard() {
     // Memoize sorted slashings to avoid re-sorting on every render
     const slashings = useMemo(() => Array.from(detectedSlashings.values()).sort((a, b) => Number(b.round - a.round)), [detectedSlashings]);
     const slashingStates = useMemo(() => slashings.map((slashing) => {
-        const isProtected = config && currentSlot !== null
-            ? isRoundProtectedByPause(slashing.round, config, currentSlot, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration)
-            : false;
         return {
             slashing,
-            display: deriveRoundDisplayState(slashing, { isProtected }),
+            display: deriveRoundPresentation(slashing, {
+                config,
+                currentSlot,
+                isSlashingEnabled,
+                slashingDisabledUntil,
+                slashingDisableDuration,
+            }),
         };
     }), [slashings, config, currentSlot, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration]);
     const activeSlashings = useMemo(() => slashingStates
@@ -75,20 +83,27 @@ export function Dashboard() {
       </div>);
     }
     return (<div className="min-h-screen">
-      <Header />
+      <Header network={network} onToggleNetwork={onToggleNetwork} />
       <SlashingHelpModal isOpen={showSlashingHelpModal} onClose={() => setShowSlashingHelpModal(false)} />
 
       {/* Debug View Toggle Button */}
       <div className="fixed bottom-6 right-6 z-50">
         <button
           onClick={() => setShowDebugView(!showDebugView)}
-          className={`px-6 py-3 font-black uppercase text-sm transition-all shadow-brutal border-5 ${
+          className={`relative px-6 py-3 font-black uppercase text-sm transition-all shadow-brutal border-5 ${
             showDebugView
               ? 'bg-vermillion text-brand-black border-brand-black hover:bg-vermillion/90'
               : 'bg-lapis text-aqua border-aqua hover:bg-lapis/90'
           }`}
           title={showDebugView ? 'Hide Debug View' : 'Show Debug View'}
         >
+          {audit.status === 'partial' && !showDebugView && (
+            <span className="absolute -top-3 -left-3 bg-vermillion border-3 border-brand-black p-1 shadow-brutal" aria-hidden="true">
+              <svg className="w-4 h-4 text-brand-black stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 9v2m0 4h.01m-7 5h14L12 3 5 20z"/>
+              </svg>
+            </span>
+          )}
           {showDebugView ? (
             <span className="flex items-center gap-2">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

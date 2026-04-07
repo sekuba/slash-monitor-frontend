@@ -1,4 +1,4 @@
-import type { SlashingMonitorConfig } from '@/types/slashing';
+import type { ResolvedMonitorConfig } from '@/types/slashing';
 
 export interface ProtectedRoundRange {
   firstProtectedRound: bigint;
@@ -22,7 +22,7 @@ export interface ProtectedRoundRange {
  * slashed after it ends.
  */
 export function calculateProtectedRoundRange(
-  config: SlashingMonitorConfig,
+  config: ResolvedMonitorConfig,
   currentSlot: bigint,
   slashingDisabledUntil: bigint,
   slashingDisableDuration: bigint
@@ -74,7 +74,7 @@ export function calculateProtectedRoundRange(
  */
 export function isRoundProtectedByPause(
   round: bigint,
-  config: SlashingMonitorConfig,
+  config: ResolvedMonitorConfig,
   currentSlot: bigint,
   isSlashingEnabled: boolean,
   slashingDisabledUntil: bigint | null,

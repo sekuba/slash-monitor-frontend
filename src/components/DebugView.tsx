@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { useSlashingStore } from '../store/slashingStore';
 import { formatEther } from 'viem';
-import { reloadWithCacheClear } from '@/lib/cacheManager';
+import { clearCustomRpcUrl, getCustomRpcUrl, reloadApp } from '@/lib/cacheManager';
 
 export const DebugView: React.FC = () => {
   const [customRpcUrl, setCustomRpcUrl] = useState<string>('');
-  const { config, currentRound, currentSlot, currentEpoch, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, activeAttesterCount, entryQueueLength, stats, updateRpcUrl } = useSlashingStore();
+  const { config, currentRound, currentSlot, currentEpoch, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, activeAttesterCount, entryQueueLength, stats, audit, updateRpcUrl } = useSlashingStore();
+  const customRpcOverride = getCustomRpcUrl();
 
   const handleRpcUrlChange = () => {
     if (!customRpcUrl.trim()) {
@@ -16,9 +17,8 @@ export const DebugView: React.FC = () => {
   };
 
   const handleResetRpcUrl = () => {
-    localStorage.removeItem('customL1RpcUrl');
-    console.log('Custom RPC URL removed. Reloading page...');
-    window.location.reload();
+    clearCustomRpcUrl();
+    reloadApp();
   };
 
   if (!config) {
@@ -102,6 +102,34 @@ export const DebugView: React.FC = () => {
         </div>
       </section>
 
+      <section className="bg-oxblood border-5 border-vermillion p-6 shadow-brutal-vermillion">
+        <h3 className="text-2xl font-black mb-5 text-vermillion uppercase flex items-center gap-3">
+          <svg className="w-7 h-7 stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+          </svg>
+          Audit Status
+        </h3>
+        <div className="space-y-3">
+          <StateCard
+            label="Latest Scan"
+            value={audit.status === 'ok' ? 'FULLY VERIFIED' : 'PARTIAL'}
+            highlight={audit.status === 'ok'}
+            wide
+          />
+          {audit.issues.length > 0 && (
+            <div className="bg-brand-black border-3 border-vermillion p-4 space-y-2">
+              {audit.issues.map((issue, index) => (
+                <div key={`${issue.scope}-${issue.round?.toString() ?? 'global'}-${index}`} className="text-sm font-bold text-whisper-white">
+                  [{issue.scope}]
+                  {issue.round !== undefined ? ` round ${issue.round.toString()}: ` : ' '}
+                  {issue.message}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
       {/* RPC Configuration */}
       <section className="bg-aubergine border-5 border-orchid p-6 shadow-brutal-orchid">
         <h3 className="text-2xl font-black mb-5 text-orchid uppercase flex items-center gap-3">
@@ -117,7 +145,7 @@ export const DebugView: React.FC = () => {
               <span className="font-mono text-xs break-all">
                 {Array.isArray(config.l1RpcUrl) ? config.l1RpcUrl.join(', ') : config.l1RpcUrl}
               </span>
-              {localStorage.getItem('customL1RpcUrl') && (
+              {customRpcOverride && (
                 <span className="ml-3 px-2 py-1 bg-chartreuse text-brand-black text-xs font-black uppercase">CUSTOM</span>
               )}
             </div>
@@ -145,7 +173,7 @@ export const DebugView: React.FC = () => {
               >
                 <span className="text-sm font-bold uppercase tracking-wider">Update RPC</span>
               </button>
-              {localStorage.getItem('customL1RpcUrl') && (
+              {customRpcOverride && (
                 <button
                   onClick={handleResetRpcUrl}
                   className="bg-brand-black border-5 border-orchid px-6 py-3 shadow-brutal-orchid hover:-translate-y-1 hover:translate-x-1 hover:shadow-none transition-all duration-100 cursor-pointer"
@@ -165,19 +193,19 @@ export const DebugView: React.FC = () => {
             <svg className="w-7 h-7 text-vermillion stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
             </svg>
-            <h3 className="text-2xl font-black text-vermillion uppercase">Cache Management</h3>
+            <h3 className="text-2xl font-black text-vermillion uppercase">App Reload</h3>
           </div>
           <button
-            onClick={reloadWithCacheClear}
+            onClick={reloadApp}
             className="bg-brand-black border-5 border-vermillion px-6 py-3 shadow-brutal-vermillion hover:-translate-y-1 hover:translate-x-1 hover:shadow-none transition-all duration-100 cursor-pointer"
-            aria-label="Clear all caches and reload"
+            aria-label="Reload app"
           >
             <div className="flex items-center gap-2">
               <svg className="w-5 h-5 text-vermillion stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
               </svg>
               <span className="text-sm font-bold uppercase tracking-wider text-vermillion">
-                Clear Cache & Reload
+                Reload App
               </span>
             </div>
           </button>
@@ -216,7 +244,6 @@ export const DebugView: React.FC = () => {
           <ConfigItem label="Tally Proposer Address" value={config.tallySlashingProposerAddress} copyable />
           <ConfigItem label="Slasher Address" value={config.slasherAddress} copyable />
           <ConfigItem label="Rollup Address" value={config.rollupAddress} copyable />
-          <ConfigItem label="Node Admin URL" value={config.nodeAdminUrl || 'Not configured'} />
           <ConfigItem label="L2 Poll Interval" value={`${config.l2PollInterval}ms`} />
           <ConfigItem label="Countdown Interval" value={`${config.realtimeCountdownInterval}ms`} />
           <ConfigItem label="Round Cache TTL" value={`${config.l1RoundCacheTTL}ms`} />

@@ -1,24 +1,20 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { Dashboard } from './components/Dashboard';
 import { useSlashingMonitor } from './hooks/useSlashingMonitor';
-import type { SlashingMonitorConfig } from './types/slashing';
+import type { MonitorConfigInput } from './types/slashing';
 import type { Address } from 'viem';
+import { getCustomRpcUrl } from './lib/cacheManager';
+import { normalizeRpcUrls } from './lib/rpc';
 
-const parseRpcUrls = (urlString: string): string | string[] => {
-    const urls = urlString.split(',').map(url => url.trim()).filter(url => url.length > 0);
-    return urls.length === 1 ? urls[0] : urls;
-};
-
-const createConfig = (isTestnet: boolean): SlashingMonitorConfig => {
+const createConfig = (isTestnet: boolean): MonitorConfigInput => {
     // Check for custom RPC URL in localStorage (set via debug view)
-    const customRpcUrl = localStorage.getItem('customL1RpcUrl');
+    const customRpcUrl = getCustomRpcUrl();
+    const defaultL1RpcUrl = isTestnet
+        ? (import.meta.env.VITE_TESTNET_L1_RPC_URL || import.meta.env.VITE_L1_RPC_URL || 'http://localhost:8545')
+        : (import.meta.env.VITE_L1_RPC_URL || 'http://localhost:8545');
 
     return {
-        l1RpcUrl: customRpcUrl || parseRpcUrls(
-            isTestnet
-                ? (import.meta.env.VITE_TESTNET_L1_RPC_URL || import.meta.env.VITE_L1_RPC_URL || 'http://localhost:8545')
-                : (import.meta.env.VITE_L1_RPC_URL || 'http://localhost:8545')
-        ),
+        l1RpcUrl: normalizeRpcUrls(customRpcUrl || defaultL1RpcUrl),
         tallySlashingProposerAddress: (
             isTestnet
                 ? (import.meta.env.VITE_TESTNET_TALLY_PROPOSER_ADDRESS || import.meta.env.VITE_TALLY_PROPOSER_ADDRESS || '0x')
@@ -34,18 +30,6 @@ const createConfig = (isTestnet: boolean): SlashingMonitorConfig => {
                 ? (import.meta.env.VITE_TESTNET_ROLLUP_ADDRESS || import.meta.env.VITE_ROLLUP_ADDRESS || '0x')
                 : (import.meta.env.VITE_ROLLUP_ADDRESS || '0x')
         ) as Address,
-        nodeAdminUrl: isTestnet
-            ? (import.meta.env.VITE_TESTNET_NODE_ADMIN_URL || import.meta.env.VITE_NODE_ADMIN_URL || '')
-            : (import.meta.env.VITE_NODE_ADMIN_URL || ''),
-        slashingRoundSize: 0,
-        slashingRoundSizeInEpochs: 0,
-        executionDelayInRounds: 0,
-        lifetimeInRounds: 0,
-        slashOffsetInRounds: 0,
-        quorum: 0,
-        committeeSize: 0,
-        slotDuration: 0,
-        epochDuration: 0,
         l2PollInterval: Number(import.meta.env.VITE_L2_POLL_INTERVAL) || 180000,
         realtimeCountdownInterval: Number(import.meta.env.VITE_REALTIME_COUNTDOWN_INTERVAL) || 1000,
         l1RoundCacheTTL: Number(import.meta.env.VITE_L1_ROUND_CACHE_TTL) || 120000,
@@ -65,14 +49,19 @@ export function App() {
     // Determine network from URL query parameter
     const params = new URLSearchParams(window.location.search);
     const isTestnet = params.get('network') === 'testnet';
+    const network = isTestnet ? 'testnet' : 'mainnet';
 
     // Memoize config to prevent re-creation on every render
     const config = useMemo(() => createConfig(isTestnet), [isTestnet]);
+    const toggleNetwork = useCallback(() => {
+        window.location.href = isTestnet ? '/' : '/?network=testnet';
+    }, [isTestnet]);
+
     useSlashingMonitor(config);
 
     return (
         <div className="min-h-screen bg-gray-950 text-white">
-            <Dashboard />
+            <Dashboard network={network} onToggleNetwork={toggleNetwork} />
         </div>
     );
 }
