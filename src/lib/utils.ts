@@ -1,5 +1,5 @@
 import type { Address } from 'viem';
-import type { ResolvedMonitorConfig, RoundStatus, DetectedSlashing } from '@/types/slashing';
+import type { ResolvedMonitorConfig, RoundStatus, DetectedSlashing, TargetedSequencer } from '@/types/slashing';
 import { isRoundProtectedByPause } from './pauseProtection';
 
 export type RoundDisplayStatus = RoundStatus | 'vetoed';
@@ -121,6 +121,44 @@ export function isActionableStatus(status: RoundDisplayStatus): boolean {
     return (status === 'quorum-reached' ||
         status === 'in-veto-window' ||
         status === 'executable');
+}
+
+export function collectTargetedSequencers(slashings: DetectedSlashing[]): TargetedSequencer[] {
+    const targetedSequencers = new Map<string, TargetedSequencer>();
+
+    slashings.forEach((slashing) => {
+        slashing.slashActions?.forEach((action) => {
+            const key = action.validator.toLowerCase();
+            const existing = targetedSequencers.get(key);
+
+            if (existing) {
+                existing.appearances += 1;
+                if (!existing.rounds.includes(slashing.round)) {
+                    existing.rounds.push(slashing.round);
+                }
+                return;
+            }
+
+            targetedSequencers.set(key, {
+                address: action.validator,
+                appearances: 1,
+                rounds: [slashing.round],
+            });
+        });
+    });
+
+    return Array.from(targetedSequencers.values())
+        .map((sequencer) => ({
+            ...sequencer,
+            rounds: [...sequencer.rounds].sort((a, b) => Number(a - b)),
+        }))
+        .sort((a, b) => {
+            if (b.appearances !== a.appearances) {
+                return b.appearances - a.appearances;
+            }
+
+            return a.address.localeCompare(b.address);
+        });
 }
 export function getAdjustedSecondsRemaining(slashing: DetectedSlashing, baseSeconds: number | undefined, now: number): number | undefined {
     if (baseSeconds === undefined || slashing.lastUpdatedTimestamp === undefined) {

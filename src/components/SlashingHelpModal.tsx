@@ -1,16 +1,26 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useSlashingStore } from '@/store/slashingStore';
 import { formatNumber, formatTimeRemaining } from '@/lib/utils';
+import type { TargetedSequencer } from '@/types/slashing';
+import { SequencerAddressLink } from './SequencerAddressLink';
 
 interface SlashingHelpModalProps {
     isOpen: boolean;
     onClose: () => void;
+    targetedSequencers: TargetedSequencer[];
 }
 
 const COUNCIL_ISSUES_URL = 'https://github.com/aztec-slash-veto/council/issues';
 
-export function SlashingHelpModal({ isOpen, onClose }: SlashingHelpModalProps) {
+export function SlashingHelpModal({ isOpen, onClose, targetedSequencers }: SlashingHelpModalProps) {
     const { config } = useSlashingStore();
+    const [targetedSequencerFilter, setTargetedSequencerFilter] = useState('');
+    const [minimumAppearancesFilter, setMinimumAppearancesFilter] = useState('');
+    const handleClose = () => {
+        setTargetedSequencerFilter('');
+        setMinimumAppearancesFilter('');
+        onClose();
+    };
 
     useEffect(() => {
         if (!isOpen) {
@@ -19,6 +29,8 @@ export function SlashingHelpModal({ isOpen, onClose }: SlashingHelpModalProps) {
 
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.key === 'Escape') {
+                setTargetedSequencerFilter('');
+                setMinimumAppearancesFilter('');
                 onClose();
             }
         };
@@ -59,11 +71,24 @@ export function SlashingHelpModal({ isOpen, onClose }: SlashingHelpModalProps) {
         approximate: true,
         hoursThresholdForDayDisplay,
     });
+    const normalizedTargetedSequencerFilter = targetedSequencerFilter.trim().toLowerCase();
+    const normalizedMinimumAppearancesFilter = minimumAppearancesFilter.trim();
+    const minimumAppearances = normalizedMinimumAppearancesFilter === '' ? 0 : Number(normalizedMinimumAppearancesFilter);
+    const filteredTargetedSequencers = targetedSequencers.filter((sequencer) => {
+        const matchesAddress = normalizedTargetedSequencerFilter === '' ||
+            sequencer.address.toLowerCase().includes(normalizedTargetedSequencerFilter);
+        const matchesAppearances = sequencer.appearances >= minimumAppearances;
+
+        return matchesAddress && matchesAppearances;
+    });
+    const targetedSequencerCountLabel = filteredTargetedSequencers.length === targetedSequencers.length
+        ? targetedSequencers.length.toString()
+        : `${filteredTargetedSequencers.length}/${targetedSequencers.length}`;
 
     return (
         <div
             className="fixed inset-0 z-[70] bg-brand-black/80 p-4 md:p-8"
-            onClick={onClose}
+            onClick={handleClose}
         >
             <div
                 className="mx-auto max-w-5xl border-6 border-chartreuse bg-malachite shadow-brutal-chartreuse max-h-[calc(100vh-2rem)] overflow-y-auto"
@@ -87,7 +112,7 @@ export function SlashingHelpModal({ isOpen, onClose }: SlashingHelpModalProps) {
                     </div>
 
                     <button
-                        onClick={onClose}
+                        onClick={handleClose}
                         className="shrink-0 border-5 border-vermillion bg-vermillion p-3 text-brand-black shadow-brutal hover:-translate-y-0.5"
                         aria-label="Close help"
                     >
@@ -128,6 +153,111 @@ export function SlashingHelpModal({ isOpen, onClose }: SlashingHelpModalProps) {
                                     when cards are collapsed, so page search still works.
                                 </p>
                             </div>
+                        </div>
+
+                        <div className="mt-4 border-3 border-aqua bg-brand-black p-4">
+                            <div className="mb-3 flex items-center justify-between gap-3">
+                                <div>
+                                    <div className="text-xs font-black uppercase tracking-wider text-aqua">
+                                        Targeted Sequencers
+                                    </div>
+                                    <p className="mt-1 text-sm font-bold text-whisper-white">
+                                        Across upcoming slashing payloads that can still be executed.
+                                    </p>
+                                </div>
+                                <span className="shrink-0 border-3 border-brand-black bg-aqua px-3 py-1 text-sm font-black uppercase text-brand-black">
+                                    {targetedSequencerCountLabel}
+                                </span>
+                            </div>
+
+                            <div className="mb-4 grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
+                                <div>
+                                    <label
+                                        htmlFor="targeted-sequencer-filter"
+                                        className="mb-2 block text-xs font-black uppercase tracking-wider text-aqua"
+                                    >
+                                        Filter By Sequencer Address
+                                    </label>
+                                    <input
+                                        id="targeted-sequencer-filter"
+                                        type="text"
+                                        value={targetedSequencerFilter}
+                                        onChange={(event) => setTargetedSequencerFilter(event.target.value)}
+                                        placeholder="0x..."
+                                        className="w-full border-3 border-aqua bg-brand-black px-4 py-3 font-mono text-sm font-bold text-whisper-white shadow-brutal-aqua placeholder:text-whisper-white/40 focus:border-chartreuse focus:outline-hidden"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label
+                                        htmlFor="targeted-sequencer-appearances-filter"
+                                        className="mb-2 block text-xs font-black uppercase tracking-wider text-aqua"
+                                    >
+                                        Minimum Appearances
+                                    </label>
+                                    <input
+                                        id="targeted-sequencer-appearances-filter"
+                                        type="number"
+                                        min="1"
+                                        step="1"
+                                        value={minimumAppearancesFilter}
+                                        onChange={(event) => setMinimumAppearancesFilter(event.target.value)}
+                                        placeholder="2"
+                                        className="w-full border-3 border-vermillion bg-brand-black px-4 py-3 text-sm font-black text-whisper-white shadow-brutal-vermillion placeholder:text-whisper-white/40 focus:border-chartreuse focus:outline-hidden"
+                                    />
+                                </div>
+                            </div>
+
+                            {targetedSequencers.length === 0 ? (
+                                <div className="border-3 border-aqua bg-lapis px-4 py-3 text-sm font-bold text-whisper-white">
+                                    No sequencers are targeted in an upcoming slashing payload right now.
+                                </div>
+                            ) : filteredTargetedSequencers.length === 0 ? (
+                                <div className="border-3 border-aqua bg-lapis px-4 py-3 text-sm font-bold text-whisper-white">
+                                    No targeted sequencers match those filters.
+                                </div>
+                            ) : (
+                                <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+                                    {filteredTargetedSequencers.map((sequencer) => (
+                                        <div
+                                            key={sequencer.address}
+                                            className="flex flex-col gap-3 border-3 border-aqua bg-lapis px-4 py-3 xl:flex-row xl:items-center xl:justify-between"
+                                        >
+                                            <div className="flex min-w-0 items-center gap-3">
+                                                <SequencerAddressLink
+                                                    address={sequencer.address}
+                                                    chars={9}
+                                                    className="font-mono text-sm font-bold text-whisper-white"
+                                                />
+                                                <span
+                                                    className="shrink-0 inline-flex items-center gap-1 border-3 border-vermillion bg-oxblood px-2 py-1 text-xs font-black uppercase text-vermillion whitespace-nowrap"
+                                                    title="Number of upcoming slashing payload appearances"
+                                                >
+                                                    <svg className="h-4 w-4 stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                                                        <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12z" />
+                                                        <circle cx="12" cy="12" r="3" strokeWidth={3} />
+                                                    </svg>
+                                                    <span>{sequencer.appearances}</span>
+                                                </span>
+                                            </div>
+
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <span className="text-xs font-black uppercase tracking-wider text-aqua">
+                                                    Rounds
+                                                </span>
+                                                {sequencer.rounds.map((round) => (
+                                                    <span
+                                                        key={`${sequencer.address}-${round.toString()}`}
+                                                        className="border-3 border-brand-black bg-chartreuse px-2 py-1 text-xs font-black text-brand-black"
+                                                    >
+                                                        {round.toString()}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     </div>
 

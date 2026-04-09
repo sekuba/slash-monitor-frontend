@@ -44,6 +44,13 @@ export interface SlashAction {
     validator: Address;
     slashAmount: bigint;
 }
+
+export interface TargetedSequencer {
+    address: Address;
+    appearances: number;
+    rounds: bigint[];
+}
+
 export interface RoundInfo {
     round: bigint;
     voteCount: bigint;
