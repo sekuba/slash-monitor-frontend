@@ -7,7 +7,7 @@ import { SlashingTimeline } from './SlashingTimeline';
 import { DebugView } from './DebugView';
 import { BootstrapBanner } from './BootstrapBanner';
 import { SlashingHelpModal } from './SlashingHelpModal';
-import { deriveRoundPresentation } from '@/lib/utils';
+import { collectTargetedSequencers, deriveRoundPresentation, isActionableStatus } from '@/lib/utils';
 import { requestNotificationPermission, areNotificationsEnabled } from '@/lib/notifications';
 
 interface DashboardProps {
@@ -53,6 +53,9 @@ export function Dashboard({ network, onToggleNetwork }: DashboardProps) {
         });
         return counts;
     }, [slashings]);
+    const targetedSequencers = useMemo(() => collectTargetedSequencers(slashingStates
+        .filter(({ display, slashing }) => isActionableStatus(display.status) && slashing.slashActions && slashing.slashActions.length > 0)
+        .map(({ slashing }) => slashing)), [slashingStates]);
 
     useEffect(() => {
         if ('Notification' in window && Notification.permission === 'default') {
@@ -84,7 +87,11 @@ export function Dashboard({ network, onToggleNetwork }: DashboardProps) {
     }
     return (<div className="min-h-screen">
       <Header network={network} onToggleNetwork={onToggleNetwork} />
-      <SlashingHelpModal isOpen={showSlashingHelpModal} onClose={() => setShowSlashingHelpModal(false)} />
+      <SlashingHelpModal
+        isOpen={showSlashingHelpModal}
+        onClose={() => setShowSlashingHelpModal(false)}
+        targetedSequencers={targetedSequencers}
+      />
 
       {/* Debug View Toggle Button */}
       <div className="fixed bottom-6 right-6 z-50">
