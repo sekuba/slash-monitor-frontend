@@ -65,7 +65,7 @@ export const slasherAbi = [
     {
         type: 'event',
         name: 'VetoedPayload',
-        inputs: [{ name: 'payload', type: 'address', indexed: false }],
+        inputs: [{ name: 'payload', type: 'address', indexed: true }],
     },
     {
         type: 'event',

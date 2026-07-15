@@ -292,8 +292,8 @@ export function SlashingHelpModal({ isOpen, onClose, targetedSequencers }: Slash
                                 <div className="mb-2 text-xs font-black uppercase tracking-wider">3. It Shows Up Here</div>
                                 <p className="text-sm font-bold">
                                     The first time you can expect it here is that later voting round, in which
-                                    sequencers vote on the earlier offenders. If the round reaches quorum at <span>{formatNumber(config.quorum)}</span>{' '}
-                                    votes, the dashboard shows it as a concrete slashing payload with addresses,
+                                    sequencers cast ballots on the earlier offenders. When one validator receives at least <span>{formatNumber(config.quorum)}</span>{' '}
+                                    matching ballots, the dashboard shows a concrete slashing payload with addresses,
                                     amounts and countdowns.
                                 </p>
                             </div>

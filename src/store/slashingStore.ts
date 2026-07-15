@@ -1,10 +1,11 @@
 import { create } from 'zustand';
 import type { CurrentChainState, DetectedSlashing, MonitorAudit, MonitorSnapshot, ResolvedMonitorConfig, SlashingStats } from '@/types/slashing';
-import { updateRpcUrl as updateRpcUrlUtil } from '@/lib/cacheManager';
+import { updateRpcUrl as updateRpcUrlUtil } from '@/lib/rpcOverride';
 
 interface SlashingMonitorStore extends CurrentChainState {
     config: ResolvedMonitorConfig | null;
     isInitialized: boolean;
+    initializationError: string | null;
     isScanning: boolean;
     detectedSlashings: Map<bigint, DetectedSlashing>;
     stats: SlashingStats;
@@ -12,6 +13,8 @@ interface SlashingMonitorStore extends CurrentChainState {
     initialize: (config: ResolvedMonitorConfig, state: CurrentChainState) => void;
     setIsScanning: (scanning: boolean) => void;
     applySnapshot: (snapshot: MonitorSnapshot) => void;
+    setInitializationError: (message: string | null) => void;
+    setMonitorFailure: (message: string, fatal?: boolean) => void;
     updateRpcUrl: (url: string) => void;
 }
 
@@ -29,23 +32,27 @@ const initialAudit: MonitorAudit = {
     status: 'ok',
     issues: [],
     updatedAt: null,
+    lastSuccessfulAt: null,
 };
 
 const initialChainState: CurrentChainState = {
+    l1BlockNumber: 0n,
+    l1Timestamp: 0n,
     currentRound: 0n,
     currentSlot: 0n,
     currentEpoch: 0n,
     isSlashingEnabled: true,
     slashingDisabledUntil: 0n,
     slashingDisableDuration: 0n,
-    activeAttesterCount: 0n,
-    entryQueueLength: 0n,
+    pauseStartedAtSlot: null,
+    pauseEndsAtSlot: null,
 };
 
-export const useSlashingStore = create<SlashingMonitorStore>((set) => ({
+export const useSlashingStore = create<SlashingMonitorStore>((set, get) => ({
     ...initialChainState,
     config: null,
     isInitialized: false,
+    initializationError: null,
     isScanning: false,
     detectedSlashings: new Map(),
     stats: initialStats,
@@ -53,11 +60,37 @@ export const useSlashingStore = create<SlashingMonitorStore>((set) => ({
     initialize: (config, state) => set({
         config,
         isInitialized: true,
+        initializationError: null,
+        detectedSlashings: new Map(),
+        stats: {
+            ...initialStats,
+            currentRound: state.currentRound,
+        },
         ...state,
     }),
     setIsScanning: (isScanning) => set({ isScanning }),
     applySnapshot: (snapshot) => set({
         ...snapshot,
     }),
-    updateRpcUrl: updateRpcUrlUtil,
+    setInitializationError: (initializationError) => set({ initializationError }),
+    setMonitorFailure: (message, fatal = false) => set((state) => ({
+        audit: {
+            status: fatal ? 'fatal' : 'stale',
+            issues: [{
+                source: 'l1-rpc',
+                scope: 'chain-state',
+                severity: 'error',
+                message,
+            }],
+            updatedAt: Date.now(),
+            lastSuccessfulAt: state.audit.lastSuccessfulAt,
+        },
+    })),
+    updateRpcUrl: (url) => {
+        const chainId = get().config?.chainId;
+        if (chainId === undefined) {
+            throw new Error('Cannot update the RPC before the monitor is initialized');
+        }
+        updateRpcUrlUtil(url, chainId);
+    },
 }));

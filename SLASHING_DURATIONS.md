@@ -24,8 +24,8 @@ Aztec's slashing mechanism uses a multi-stage process with several time-based sa
          │
          v
 ┌─────────────────┐
-│ Veto Window     │  Status: 'in-veto-window' (first executable round)
-└────────┬────────┘  ⚠️  CRITICAL: Last chance to veto
+│ Newly Executable│  Status: 'newly-executable' (first executable round)
+└────────┬────────┘  Execution is now permissionless; veto promptly
          │
          v
 ┌─────────────────┐
@@ -45,13 +45,13 @@ Aztec's slashing mechanism uses a multi-stage process with several time-based sa
 
 ## Smart Contract State Variables
 
-### TallySlashingProposer
+### SlashingProposer
 - `EXECUTION_DELAY_IN_ROUNDS` - Rounds to wait (constant)
 - `LIFETIME_IN_ROUNDS` - Total lifetime (constant)
 - `SLASH_OFFSET_IN_ROUNDS` - Voting offset (constant)
 - `ROUND_SIZE` - Slots per round (constant)
 - `ROUND_SIZE_IN_EPOCHS` - Epochs per round (constant)
-- `QUORUM` - Votes needed (constant)
+- `QUORUM` - Matching ballots needed per validator (constant)
 
 ### Slasher
 - `SLASHING_DISABLE_DURATION` - Halt duration in seconds (constant)
@@ -68,9 +68,10 @@ Aztec's slashing mechanism uses a multi-stage process with several time-based sa
 
 ### Individual Round Veto
 - **Function**: `Slasher.vetoPayload(payloadAddress)`
-- **Effect**: Permanently blocks a specific round's execution
-- **Timing**: Can be called any time before execution
-- **Window**: Most critical during 'in-veto-window' status (first executable round)
+- **Effect**: Permanently blocks that exact payload address and action set
+- **Changing tally**: A changed action set produces a new payload address that must be reviewed separately
+- **Timing**: Can be called any time after the payload is known and before that payload executes
+- **Window**: Veto as early as possible; execution becomes permissionless at the executable slot
 
 ### Emergency Halt
 - **Function**: `Slasher.setSlashingEnabled(false)`

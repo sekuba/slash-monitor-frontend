@@ -1,11 +1,15 @@
 # Aztec Slashing Monitor
 
-this is a tool by/for the [slashVeto council](https://github.com/aztec-slash-veto/council/) and the aztec community: it allows you to see slashooors before they execute and provides you with the precomputed payload addresses and a bunch of other info
+This is a tool by and for the [Slash Veto Council](https://github.com/aztec-slash-veto/council/) and the Aztec community. It shows slashing rounds before they execute, including the targeted validators, amounts, veto status, and precomputed payload address.
 
-want to run it locally?
-- use Node 24
-- save [env.example](.env.example) as `.env` (you can change to your own fancy rpcs in there if you like)
-- `pnpm install`
-- `pnpm dev`
+The monitor discovers the canonical Rollup, Slasher, and SlashingProposer from Aztec's stable Registry contract. It checks that the contracts point back to each other and follows Registry upgrades automatically.
 
-if you run it locally with a sequencer admin api in the env you get the bonus info of 'offense types', knowing why someone is being slashed. this feature is not included in the github pages version and fully optional (just leave out the env if you do not need it)
+See [V5_UPGRADE_REVIEW.md](V5_UPGRADE_REVIEW.md) for the contract/source review, cutover details, and monitor impact.
+
+To run it locally:
+
+- Use Node 24.
+- Copy [.env.example](.env.example) to `.env` and optionally replace the public RPC endpoints.
+- Run `pnpm install` and `pnpm dev`.
+
+Mainnet is the default. Add `?network=testnet` to the URL for Sepolia testnet.

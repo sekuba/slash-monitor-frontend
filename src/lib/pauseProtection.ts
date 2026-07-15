@@ -1,6 +1,7 @@
-import type { ResolvedMonitorConfig } from '@/types/slashing';
+import { calculateExpirySlot, type SlashingLifecycleConfig } from './slashingLifecycle';
 
 export interface ProtectedRoundRange {
+  hasProtectedRounds: boolean;
   firstProtectedRound: bigint;
   lastProtectedRound: bigint;
   slotWhenPauseEnds: bigint;
@@ -14,52 +15,49 @@ export interface ProtectedRoundRange {
 /**
  * Calculates the range of rounds protected by a global pause.
  * Protected rounds are those that:
- * - Become executable during the pause window
- * - But expire before the pause ends
+ * - Remain live after the pause begins
+ * - Expire no later than the pause ends
  *
  * This creates a "shift effect" where rounds voted on before the pause
  * may still be protected, while rounds voted late in the pause can be
  * slashed after it ends.
  */
 export function calculateProtectedRoundRange(
-  config: ResolvedMonitorConfig,
-  currentSlot: bigint,
-  slashingDisabledUntil: bigint,
-  slashingDisableDuration: bigint
+  config: SlashingLifecycleConfig,
+  pauseStartedAtSlot: bigint,
+  pauseEndsAtSlot: bigint
 ): ProtectedRoundRange {
-  const now = Math.floor(Date.now() / 1000);
-  const pauseEndsAt = Number(slashingDisabledUntil);
-  const secondsUntilPauseEnds = Math.max(0, pauseEndsAt - now);
-  const slotsUntilPauseEnds = Math.floor(secondsUntilPauseEnds / config.slotDuration);
-  const slotWhenPauseEnds = currentSlot + BigInt(slotsUntilPauseEnds);
-
   const roundSize = BigInt(config.slashingRoundSize);
-  const pauseDurationInSlots = BigInt(Math.floor(Number(slashingDisableDuration) / config.slotDuration));
-  const slotWhenPauseStarted = slotWhenPauseEnds - pauseDurationInSlots;
-
-  const executionDelay = BigInt(config.executionDelayInRounds);
   const lifetime = BigInt(config.lifetimeInRounds);
 
-  const roundWhenPauseEnds = slotWhenPauseEnds / roundSize;
-  const roundWhenPauseStarted = slotWhenPauseStarted / roundSize;
+  const roundWhenPauseEnds = pauseEndsAtSlot / roundSize;
+  const roundWhenPauseStarted = pauseStartedAtSlot / roundSize;
 
-  // First protected round: becomes executable when pause starts
-  const firstProtectedRound = roundWhenPauseStarted - executionDelay;
-
-  // Last protected round: expires before pause ends
+  // Protected rounds are live when the pause begins and expire no later than it ends.
+  const firstCandidateRound = roundWhenPauseStarted - lifetime;
   const lastProtectedRound = roundWhenPauseEnds - lifetime - 1n;
+  const minimumVotingRound = BigInt(config.slashOffsetInRounds);
+  const firstProtectedRound = firstCandidateRound > minimumVotingRound
+    ? firstCandidateRound
+    : minimumVotingRound;
+  const hasProtectedRounds = firstProtectedRound <= lastProtectedRound;
 
   // Convert to target epochs for display purposes
   const slashOffset = BigInt(config.slashOffsetInRounds);
   const roundSizeInEpochs = BigInt(config.slashingRoundSizeInEpochs);
-  const firstProtectedEpoch = (firstProtectedRound - slashOffset) * roundSizeInEpochs;
-  const lastProtectedEpoch = (lastProtectedRound - slashOffset + 1n) * roundSizeInEpochs - 1n;
+  const firstProtectedEpoch = hasProtectedRounds
+    ? (firstProtectedRound - slashOffset) * roundSizeInEpochs
+    : 0n;
+  const lastProtectedEpoch = hasProtectedRounds
+    ? (lastProtectedRound - slashOffset + 1n) * roundSizeInEpochs - 1n
+    : 0n;
 
   return {
+    hasProtectedRounds,
     firstProtectedRound,
     lastProtectedRound,
-    slotWhenPauseEnds,
-    slotWhenPauseStarted,
+    slotWhenPauseEnds: pauseEndsAtSlot,
+    slotWhenPauseStarted: pauseStartedAtSlot,
     roundWhenPauseEnds,
     roundWhenPauseStarted,
     firstProtectedEpoch,
@@ -69,44 +67,25 @@ export function calculateProtectedRoundRange(
 
 /**
  * Determines if a specific round is protected by the global pause.
- * A round is protected if it expires before the pause ends AND
+ * A round is protected if it expires no later than the pause ends AND
  * is within the protected round range.
  */
 export function isRoundProtectedByPause(
   round: bigint,
-  config: ResolvedMonitorConfig,
-  currentSlot: bigint,
+  config: SlashingLifecycleConfig,
   isSlashingEnabled: boolean,
-  slashingDisabledUntil: bigint | null,
-  slashingDisableDuration: bigint | null
+  pauseStartedAtSlot: bigint | null,
+  pauseEndsAtSlot: bigint | null
 ): boolean {
-  // No protection if slashing is enabled or pause parameters are missing
-  if (isSlashingEnabled || !slashingDisabledUntil || !slashingDisableDuration || !currentSlot) {
+  if (isSlashingEnabled || pauseStartedAtSlot === null || pauseEndsAtSlot === null) {
     return false;
   }
 
-  const now = Math.floor(Date.now() / 1000);
-  const pauseEndsAt = Number(slashingDisabledUntil);
-  const secondsUntilPauseEnds = Math.max(0, pauseEndsAt - now);
-  const slotsUntilPauseEnds = Math.floor(secondsUntilPauseEnds / config.slotDuration);
-  const slotWhenPauseEnds = currentSlot + BigInt(slotsUntilPauseEnds);
-
-  // Check if this round expires before the pause ends
-  const roundSize = BigInt(config.slashingRoundSize);
-  const lifetime = BigInt(config.lifetimeInRounds);
-  const roundExpiresAtSlot = (round + 1n + lifetime) * roundSize;
-
-  if (roundExpiresAtSlot > slotWhenPauseEnds) {
-    return false; // Round expires after pause, so NOT protected
+  if (round < BigInt(config.slashOffsetInRounds)) {
+    return false;
   }
 
-  // Calculate the protected round range
-  const { firstProtectedRound, lastProtectedRound } = calculateProtectedRoundRange(
-    config,
-    currentSlot,
-    slashingDisabledUntil,
-    slashingDisableDuration
-  );
+  const roundExpiresAtSlot = calculateExpirySlot(round, config);
 
-  return round >= firstProtectedRound && round <= lastProtectedRound;
+  return roundExpiresAtSlot > pauseStartedAtSlot && roundExpiresAtSlot <= pauseEndsAtSlot;
 }

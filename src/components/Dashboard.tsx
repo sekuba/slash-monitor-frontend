@@ -5,10 +5,10 @@ import { StatsPanel } from './StatsPanel';
 import { Header } from './Header';
 import { SlashingTimeline } from './SlashingTimeline';
 import { DebugView } from './DebugView';
-import { BootstrapBanner } from './BootstrapBanner';
 import { SlashingHelpModal } from './SlashingHelpModal';
-import { collectTargetedSequencers, deriveRoundPresentation, isActionableStatus } from '@/lib/utils';
+import { collectTargetedSequencers, deriveRoundPresentation } from '@/lib/utils';
 import { requestNotificationPermission, areNotificationsEnabled } from '@/lib/notifications';
+import { clearCustomRpcUrl, reloadApp } from '@/lib/rpcOverride';
 
 interface DashboardProps {
     network: 'mainnet' | 'testnet';
@@ -16,7 +16,7 @@ interface DashboardProps {
 }
 
 export function Dashboard({ network, onToggleNetwork }: DashboardProps) {
-    const { detectedSlashings, isInitialized, isScanning, currentRound, config, currentSlot, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, audit } = useSlashingStore();
+    const { detectedSlashings, isInitialized, initializationError, isScanning, currentRound, config, isSlashingEnabled, pauseStartedAtSlot, pauseEndsAtSlot, audit } = useSlashingStore();
     const [showNotificationBanner, setShowNotificationBanner] = useState(false);
     const [isRequestingNotifications, setIsRequestingNotifications] = useState(false);
     const [showDebugView, setShowDebugView] = useState(false);
@@ -29,13 +29,12 @@ export function Dashboard({ network, onToggleNetwork }: DashboardProps) {
             slashing,
             display: deriveRoundPresentation(slashing, {
                 config,
-                currentSlot,
                 isSlashingEnabled,
-                slashingDisabledUntil,
-                slashingDisableDuration,
+                pauseStartedAtSlot,
+                pauseEndsAtSlot,
             }),
         };
-    }), [slashings, config, currentSlot, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration]);
+    }), [slashings, config, isSlashingEnabled, pauseStartedAtSlot, pauseEndsAtSlot]);
     const activeSlashings = useMemo(() => slashingStates
         .filter(({ display, slashing }) => display.isActionable && slashing.round !== currentRound)
         .map(({ slashing }) => slashing)
@@ -46,15 +45,17 @@ export function Dashboard({ network, onToggleNetwork }: DashboardProps) {
     const sequencerOccurrences = useMemo(() => {
         const counts = new Map<string, number>();
         slashings.forEach((slashing) => {
-            slashing.slashActions?.forEach((action) => {
-                const key = action.validator.toLowerCase();
+            const validatorsInRound = new Set(
+                slashing.slashActions?.map((action) => action.validator.toLowerCase()) ?? []
+            );
+            validatorsInRound.forEach((key) => {
                 counts.set(key, (counts.get(key) ?? 0) + 1);
             });
         });
         return counts;
     }, [slashings]);
     const targetedSequencers = useMemo(() => collectTargetedSequencers(slashingStates
-        .filter(({ display, slashing }) => isActionableStatus(display.status) && slashing.slashActions && slashing.slashActions.length > 0)
+        .filter(({ display, slashing }) => display.isActionable && slashing.slashActions && slashing.slashActions.length > 0)
         .map(({ slashing }) => slashing)), [slashingStates]);
 
     useEffect(() => {
@@ -78,6 +79,25 @@ export function Dashboard({ network, onToggleNetwork }: DashboardProps) {
         }
     };
     if (!isInitialized) {
+        if (initializationError) {
+            return (<div className="min-h-screen flex items-center justify-center px-4">
+        <div className="max-w-2xl bg-oxblood border-5 border-vermillion p-8 shadow-brutal-vermillion">
+          <h1 className="text-vermillion text-2xl font-black uppercase mb-4">Monitor unavailable</h1>
+          <p className="text-whisper-white font-bold break-words">{initializationError}</p>
+          <p className="text-whisper-white/70 text-sm font-bold mt-4">The monitor will retry automatically. No slashing status is being asserted.</p>
+          <button
+            onClick={() => {
+              clearCustomRpcUrl(network === 'testnet' ? 11155111 : 1);
+              reloadApp();
+            }}
+            className="mt-6 px-5 py-3 bg-vermillion text-brand-black border-3 border-brand-black font-black uppercase shadow-brutal"
+          >
+            Reset custom RPC
+          </button>
+        </div>
+      </div>);
+        }
+
         return (<div className="min-h-screen flex items-center justify-center">
         <div className="text-center bg-brand-black border-5 border-chartreuse p-8 shadow-brutal-chartreuse">
           <div className="animate-spin h-16 w-16 border-5 border-chartreuse border-t-transparent mx-auto mb-4"></div>
@@ -104,7 +124,7 @@ export function Dashboard({ network, onToggleNetwork }: DashboardProps) {
           }`}
           title={showDebugView ? 'Hide Debug View' : 'Show Debug View'}
         >
-          {audit.status === 'partial' && !showDebugView && (
+          {audit.status !== 'ok' && !showDebugView && (
             <span className="absolute -top-3 -left-3 bg-vermillion border-3 border-brand-black p-1 shadow-brutal" aria-hidden="true">
               <svg className="w-4 h-4 text-brand-black stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 9v2m0 4h.01m-7 5h14L12 3 5 20z"/>
@@ -131,6 +151,22 @@ export function Dashboard({ network, onToggleNetwork }: DashboardProps) {
 
       <main className="max-w-7xl mx-auto px-4 py-8">
 
+        {audit.status !== 'ok' && (
+          <div className={`${audit.status === 'stale' || audit.status === 'fatal' ? 'bg-oxblood border-vermillion shadow-brutal-vermillion' : 'bg-aubergine border-orchid shadow-brutal-orchid'} border-5 p-5 mb-6`}>
+            <h2 className={`${audit.status === 'stale' || audit.status === 'fatal' ? 'text-vermillion' : 'text-orchid'} text-xl font-black uppercase mb-2`}>
+              {audit.status === 'stale' || audit.status === 'fatal' ? 'Monitor data may be stale' : 'Monitor coverage is partial'}
+            </h2>
+            <p className="text-whisper-white text-sm font-bold">
+              {audit.issues[0]?.message ?? 'The latest scan could not be fully verified.'}
+            </p>
+            {audit.lastSuccessfulAt !== null && (
+              <p className="text-whisper-white/70 text-xs font-bold mt-2">
+                Last verified scan: {new Date(audit.lastSuccessfulAt).toLocaleString()}
+              </p>
+            )}
+          </div>
+        )}
+
         {showDebugView ? (
           <DebugView />
         ) : (
@@ -140,8 +176,6 @@ export function Dashboard({ network, onToggleNetwork }: DashboardProps) {
         
         
 
-        {/* Bootstrap Banner */}
-        <BootstrapBanner />
         <SlashingTimeline onOpenHelp={() => setShowSlashingHelpModal(true)} />
 
         {showNotificationBanner && !areNotificationsEnabled() && (<div className="bg-lapis border-5 border-aqua p-6 mb-6 shadow-brutal-aqua">

@@ -50,7 +50,7 @@ export type MulticallResult<T = any> =
         error: Error;
     };
 
-export async function multicall<T extends readonly Call[]>(client: PublicClient, calls: T): Promise<{
+export async function multicall<T extends readonly Call[]>(client: PublicClient, calls: T, blockNumber?: bigint): Promise<{
     [K in keyof T]: MulticallResult;
 }> {
     const preparedCalls = calls.map((call) => {
@@ -70,7 +70,7 @@ export async function multicall<T extends readonly Call[]>(client: PublicClient,
     const results: MulticallResult[] = [];
 
     for (const chunk of chunks) {
-        results.push(...await runChunk(client, chunk));
+        results.push(...await runChunk(client, chunk, blockNumber));
     }
 
     return results as {
@@ -80,7 +80,8 @@ export async function multicall<T extends readonly Call[]>(client: PublicClient,
 
 async function runChunk(
     client: PublicClient,
-    calls: Array<Call & { callData: `0x${string}`; estimatedBytes: number }>
+    calls: Array<Call & { callData: `0x${string}`; estimatedBytes: number }>,
+    blockNumber?: bigint
 ): Promise<MulticallResult[]> {
     try {
         const response = (await client.readContract({
@@ -92,6 +93,7 @@ async function runChunk(
                 allowFailure: true,
                 callData: call.callData,
             }))],
+            blockNumber,
         })) as {
             success: boolean;
             returnData: `0x${string}`;
@@ -108,8 +110,8 @@ async function runChunk(
         }
 
         const midpoint = Math.ceil(calls.length / 2);
-        const left = await runChunk(client, calls.slice(0, midpoint));
-        const right = await runChunk(client, calls.slice(midpoint));
+        const left = await runChunk(client, calls.slice(0, midpoint), blockNumber);
+        const right = await runChunk(client, calls.slice(midpoint), blockNumber);
         return [...left, ...right];
     }
 }

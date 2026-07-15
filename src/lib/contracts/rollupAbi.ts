@@ -1,6 +1,40 @@
 export const rollupAbi = [
     {
         type: 'function',
+        name: 'getVersion',
+        stateMutability: 'view',
+        inputs: [],
+        outputs: [{ name: '', type: 'uint256' }],
+    },
+    {
+        type: 'function',
+        name: 'getSlasher',
+        stateMutability: 'view',
+        inputs: [],
+        outputs: [{ name: '', type: 'address' }],
+    },
+    {
+        type: 'function',
+        name: 'getPendingSlasher',
+        stateMutability: 'view',
+        inputs: [],
+        outputs: [
+            { name: 'slasher', type: 'address' },
+            { name: 'readyAt', type: 'uint256' },
+        ],
+    },
+    {
+        type: 'function',
+        name: 'getLegacySlasher',
+        stateMutability: 'view',
+        inputs: [],
+        outputs: [
+            { name: 'slasher', type: 'address' },
+            { name: 'authorizedUntil', type: 'uint256' },
+        ],
+    },
+    {
+        type: 'function',
         name: 'getCurrentSlot',
         stateMutability: 'view',
         inputs: [],
@@ -15,6 +49,13 @@ export const rollupAbi = [
     },
     {
         type: 'function',
+        name: 'getSlotAt',
+        stateMutability: 'view',
+        inputs: [{ name: '_timestamp', type: 'uint256' }],
+        outputs: [{ name: '', type: 'uint256' }],
+    },
+    {
+        type: 'function',
         name: 'getEpochDuration',
         stateMutability: 'view',
         inputs: [],
@@ -23,20 +64,6 @@ export const rollupAbi = [
     {
         type: 'function',
         name: 'getSlotDuration',
-        stateMutability: 'view',
-        inputs: [],
-        outputs: [{ name: '', type: 'uint256' }],
-    },
-    {
-        type: 'function',
-        name: 'getActiveAttesterCount',
-        stateMutability: 'view',
-        inputs: [],
-        outputs: [{ name: '', type: 'uint256' }],
-    },
-    {
-        type: 'function',
-        name: 'getEntryQueueLength',
         stateMutability: 'view',
         inputs: [],
         outputs: [{ name: '', type: 'uint256' }],

@@ -1,13 +1,14 @@
 import { useSlashingStore } from '@/store/slashingStore';
 import { formatTimeRemaining } from '@/lib/utils';
 import { calculateProtectedRoundRange } from '@/lib/pauseProtection';
+import { calculateExecutableSlot } from '@/lib/slashingLifecycle';
 
 interface SlashingTimelineProps {
     onOpenHelp: () => void;
 }
 
 export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
-    const { config, currentRound, currentSlot, currentEpoch, detectedSlashings, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration } = useSlashingStore();
+    const { config, currentRound, currentSlot, currentEpoch, detectedSlashings, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, pauseStartedAtSlot, pauseEndsAtSlot } = useSlashingStore();
 
     if (!config) {
         return null;
@@ -16,12 +17,11 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
     // Calculate current round boundaries
     const roundSize = BigInt(config.slashingRoundSize);
     const roundSizeInEpochs = BigInt(config.slashingRoundSizeInEpochs);
-    const executionDelay = BigInt(config.executionDelayInRounds);
     const slashOffset = BigInt(config.slashOffsetInRounds);
 
     const roundStartSlot = currentRound * roundSize;
     const roundEndSlot = (currentRound + 1n) * roundSize - 1n;
-    const executableAtSlot = (currentRound + 1n + executionDelay) * roundSize;
+    const executableAtSlot = calculateExecutableSlot(currentRound, config);
 
     // Calculate target epochs (what we're voting on)
     const targetRound = currentRound - slashOffset;
@@ -35,25 +35,21 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
 
     // Get voting data
     const currentRoundSlashing = detectedSlashings.get(currentRound);
-    const voteCount = currentRoundSlashing?.voteCount.toString() ?? '0';
+    const ballotCount = currentRoundSlashing?.ballotCount.toString() ?? '0';
     const quorum = config.quorum;
-    const hasReachedQuorum = currentRoundSlashing !== undefined && currentRoundSlashing.voteCount >= BigInt(quorum);
+    const targetsAtQuorum = currentRoundSlashing?.affectedValidatorCount ?? 0;
+    const hasReachedQuorum = targetsAtQuorum > 0;
 
     // Calculate progress
     const totalSlots = Number(roundEndSlot - roundStartSlot + 1n);
-    const slotsElapsed = Number(currentSlot - roundStartSlot);
+    const slotsElapsed = Math.min(totalSlots, Math.max(0, Number(currentSlot - roundStartSlot + 1n)));
     const progressPercent = Math.min(100, Math.round((slotsElapsed / totalSlots) * 100));
 
     // Calculate voting metrics
     const slotsLeft = Math.max(0, Number(roundEndSlot - currentSlot + 1n));
-    const numVotes = Number(currentRoundSlashing?.voteCount ?? 0n);
-    // Conviction: percentage of elapsed slots that voted to slash
-    const conviction = slotsElapsed > 0 ? Math.round((numVotes / slotsElapsed) * 100) : 0;
-
-    // Determine if quorum is still achievable and has momentum
-    const canReachQuorum = numVotes + slotsLeft >= quorum;
-    const hasMinimumMomentum = numVotes >= quorum * 0.2;
-    const isQuorumViable = canReachQuorum && hasMinimumMomentum;
+    const numBallots = Number(currentRoundSlashing?.ballotCount ?? 0n);
+    const ballotParticipation = slotsElapsed > 0 ? Math.round((numBallots / slotsElapsed) * 100) : 0;
+    const canStillReachQuorum = numBallots + slotsLeft >= quorum;
 
     // Calculate time remaining
     const slotsRemaining = Number(roundEndSlot - currentSlot);
@@ -116,7 +112,7 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
             </div>
             <p className="text-sm font-bold text-whisper-white mb-3">
               Sequencers vote on slashing offenses from round {targetRound.toString()} ({timeAgo} ago)
-              <br></br>For each slot, its proposer can vote to slash the target round's offenders
+              <br></br>Each slot proposer submits one ballot that votes separately on every potential offender
             </p>
           </div>
           <div className="text-right shrink-0">
@@ -145,24 +141,26 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
 
         {/* Voting Metrics Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-          <div className={`bg-brand-black border-3 px-3 py-2 ${isQuorumViable ? 'border-vermillion' : 'border-aqua'}`}>
-            <div className={`text-xs font-black uppercase mb-1 ${isQuorumViable ? 'text-vermillion' : 'text-aqua'}`}>Votes to Slash</div>
+          <div className={`bg-brand-black border-3 px-3 py-2 ${hasReachedQuorum ? 'border-vermillion' : 'border-aqua'}`}>
+            <div className={`text-xs font-black uppercase mb-1 ${hasReachedQuorum ? 'text-vermillion' : 'text-aqua'}`}>Ballots Cast</div>
             <div className="text-whisper-white text-sm font-bold">
-              {voteCount}/{quorum}
-              {hasReachedQuorum && <span className="ml-2 text-chartreuse">✓ QUORUM</span>}
+              {ballotCount}
+              {hasReachedQuorum && <span className="ml-2 text-chartreuse">✓ {targetsAtQuorum} TARGET{targetsAtQuorum === 1 ? '' : 'S'} AT QUORUM</span>}
             </div>
+            <div className="mt-1 text-xs font-bold text-whisper-white/70">{quorum} matching ballots required per validator</div>
           </div>
-          <div className={`bg-brand-black border-3 px-3 py-2 ${isQuorumViable ? 'border-vermillion' : 'border-aqua'}`}>
-            <div className={`text-xs font-black uppercase mb-1 ${isQuorumViable ? 'text-vermillion' : 'text-aqua'}`}>Slots Left</div>
+          <div className={`bg-brand-black border-3 px-3 py-2 ${hasReachedQuorum ? 'border-vermillion' : 'border-aqua'}`}>
+            <div className={`text-xs font-black uppercase mb-1 ${hasReachedQuorum ? 'text-vermillion' : 'text-aqua'}`}>Slots Left</div>
             <div className="text-whisper-white text-sm font-bold">
               {slotsLeft} slot{slotsLeft !== 1 ? 's' : ''}
             </div>
+            {!hasReachedQuorum && !canStillReachQuorum && <div className="mt-1 text-xs font-bold text-whisper-white/70">No target can newly reach quorum</div>}
           </div>
-          <div className={`bg-brand-black border-3 px-3 py-2 ${isQuorumViable ? 'border-vermillion' : 'border-aqua'}`}>
-            <div className={`text-xs font-black uppercase mb-1 ${isQuorumViable ? 'text-vermillion' : 'text-aqua'}`}>Conviction</div>
+          <div className={`bg-brand-black border-3 px-3 py-2 ${hasReachedQuorum ? 'border-vermillion' : 'border-aqua'}`}>
+            <div className={`text-xs font-black uppercase mb-1 ${hasReachedQuorum ? 'text-vermillion' : 'text-aqua'}`}>Ballot Participation</div>
             <div className="text-whisper-white text-sm font-bold">
-              {conviction}%
-              <span className="ml-2 text-whisper-white/70 text-xs">({numVotes}/{slotsElapsed})</span>
+              {ballotParticipation}%
+              <span className="ml-2 text-whisper-white/70 text-xs">({numBallots}/{slotsElapsed})</span>
             </div>
           </div>
         </div>
@@ -208,16 +206,17 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
       </div>
 
       {/* Global Pause Section */}
-      {!isSlashingEnabled && slashingDisabledUntil !== null && slashingDisabledUntil > 0n && slashingDisableDuration !== null && (() => {
+      {!isSlashingEnabled && slashingDisabledUntil > 0n && pauseStartedAtSlot !== null && pauseEndsAtSlot !== null && (() => {
             // Timing calculations
             const now = Math.floor(Date.now() / 1000);
             const pauseEndsAt = Number(slashingDisabledUntil);
             const pauseStartedAt = pauseEndsAt - Number(slashingDisableDuration);
             const secondsUntilPauseEnds = Math.max(0, pauseEndsAt - now);
-            const slotsUntilPauseEnds = Math.floor(secondsUntilPauseEnds / config.slotDuration);
+            const slotsUntilPauseEnds = Number(pauseEndsAtSlot > currentSlot ? pauseEndsAtSlot - currentSlot : 0n);
 
             // Calculate protected round range using shared utility
             const {
+              hasProtectedRounds,
               firstProtectedRound,
               lastProtectedRound,
               slotWhenPauseEnds,
@@ -226,7 +225,7 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
               roundWhenPauseStarted,
               firstProtectedEpoch,
               lastProtectedEpoch,
-            } = calculateProtectedRoundRange(config, currentSlot, slashingDisabledUntil, slashingDisableDuration);
+            } = calculateProtectedRoundRange(config, pauseStartedAtSlot, pauseEndsAtSlot);
 
             // Calculate timing values for display
             const roundSize = BigInt(config.slashingRoundSize);
@@ -317,11 +316,15 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
               <div className="text-brand-black text-sm font-black uppercase mb-3 tracking-wider">Total Protected Range</div>
               <div className="space-y-2">
                 <div className="text-brand-black text-2xl font-black">
-                  Rounds {firstProtectedRound > 0n ? firstProtectedRound.toString() : '0'} → {lastProtectedRound.toString()}
+                  {hasProtectedRounds
+                    ? `Rounds ${firstProtectedRound > 0n ? firstProtectedRound.toString() : '0'} → ${lastProtectedRound.toString()}`
+                    : 'No rounds expire during this pause'}
                 </div>
-                <div className="text-brand-black text-2xl font-black">
-                  Epochs {firstProtectedEpoch > 0n ? firstProtectedEpoch.toString() : '0'} → {lastProtectedEpoch.toString()}
-                </div>
+                {hasProtectedRounds && (
+                  <div className="text-brand-black text-2xl font-black">
+                    Epochs {firstProtectedEpoch > 0n ? firstProtectedEpoch.toString() : '0'} → {lastProtectedEpoch.toString()}
+                  </div>
+                )}
               </div>
             </div>
           </div>);

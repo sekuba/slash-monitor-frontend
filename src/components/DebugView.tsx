@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { useSlashingStore } from '../store/slashingStore';
 import { formatEther } from 'viem';
-import { clearCustomRpcUrl, getCustomRpcUrl, reloadApp } from '@/lib/cacheManager';
+import { clearCustomRpcUrl, getCustomRpcUrl, reloadApp } from '@/lib/rpcOverride';
 
 export const DebugView: React.FC = () => {
   const [customRpcUrl, setCustomRpcUrl] = useState<string>('');
-  const { config, currentRound, currentSlot, currentEpoch, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, activeAttesterCount, entryQueueLength, stats, audit, updateRpcUrl } = useSlashingStore();
-  const customRpcOverride = getCustomRpcUrl();
+  const { config, l1BlockNumber, l1Timestamp, currentRound, currentSlot, currentEpoch, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, stats, audit, updateRpcUrl } = useSlashingStore();
+  const customRpcOverride = config ? getCustomRpcUrl(config.chainId) : null;
 
   const handleRpcUrlChange = () => {
     if (!customRpcUrl.trim()) {
@@ -17,7 +17,10 @@ export const DebugView: React.FC = () => {
   };
 
   const handleResetRpcUrl = () => {
-    clearCustomRpcUrl();
+    if (!config) {
+      return;
+    }
+    clearCustomRpcUrl(config.chainId);
     reloadApp();
   };
 
@@ -54,17 +57,16 @@ export const DebugView: React.FC = () => {
           Contract Parameters
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <ConfigItem label="TallyProposer.QUORUM()" value={config.quorum?.toString() || 'Not loaded'} />
-          <ConfigItem label="TallyProposer.ROUND_SIZE()" value={config.slashingRoundSize?.toString() || 'Not loaded'} />
-          <ConfigItem label="TallyProposer.ROUND_SIZE_IN_EPOCHS()" value={config.slashingRoundSizeInEpochs?.toString() || 'Not loaded'} />
-          <ConfigItem label="TallyProposer.EXECUTION_DELAY_IN_ROUNDS()" value={config.executionDelayInRounds?.toString() || 'Not loaded'} />
-          <ConfigItem label="TallyProposer.LIFETIME_IN_ROUNDS()" value={config.lifetimeInRounds?.toString() || 'Not loaded'} />
-          <ConfigItem label="TallyProposer.SLASH_OFFSET_IN_ROUNDS()" value={config.slashOffsetInRounds?.toString() || 'Not loaded'} />
-          <ConfigItem label="TallyProposer.COMMITTEE_SIZE()" value={config.committeeSize?.toString() || 'Not loaded'} />
+          <ConfigItem label="SlashingProposer.QUORUM()" value={config.quorum?.toString() || 'Not loaded'} />
+          <ConfigItem label="SlashingProposer.ROUND_SIZE()" value={config.slashingRoundSize?.toString() || 'Not loaded'} />
+          <ConfigItem label="SlashingProposer.ROUND_SIZE_IN_EPOCHS()" value={config.slashingRoundSizeInEpochs?.toString() || 'Not loaded'} />
+          <ConfigItem label="SlashingProposer.EXECUTION_DELAY_IN_ROUNDS()" value={config.executionDelayInRounds?.toString() || 'Not loaded'} />
+          <ConfigItem label="SlashingProposer.LIFETIME_IN_ROUNDS()" value={config.lifetimeInRounds?.toString() || 'Not loaded'} />
+          <ConfigItem label="SlashingProposer.SLASH_OFFSET_IN_ROUNDS()" value={config.slashOffsetInRounds?.toString() || 'Not loaded'} />
+          <ConfigItem label="SlashingProposer.COMMITTEE_SIZE()" value={config.committeeSize?.toString() || 'Not loaded'} />
           <ConfigItem label="Rollup.getSlotDuration()" value={config.slotDuration ? `${config.slotDuration}s` : 'Not loaded'} />
           <ConfigItem label="Rollup.getEpochDuration()" value={config.epochDuration ? `${config.epochDuration}slots` : 'Not loaded'} />
           <ConfigItem label="Slasher.SLASHING_DISABLE_DURATION()" value={slashingDisableDuration ? `${slashingDisableDuration}s` : 'Not loaded'} />
-          <ConfigItem label="Monitor.LOOKBACK_ROUNDS" value={config.lookbackRounds?.toString() || '0 (disabled)'} />
         </div>
       </section>
 
@@ -77,7 +79,9 @@ export const DebugView: React.FC = () => {
           Current Chain State
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StateCard label="TallyProposer.getCurrentRound()" value={currentRound?.toString() || 'Not loaded'} />
+          <StateCard label="SlashingProposer.getCurrentRound()" value={currentRound?.toString() || 'Not loaded'} />
+          <StateCard label="L1 Snapshot Block" value={l1BlockNumber?.toString() || 'Not loaded'} />
+          <StateCard label="L1 Snapshot Time" value={l1Timestamp ? new Date(Number(l1Timestamp) * 1000).toLocaleString() : 'Not loaded'} />
           <StateCard label="Rollup.getCurrentSlot()" value={currentSlot?.toString() || 'Not loaded'} />
           <StateCard label="Rollup.getCurrentEpoch()" value={currentEpoch?.toString() || 'Not loaded'} />
           <StateCard
@@ -89,15 +93,6 @@ export const DebugView: React.FC = () => {
             label="Slasher.slashingDisabledUntil()"
             value={slashingDisabledUntil ? new Date(Number(slashingDisabledUntil) * 1000).toLocaleString() : 'N/A'}
             wide
-          />
-          <StateCard
-            label="Rollup.getActiveAttesterCount()"
-            value={activeAttesterCount?.toString() || 'Not loaded'}
-            highlight={activeAttesterCount === 0n}
-          />
-          <StateCard
-            label="Rollup.getEntryQueueLength()"
-            value={entryQueueLength?.toString() || 'Not loaded'}
           />
         </div>
       </section>
@@ -112,8 +107,19 @@ export const DebugView: React.FC = () => {
         <div className="space-y-3">
           <StateCard
             label="Latest Scan"
-            value={audit.status === 'ok' ? 'FULLY VERIFIED' : 'PARTIAL'}
+            value={{
+              ok: 'FULLY VERIFIED',
+              partial: 'PARTIAL COVERAGE',
+              stale: 'STALE',
+              fatal: 'UNAVAILABLE',
+            }[audit.status]}
             highlight={audit.status === 'ok'}
+            wide
+          />
+          <StateCard
+            label="Last Verified Scan"
+            value={audit.lastSuccessfulAt === null ? 'Never' : new Date(audit.lastSuccessfulAt).toLocaleString()}
+            highlight={audit.lastSuccessfulAt !== null}
             wide
           />
           {audit.issues.length > 0 && (
@@ -186,7 +192,7 @@ export const DebugView: React.FC = () => {
         </div>
       </section>
 
-      {/* Cache Management */}
+      {/* App reload */}
       <section className="bg-oxblood border-5 border-vermillion p-6 shadow-brutal-vermillion">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -241,14 +247,19 @@ export const DebugView: React.FC = () => {
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <ConfigItem label="L1 RPC URL" value={Array.isArray(config.l1RpcUrl) ? config.l1RpcUrl.join(', ') : config.l1RpcUrl} />
-          <ConfigItem label="Tally Proposer Address" value={config.tallySlashingProposerAddress} copyable />
-          <ConfigItem label="Slasher Address" value={config.slasherAddress} copyable />
+          <ConfigItem label="Registry Address" value={config.registryAddress} copyable />
           <ConfigItem label="Rollup Address" value={config.rollupAddress} copyable />
-          <ConfigItem label="L2 Poll Interval" value={`${config.l2PollInterval}ms`} />
+          <ConfigItem label="Rollup Version" value={config.rollupVersion.toString()} />
+          <ConfigItem label="Slasher Address" value={config.slasherAddress} copyable />
+          <ConfigItem label="Slashing Proposer Address" value={config.slashingProposerAddress} copyable />
+          <ConfigItem label="Pending Slasher" value={config.pendingSlasherAddress} copyable />
+          <ConfigItem label="Pending Slashing Proposer" value={config.pendingSlashingProposerAddress} copyable />
+          <ConfigItem label="Pending Slasher Ready At" value={config.pendingSlasherReadyAt === 0n ? 'None' : new Date(Number(config.pendingSlasherReadyAt) * 1000).toISOString()} />
+          <ConfigItem label="Legacy Slasher" value={config.legacySlasherAddress} copyable />
+          <ConfigItem label="Legacy Slashing Proposer" value={config.legacySlashingProposerAddress} copyable />
+          <ConfigItem label="Legacy Authorized Until" value={config.legacySlasherAuthorizedUntil === 0n ? 'None' : new Date(Number(config.legacySlasherAuthorizedUntil) * 1000).toISOString()} />
+          <ConfigItem label="Poll Interval" value={`${config.pollInterval}ms`} />
           <ConfigItem label="Countdown Interval" value={`${config.realtimeCountdownInterval}ms`} />
-          <ConfigItem label="Round Cache TTL" value={`${config.l1RoundCacheTTL}ms`} />
-          <ConfigItem label="Details Cache TTL" value={`${config.detailsCacheTTL}ms`} />
-          <ConfigItem label="Lookback Rounds" value={config.lookbackRounds?.toString() || '0 (disabled)'} />
         </div>
       </section>
     </div>

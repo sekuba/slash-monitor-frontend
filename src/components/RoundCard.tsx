@@ -10,14 +10,13 @@ interface RoundCardProps {
 export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
     const [isExpanded, setIsExpanded] = useState(false);
     const [currentTime, setCurrentTime] = useState<number | null>(null);
-    const { config, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, currentSlot } = useSlashingStore();
+    const { config, isSlashingEnabled, pauseStartedAtSlot, pauseEndsAtSlot } = useSlashingStore();
 
     const displayState = deriveRoundPresentation(slashing, {
         config,
-        currentSlot,
         isSlashingEnabled,
-        slashingDisabledUntil,
-        slashingDisableDuration,
+        pauseStartedAtSlot,
+        pauseEndsAtSlot,
         now: currentTime ?? undefined,
     });
     const isProtected = displayState.isProtected;
@@ -39,7 +38,7 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
             return 'aqua';
         if (displayStatus === 'quorum-reached')
             return 'chartreuse';
-        if (displayStatus === 'in-veto-window' || displayStatus === 'executable')
+        if (displayStatus === 'newly-executable' || displayStatus === 'executable')
             return 'vermillion';
         return 'default';
     };
@@ -118,7 +117,7 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
                 !isProtected &&
                 displayStatus === 'quorum-reached' &&
                 displayState.secondsUntilExecutable !== undefined;
-            const showExpirationTimer = (displayStatus === 'in-veto-window' ||
+            const showExpirationTimer = (displayStatus === 'newly-executable' ||
                 displayStatus === 'executable' ||
                 displayStatus === 'vetoed' ||
                 displayStatus === 'expired' ||
@@ -248,10 +247,11 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
           
           <div className="grid grid-cols-2 gap-4 text-sm pt-4 border-t-3 border-brand-black">
             <div className="bg-aubergine border-3 border-orchid px-4 py-3">
-              <div className="text-orchid font-black uppercase text-xs mb-1">Vote Count</div>
+              <div className="text-orchid font-black uppercase text-xs mb-1">Ballots Cast</div>
               <div className="text-whisper-white font-black text-xl">
-                {slashing.voteCount.toString()}{config ? `/${config.quorum}` : ''}
+                {slashing.ballotCount.toString()}
               </div>
+              {config && <div className="text-whisper-white/70 font-bold text-xs mt-1">{config.quorum} matching required per validator</div>}
             </div>
             {slashing.slotWhenExecutable !== undefined && (<div className="bg-lapis border-3 border-aqua px-4 py-3">
                 <div className="text-aqua font-black uppercase text-xs mb-1">Executable Slot</div>

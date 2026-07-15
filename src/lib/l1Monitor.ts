@@ -1,106 +1,119 @@
 import { createPublicClient, type Address, type PublicClient } from 'viem';
-import type { CurrentChainState, MonitorConfigInput, RoundInfo, SlashAction, SlashingContractParameters } from '@/types/slashing';
-import { tallySlashingProposerAbi } from './contracts/tallySlashingProposerAbi';
+import type { CurrentChainState, RoundInfo, RuntimeMonitorConfig, SlashAction, SlashingContractParameters } from '@/types/slashing';
+import { slashingProposerAbi } from './contracts/slashingProposerAbi';
 import { rollupAbi } from './contracts/rollupAbi';
 import { slasherAbi } from './contracts/slasherAbi';
-import { ImmutableAwareCache } from './immutableCache';
+import { assertFreshL1Head, deploymentsMatch, resolveDeploymentWithClient } from './deployment';
 import { createCall, multicall, type MulticallResult } from './multicall';
 import { createPublicRpcTransport } from './rpc';
 
-const MAX_ROUND_CACHE_SIZE = 100;
-
 export class L1Monitor {
     private readonly publicClient: PublicClient;
-    private readonly config: MonitorConfigInput;
-    private readonly roundCache: ImmutableAwareCache<bigint, RoundInfo>;
-    private readonly mutableTTL: number;
+    private readonly config: RuntimeMonitorConfig;
+    private snapshotBlockNumber?: bigint;
+    private snapshotTimestamp?: bigint;
 
-    constructor(config: MonitorConfigInput) {
+    constructor(config: RuntimeMonitorConfig) {
         this.config = config;
-        this.mutableTTL = config.l1RoundCacheTTL;
-        this.roundCache = new ImmutableAwareCache(
-            (round) => round.toString(),
-            (roundInfo) => roundInfo.isExecuted,
-            { maxMutableSize: MAX_ROUND_CACHE_SIZE }
-        );
         this.publicClient = createPublicClient({
             transport: createPublicRpcTransport(config.l1RpcUrl),
         });
+        this.snapshotBlockNumber = config.deploymentBlockNumber;
+        this.snapshotTimestamp = config.deploymentTimestamp;
     }
 
-    getCacheStats() {
-        return this.roundCache.getStats();
-    }
-
-    logCacheStats() {
-        console.log(`[L1Monitor] ${this.roundCache.getStatsString()}`);
+    async hasDeploymentChanged(): Promise<boolean> {
+        this.snapshotBlockNumber = undefined;
+        this.snapshotTimestamp = undefined;
+        const currentDeployment = await resolveDeploymentWithClient(
+            this.publicClient,
+            this.config.registryAddress,
+            this.config.chainId
+        );
+        this.snapshotBlockNumber = currentDeployment.deploymentBlockNumber;
+        this.snapshotTimestamp = currentDeployment.deploymentTimestamp;
+        return !deploymentsMatch(this.config, currentDeployment);
     }
 
     async getCurrentState(): Promise<CurrentChainState> {
+        let blockNumber = this.snapshotBlockNumber;
+        let timestamp = this.snapshotTimestamp;
+        if (blockNumber === undefined || timestamp === undefined) {
+            const block = await this.publicClient.getBlock({ blockTag: 'latest' });
+            blockNumber = block.number;
+            timestamp = block.timestamp;
+            this.snapshotBlockNumber = blockNumber;
+            this.snapshotTimestamp = timestamp;
+        }
+        assertFreshL1Head(timestamp);
         const results = await multicall(this.publicClient, [
-            createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'getCurrentRound'),
-            createCall(this.config.rollupAddress, rollupAbi, 'getCurrentSlot'),
-            createCall(this.config.rollupAddress, rollupAbi, 'getCurrentEpoch'),
-            createCall(this.config.slasherAddress, slasherAbi, 'isSlashingEnabled'),
-            createCall(this.config.slasherAddress, slasherAbi, 'slashingDisabledUntil'),
-            createCall(this.config.slasherAddress, slasherAbi, 'SLASHING_DISABLE_DURATION'),
-            createCall(this.config.rollupAddress, rollupAbi, 'getActiveAttesterCount'),
-            createCall(this.config.rollupAddress, rollupAbi, 'getEntryQueueLength'),
-        ]);
+                createCall(this.config.slashingProposerAddress, slashingProposerAbi, 'getCurrentRound'),
+                createCall(this.config.rollupAddress, rollupAbi, 'getCurrentSlot'),
+                createCall(this.config.rollupAddress, rollupAbi, 'getCurrentEpoch'),
+                createCall(this.config.slasherAddress, slasherAbi, 'isSlashingEnabled'),
+                createCall(this.config.slasherAddress, slasherAbi, 'slashingDisabledUntil'),
+                createCall(this.config.slasherAddress, slasherAbi, 'SLASHING_DISABLE_DURATION'),
+            ], blockNumber);
+
+        const isSlashingEnabled = requireResult<boolean>(results[3], 'isSlashingEnabled');
+        const slashingDisabledUntil = requireResult<bigint>(results[4], 'slashingDisabledUntil');
+        const slashingDisableDuration = requireResult<bigint>(results[5], 'SLASHING_DISABLE_DURATION');
+        let pauseStartedAtSlot: bigint | null = null;
+        let pauseEndsAtSlot: bigint | null = null;
+
+        if (!isSlashingEnabled && slashingDisabledUntil > 0n) {
+            const pauseStartedAt = slashingDisabledUntil - slashingDisableDuration;
+            const pauseSlots = await multicall(this.publicClient, [
+                createCall(this.config.rollupAddress, rollupAbi, 'getSlotAt', [pauseStartedAt]),
+                createCall(this.config.rollupAddress, rollupAbi, 'getSlotAt', [slashingDisabledUntil]),
+            ], blockNumber);
+            pauseStartedAtSlot = requireResult(pauseSlots[0], 'getSlotAt(pause start)');
+            pauseEndsAtSlot = requireResult(pauseSlots[1], 'getSlotAt(pause end)');
+        }
 
         return {
+            l1BlockNumber: blockNumber,
+            l1Timestamp: timestamp,
             currentRound: requireResult(results[0], 'getCurrentRound'),
             currentSlot: requireResult(results[1], 'getCurrentSlot'),
             currentEpoch: requireResult(results[2], 'getCurrentEpoch'),
-            isSlashingEnabled: requireResult(results[3], 'isSlashingEnabled'),
-            slashingDisabledUntil: requireResult(results[4], 'slashingDisabledUntil'),
-            slashingDisableDuration: requireResult(results[5], 'SLASHING_DISABLE_DURATION'),
-            activeAttesterCount: requireResult(results[6], 'getActiveAttesterCount'),
-            entryQueueLength: requireResult(results[7], 'getEntryQueueLength'),
+            isSlashingEnabled,
+            slashingDisabledUntil,
+            slashingDisableDuration,
+            pauseStartedAtSlot,
+            pauseEndsAtSlot,
         };
     }
 
     async getRounds(rounds: bigint[]): Promise<Map<bigint, MulticallResult<RoundInfo>>> {
         const results = new Map<bigint, MulticallResult<RoundInfo>>();
-        const roundsToFetch: bigint[] = [];
-
-        for (const round of rounds) {
-            const cached = this.roundCache.get(round);
-            if (cached) {
-                results.set(round, { success: true, data: cached });
-                continue;
-            }
-
-            roundsToFetch.push(round);
-        }
-
-        if (roundsToFetch.length === 0) {
+        if (rounds.length === 0) {
             return results;
         }
 
         const fetchedResults = await multicall(
             this.publicClient,
-            roundsToFetch.map((round) =>
-                createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'getRound', [round])
-            )
+            rounds.map((round) =>
+                createCall(this.config.slashingProposerAddress, slashingProposerAbi, 'getRound', [round])
+            ),
+            this.snapshotBlockNumber
         );
 
         fetchedResults.forEach((result, index) => {
-            const round = roundsToFetch[index];
+            const round = rounds[index];
 
             if (!result.success) {
                 results.set(round, result);
                 return;
             }
 
-            const [isExecuted, voteCount] = result.data as [boolean, bigint];
+            const [isExecuted, ballotCount] = result.data as [boolean, bigint];
             const roundInfo: RoundInfo = {
                 round,
                 isExecuted,
-                voteCount,
+                ballotCount,
             };
 
-            this.roundCache.set(round, roundInfo, this.mutableTTL);
             results.set(round, { success: true, data: roundInfo });
         });
 
@@ -115,8 +128,9 @@ export class L1Monitor {
         const results = await multicall(
             this.publicClient,
             rounds.map((round) =>
-                createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'getSlashTargetCommittees', [round])
-            )
+                createCall(this.config.slashingProposerAddress, slashingProposerAbi, 'getSlashTargetCommittees', [round])
+            ),
+            this.snapshotBlockNumber
         );
 
         return results.map((result) => {
@@ -139,8 +153,9 @@ export class L1Monitor {
         const results = await multicall(
             this.publicClient,
             roundsWithCommittees.map(({ round, committees }) =>
-                createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'getTally', [round, committees])
-            )
+                createCall(this.config.slashingProposerAddress, slashingProposerAbi, 'getTally', [round, committees])
+            ),
+            this.snapshotBlockNumber
         );
 
         return results.map((result) => {
@@ -166,8 +181,9 @@ export class L1Monitor {
         const payloadResults = await multicall(
             this.publicClient,
             roundsWithActions.map(({ round, actions }) =>
-                createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'getPayloadAddress', [round, actions])
-            )
+                createCall(this.config.slashingProposerAddress, slashingProposerAbi, 'getPayloadAddress', [round, actions])
+            ),
+            this.snapshotBlockNumber
         );
 
         const vetoInputs: Address[] = [];
@@ -188,7 +204,8 @@ export class L1Monitor {
                 this.publicClient,
                 vetoInputs.map((address) =>
                     createCall(this.config.slasherAddress, slasherAbi, 'vetoedPayloads', [address])
-                )
+                ),
+                this.snapshotBlockNumber
             );
 
         return payloadResults.map((payloadResult, index) => {
@@ -216,16 +233,16 @@ export class L1Monitor {
 
     async loadContractParameters(): Promise<SlashingContractParameters> {
         const results = await multicall(this.publicClient, [
-            createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'QUORUM'),
-            createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'ROUND_SIZE'),
-            createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'ROUND_SIZE_IN_EPOCHS'),
-            createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'EXECUTION_DELAY_IN_ROUNDS'),
-            createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'LIFETIME_IN_ROUNDS'),
-            createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'SLASH_OFFSET_IN_ROUNDS'),
-            createCall(this.config.tallySlashingProposerAddress, tallySlashingProposerAbi, 'COMMITTEE_SIZE'),
+            createCall(this.config.slashingProposerAddress, slashingProposerAbi, 'QUORUM'),
+            createCall(this.config.slashingProposerAddress, slashingProposerAbi, 'ROUND_SIZE'),
+            createCall(this.config.slashingProposerAddress, slashingProposerAbi, 'ROUND_SIZE_IN_EPOCHS'),
+            createCall(this.config.slashingProposerAddress, slashingProposerAbi, 'EXECUTION_DELAY_IN_ROUNDS'),
+            createCall(this.config.slashingProposerAddress, slashingProposerAbi, 'LIFETIME_IN_ROUNDS'),
+            createCall(this.config.slashingProposerAddress, slashingProposerAbi, 'SLASH_OFFSET_IN_ROUNDS'),
+            createCall(this.config.slashingProposerAddress, slashingProposerAbi, 'COMMITTEE_SIZE'),
             createCall(this.config.rollupAddress, rollupAbi, 'getSlotDuration'),
             createCall(this.config.rollupAddress, rollupAbi, 'getEpochDuration'),
-        ]);
+        ], this.snapshotBlockNumber);
 
         return {
             quorum: Number(requireResult(results[0], 'QUORUM')),

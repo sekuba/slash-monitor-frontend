@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
+import { zeroAddress, type Address } from 'viem';
+import { resolveDeployment } from '@/lib/deployment';
 import { L1Monitor } from '@/lib/l1Monitor';
 import { notifyGlobalPauseStarted, notifyQuorumReached, notifyRoundExecuted, notifyRoundVetoed } from '@/lib/notifications';
 import { SlashingDetector } from '@/lib/slashingDetector';
@@ -9,10 +11,19 @@ import type { CurrentChainState, DetectedSlashing, MonitorAudit, MonitorConfigIn
 interface RoundState {
     status: RoundStatus;
     isVetoed: boolean;
+    payloadAddress?: Address;
 }
 
+class StaleMonitorRunError extends Error {}
+
 export function useSlashingMonitor(config: MonitorConfigInput) {
-    const { initialize, setIsScanning, applySnapshot } = useSlashingStore();
+    const {
+        initialize,
+        setIsScanning,
+        applySnapshot,
+        setInitializationError,
+        setMonitorFailure,
+    } = useSlashingStore();
     const l1MonitorRef = useRef<L1Monitor | null>(null);
     const detectorRef = useRef<SlashingDetector | null>(null);
     const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -21,119 +32,177 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
     const isFirstScanRef = useRef(true);
     const isPollingRef = useRef(false);
     const isActiveRef = useRef(true);
+    const runGenerationRef = useRef(0);
 
-    const initializeMonitor = useCallback(async () => {
-        const l1Monitor = new L1Monitor(config);
+    const initializeMonitor = useCallback(async (generation: number) => {
+        const deployment = await resolveDeployment(config);
+        const runtimeConfig = { ...config, ...deployment };
+        const l1Monitor = new L1Monitor(runtimeConfig);
         const contractParameters = await l1Monitor.loadContractParameters();
-        const fullConfig = { ...config, ...contractParameters };
+        const fullConfig = { ...runtimeConfig, ...contractParameters };
         const currentState = await l1Monitor.getCurrentState();
+        assertCurrentRun(generation, runGenerationRef.current);
 
         l1MonitorRef.current = l1Monitor;
         detectorRef.current = new SlashingDetector(fullConfig, l1Monitor);
         previousSlashingEnabledRef.current = currentState.isSlashingEnabled;
         initialize(fullConfig, currentState);
+        setInitializationError(null);
         return currentState;
-    }, [config, initialize]);
+    }, [config, initialize, setInitializationError]);
 
-    const poll = useCallback(async (seedState?: CurrentChainState) => {
-        if (isPollingRef.current || !l1MonitorRef.current || !detectorRef.current) {
+    const poll = useCallback(async (seedState?: CurrentChainState, generation = runGenerationRef.current) => {
+        if (generation !== runGenerationRef.current || isPollingRef.current || !l1MonitorRef.current || !detectorRef.current) {
             return;
         }
 
         isPollingRef.current = true;
+        let completed = false;
 
         try {
+            const preflightIssues: MonitorIssue[] = [];
+
             if (isFirstScanRef.current) {
                 setIsScanning(true);
             }
 
-            const currentState = seedState ?? await l1MonitorRef.current.getCurrentState();
+            let currentState = seedState;
+            if (!currentState) {
+                try {
+                    if (await l1MonitorRef.current.hasDeploymentChanged()) {
+                        assertCurrentRun(generation, runGenerationRef.current);
+                        previousRoundStatesRef.current.clear();
+                        isFirstScanRef.current = true;
+                        setIsScanning(true);
+                        currentState = await initializeMonitor(generation);
+                    }
+                }
+                catch (error) {
+                    if (error instanceof StaleMonitorRunError) {
+                        throw error;
+                    }
+                    preflightIssues.push({
+                        source: 'deployment',
+                        scope: 'deployment',
+                        severity: 'error',
+                        message: `Unable to verify the canonical Aztec deployment: ${toErrorMessage(error)}`,
+                    });
+                }
+            }
+
+            currentState ??= await l1MonitorRef.current.getCurrentState();
+            assertCurrentRun(generation, runGenerationRef.current);
             const previousStoreState = useSlashingStore.getState();
             let detectedSlashings = Array.from(previousStoreState.detectedSlashings.values());
-            let issues: MonitorIssue[] = [];
+            const issues: MonitorIssue[] = [
+                ...preflightIssues,
+                ...buildDeploymentIssues(previousStoreState.config, currentState.l1Timestamp),
+            ];
 
             try {
                 const detectionResult = await detectorRef.current.detectExecutableRounds(currentState.currentRound, currentState.currentSlot);
                 detectedSlashings = detectionResult.detectedSlashings;
-                issues = detectionResult.issues;
+                issues.push(...detectionResult.issues);
             }
             catch (error) {
-                issues = [{
+                if (error instanceof StaleMonitorRunError) {
+                    throw error;
+                }
+                issues.push({
                     source: 'l1-rpc',
                     scope: 'rounds',
-                    message: error instanceof Error ? error.message : 'Unknown detection error',
-                }];
+                    severity: 'error',
+                    message: toErrorMessage(error),
+                });
             }
 
-            const audit = buildAudit(issues);
-            emitNotificationsForPoll(detectedSlashings, currentState.isSlashingEnabled, previousRoundStatesRef.current, isFirstScanRef.current);
+            const audit = buildAudit(issues, previousStoreState.audit.lastSuccessfulAt);
+            assertCurrentRun(generation, runGenerationRef.current);
 
-            if (previousSlashingEnabledRef.current !== null &&
-                previousSlashingEnabledRef.current !== currentState.isSlashingEnabled &&
-                !currentState.isSlashingEnabled) {
-                notifyGlobalPauseStarted();
+            if (audit.status !== 'stale' && audit.status !== 'fatal') {
+                emitNotificationsForPoll(detectedSlashings, previousRoundStatesRef.current, isFirstScanRef.current);
+
+                if (previousSlashingEnabledRef.current !== null &&
+                    previousSlashingEnabledRef.current !== currentState.isSlashingEnabled &&
+                    !currentState.isSlashingEnabled) {
+                    notifyGlobalPauseStarted();
+                }
+
+                previousSlashingEnabledRef.current = currentState.isSlashingEnabled;
             }
-
-            previousSlashingEnabledRef.current = currentState.isSlashingEnabled;
 
             const snapshot = buildSnapshot(currentState, detectedSlashings, audit);
             applySnapshot(snapshot);
+            completed = audit.status !== 'stale' && audit.status !== 'fatal';
 
             if (Math.random() < config.consoleLogProbability) {
                 console.log(`Poll complete: ${detectedSlashings.length} rounds, audit=${audit.status}`);
-                l1MonitorRef.current.logCacheStats();
-                detectorRef.current.logCacheStats();
             }
         }
         catch (error) {
+            if (error instanceof StaleMonitorRunError) {
+                return;
+            }
             console.error('Poll error:', error);
+            setMonitorFailure(`Unable to refresh on-chain state: ${toErrorMessage(error)}`);
         }
         finally {
-            if (isFirstScanRef.current) {
+            if (completed && isFirstScanRef.current) {
                 isFirstScanRef.current = false;
                 setIsScanning(false);
             }
 
             isPollingRef.current = false;
         }
-    }, [applySnapshot, config.consoleLogProbability, setIsScanning]);
+    }, [applySnapshot, config.consoleLogProbability, initializeMonitor, setIsScanning, setMonitorFailure]);
 
-    const scheduleNextPoll = useCallback(() => {
-        if (!isActiveRef.current) {
+    const scheduleNextPoll = useCallback((generation: number) => {
+        if (!isActiveRef.current || generation !== runGenerationRef.current) {
             return;
         }
 
         timeoutRef.current = setTimeout(async () => {
-            if (!isActiveRef.current) {
+            if (!isActiveRef.current || generation !== runGenerationRef.current) {
                 return;
             }
 
-            await poll();
-            if (isActiveRef.current) {
-                scheduleNextPoll();
+            await poll(undefined, generation);
+            if (isActiveRef.current && generation === runGenerationRef.current) {
+                scheduleNextPoll(generation);
             }
-        }, config.l2PollInterval);
-    }, [config.l2PollInterval, poll]);
+        }, config.pollInterval);
+    }, [config.pollInterval, poll]);
 
     useEffect(() => {
         let cancelled = false;
+        const generation = runGenerationRef.current + 1;
+        runGenerationRef.current = generation;
         isActiveRef.current = true;
 
         const start = async () => {
             try {
-                const initialState = await initializeMonitor();
-                if (cancelled) {
+                const initialState = await initializeMonitor(generation);
+                if (cancelled || generation !== runGenerationRef.current) {
                     return;
                 }
 
-                await poll(initialState);
-                if (!cancelled) {
-                    scheduleNextPoll();
+                await poll(initialState, generation);
+                if (!cancelled && generation === runGenerationRef.current) {
+                    scheduleNextPoll(generation);
                 }
             }
             catch (error) {
+                if (cancelled || generation !== runGenerationRef.current || error instanceof StaleMonitorRunError) {
+                    return;
+                }
                 console.error('Failed to initialize slashing monitor:', error);
+                const message = `Unable to initialize from the canonical Aztec deployment: ${toErrorMessage(error)}`;
+                setInitializationError(message);
+                setMonitorFailure(message, true);
                 setIsScanning(false);
+                if (!cancelled) {
+                    timeoutRef.current = setTimeout(start, config.pollInterval);
+                }
             }
         };
 
@@ -142,12 +211,16 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
         return () => {
             cancelled = true;
             isActiveRef.current = false;
+            if (runGenerationRef.current === generation) {
+                runGenerationRef.current += 1;
+            }
+            isPollingRef.current = false;
             if (timeoutRef.current) {
                 clearTimeout(timeoutRef.current);
                 timeoutRef.current = null;
             }
         };
-    }, [initializeMonitor, poll, scheduleNextPoll, setIsScanning]);
+    }, [config.pollInterval, initializeMonitor, poll, scheduleNextPoll, setInitializationError, setIsScanning, setMonitorFailure]);
 }
 
 function buildSnapshot(
@@ -168,10 +241,9 @@ function buildStats(currentState: CurrentChainState, detectedSlashings: Detected
     const activeSlashings = detectedSlashings.filter((slashing) => {
         const presentation = deriveRoundPresentation(slashing, {
             config: storeState.config,
-            currentSlot: currentState.currentSlot,
             isSlashingEnabled: currentState.isSlashingEnabled,
-            slashingDisabledUntil: currentState.slashingDisabledUntil,
-            slashingDisableDuration: currentState.slashingDisableDuration,
+            pauseStartedAtSlot: currentState.pauseStartedAtSlot,
+            pauseEndsAtSlot: currentState.pauseEndsAtSlot,
         });
 
         return presentation.isActionable && slashing.round !== currentState.currentRound;
@@ -192,17 +264,56 @@ function buildStats(currentState: CurrentChainState, detectedSlashings: Detected
     };
 }
 
-function buildAudit(issues: MonitorIssue[]): MonitorAudit {
+function buildAudit(issues: MonitorIssue[], previousLastSuccessfulAt: number | null): MonitorAudit {
+    const now = Date.now();
+    const hasError = issues.some((issue) => issue.severity === 'error');
+
     return {
-        status: issues.length === 0 ? 'ok' : 'partial',
+        status: hasError ? 'stale' : issues.length === 0 ? 'ok' : 'partial',
         issues,
-        updatedAt: Date.now(),
+        updatedAt: now,
+        lastSuccessfulAt: hasError || issues.length > 0 ? previousLastSuccessfulAt : now,
     };
+}
+
+function buildDeploymentIssues(config: ReturnType<typeof useSlashingStore.getState>['config'], l1Timestamp?: bigint): MonitorIssue[] {
+    if (!config) {
+        return [];
+    }
+
+    const issues: MonitorIssue[] = [];
+    const now = l1Timestamp ?? BigInt(Math.floor(Date.now() / 1000));
+
+    if (config.pendingSlasherAddress !== zeroAddress) {
+        const readyAt = config.pendingSlasherReadyAt > 0n
+            ? new Date(Number(config.pendingSlasherReadyAt) * 1000).toISOString()
+            : 'an unknown time';
+        issues.push({
+            source: 'deployment',
+            scope: 'deployment',
+            severity: 'warning',
+            message: `Slasher rotation is queued: ${config.pendingSlasherAddress} with proposer ${config.pendingSlashingProposerAddress} can become active at ${readyAt}`,
+        });
+    }
+
+    if (config.legacySlasherAddress !== zeroAddress && config.legacySlasherAuthorizedUntil >= now) {
+        issues.push({
+            source: 'deployment',
+            scope: 'deployment',
+            severity: 'warning',
+            message: `Legacy slasher ${config.legacySlasherAddress} with proposer ${config.legacySlashingProposerAddress} remains authorized until ${new Date(Number(config.legacySlasherAuthorizedUntil) * 1000).toISOString()}; its draining rounds are not included in the primary round list`,
+        });
+    }
+
+    return issues;
+}
+
+function toErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : 'Unknown error';
 }
 
 function emitNotificationsForPoll(
     detectedSlashings: DetectedSlashing[],
-    isSlashingEnabled: boolean,
     previousRoundStates: Map<string, RoundState>,
     isFirstScan: boolean
 ) {
@@ -216,6 +327,7 @@ function emitNotificationsForPoll(
         const hasQuorumStatus = isQuorumStatus(slashing.status);
         const hadQuorumStatus = previousState ? isQuorumStatus(previousState.status) : false;
         const wasVetoed = previousState?.isVetoed ?? false;
+        const payloadChanged = previousState !== undefined && previousState.payloadAddress !== slashing.payloadAddress;
 
         if (!isFirstScan) {
             if (slashing.isVetoed && !wasVetoed) {
@@ -226,7 +338,7 @@ function emitNotificationsForPoll(
                 notifyRoundExecuted(slashing);
             }
 
-            if (hasQuorumStatus && !hadQuorumStatus && !slashing.isVetoed && !slashing.isExecuted && isSlashingEnabled) {
+            if (hasQuorumStatus && (!hadQuorumStatus || payloadChanged) && !slashing.isVetoed && !slashing.isExecuted) {
                 notifyQuorumReached(slashing);
             }
         }
@@ -234,10 +346,17 @@ function emitNotificationsForPoll(
         previousRoundStates.set(roundKey, {
             status: slashing.status,
             isVetoed: slashing.isVetoed,
+            payloadAddress: slashing.payloadAddress,
         });
     }
 }
 
+function assertCurrentRun(expected: number, actual: number): void {
+    if (expected !== actual) {
+        throw new StaleMonitorRunError();
+    }
+}
+
 function isQuorumStatus(status: RoundStatus) {
-    return status === 'quorum-reached' || status === 'in-veto-window' || status === 'executable';
+    return status === 'quorum-reached' || status === 'newly-executable' || status === 'executable';
 }

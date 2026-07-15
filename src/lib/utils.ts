@@ -119,7 +119,7 @@ export function formatNumber(num: number | bigint): string {
 }
 export function isActionableStatus(status: RoundDisplayStatus): boolean {
     return (status === 'quorum-reached' ||
-        status === 'in-veto-window' ||
+        status === 'newly-executable' ||
         status === 'executable');
 }
 
@@ -127,20 +127,23 @@ export function collectTargetedSequencers(slashings: DetectedSlashing[]): Target
     const targetedSequencers = new Map<string, TargetedSequencer>();
 
     slashings.forEach((slashing) => {
+        const uniqueActions = new Map<string, Address>();
         slashing.slashActions?.forEach((action) => {
             const key = action.validator.toLowerCase();
+            uniqueActions.set(key, uniqueActions.get(key) ?? action.validator);
+        });
+
+        uniqueActions.forEach((address, key) => {
             const existing = targetedSequencers.get(key);
 
             if (existing) {
                 existing.appearances += 1;
-                if (!existing.rounds.includes(slashing.round)) {
-                    existing.rounds.push(slashing.round);
-                }
+                existing.rounds.push(slashing.round);
                 return;
             }
 
             targetedSequencers.set(key, {
-                address: action.validator,
+                address,
                 appearances: 1,
                 rounds: [slashing.round],
             });
@@ -205,7 +208,7 @@ export function deriveRoundDisplayState(slashing: DetectedSlashing, options?: {
         };
     }
     const isProtected = options?.isProtected ?? false;
-    const baseStatus: RoundDisplayStatus = (isProtected && (slashing.status === 'executable' || slashing.status === 'in-veto-window'))
+    const baseStatus: RoundDisplayStatus = (isProtected && (slashing.status === 'executable' || slashing.status === 'newly-executable'))
         ? 'quorum-reached'
         : slashing.status;
     return {
@@ -219,20 +222,22 @@ export function deriveRoundDisplayState(slashing: DetectedSlashing, options?: {
 
 export function deriveRoundPresentation(slashing: DetectedSlashing, options: {
     config: ResolvedMonitorConfig | null;
-    currentSlot: bigint | null;
     isSlashingEnabled: boolean;
-    slashingDisabledUntil: bigint | null;
-    slashingDisableDuration: bigint | null;
+    pauseStartedAtSlot: bigint | null;
+    pauseEndsAtSlot: bigint | null;
     now?: number;
 }): RoundPresentation {
-    const isProtected = options.config && options.currentSlot !== null
+    const hasLiveSlashPayload = (slashing.slashActions?.length ?? 0) > 0 &&
+        !slashing.isExecuted &&
+        !slashing.isVetoed &&
+        slashing.status !== 'expired';
+    const isProtected = options.config && hasLiveSlashPayload
         ? isRoundProtectedByPause(
             slashing.round,
             options.config,
-            options.currentSlot,
             options.isSlashingEnabled,
-            options.slashingDisabledUntil,
-            options.slashingDisableDuration
+            options.pauseStartedAtSlot,
+            options.pauseEndsAtSlot
         )
         : false;
 
@@ -245,8 +250,9 @@ export function deriveRoundPresentation(slashing: DetectedSlashing, options: {
     };
 }
 const STATUS_COLORS: Record<RoundDisplayStatus, string> = {
+    'below-quorum': 'bg-lapis/50 text-aqua border-5 border-aqua/50 shadow-brutal',
     'quorum-reached': 'bg-malachite text-chartreuse border-5 border-chartreuse shadow-brutal-chartreuse',
-    'in-veto-window': 'bg-oxblood text-vermillion border-5 border-vermillion shadow-brutal-vermillion',
+    'newly-executable': 'bg-oxblood text-vermillion border-5 border-vermillion shadow-brutal-vermillion',
     'executable': 'bg-oxblood text-vermillion border-5 border-vermillion shadow-brutal-vermillion',
     'executed': 'bg-oxblood/50 text-vermillion border-5 border-vermillion/50 shadow-brutal',
     'expired': 'bg-malachite/30 text-whisper-white/60 border-5 border-brand-black shadow-brutal',
@@ -258,8 +264,9 @@ export function getStatusColor(status: RoundDisplayStatus): string {
 }
 
 const STATUS_TEXT: Record<RoundDisplayStatus, string> = {
+    'below-quorum': 'No Target at Quorum',
     'quorum-reached': 'Quorum Reached',
-    'in-veto-window': 'Newly Executable',
+    'newly-executable': 'Newly Executable',
     'executable': 'Executable',
     'executed': 'Executed',
     'expired': 'Expired',

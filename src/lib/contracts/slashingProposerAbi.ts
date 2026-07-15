@@ -1,4 +1,4 @@
-export const tallySlashingProposerAbi = [
+export const slashingProposerAbi = [
     {
         type: 'function',
         name: 'getCurrentRound',
@@ -182,7 +182,7 @@ export const tallySlashingProposerAbi = [
     },
     {
         type: 'error',
-        name: 'TallySlashingProposer__RoundOutOfRange',
+        name: 'SlashingProposer__RoundOutOfRange',
         inputs: [
             { name: 'round', type: 'uint256' },
             { name: 'currentRound', type: 'uint256' },
