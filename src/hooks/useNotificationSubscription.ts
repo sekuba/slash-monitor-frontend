@@ -15,6 +15,7 @@ import {
     loadSubscriptionCredentials,
     saveSubscriptionCredentials,
     signalSubscriptionScopeChanged,
+    subscribeToSubscriptionScope,
     type StoredSubscriptionCredentials,
 } from '@/lib/subscriptionStorage';
 import type { ManagedSubscription, MonitorNetwork, TelegramLink, V2PublicConfig } from '@/types/v2Api';
@@ -23,7 +24,9 @@ const CHANNEL_RECONCILIATION_INTERVAL_MS = 60_000;
 
 export function useNotificationSubscription(network: MonitorNetwork, config: V2PublicConfig | null) {
     const capabilityOriginSafe = isCapabilityStorageSafeOrigin();
-    const [credentials, setCredentials] = useState<StoredSubscriptionCredentials | null>(null);
+    const [credentials, setCredentials] = useState<StoredSubscriptionCredentials | null>(() => (
+        loadSubscriptionCredentials(network)
+    ));
     const [subscription, setSubscription] = useState<ManagedSubscription | null>(null);
     const [pushCapability, setPushCapability] = useState<PushCapability>('unsupported');
     const [telegramLink, setTelegramLink] = useState<TelegramLink | null>(null);
@@ -68,7 +71,6 @@ export function useNotificationSubscription(network: MonitorNetwork, config: V2P
         catch (caught) {
             if (caught instanceof SlashmonApiError && (caught.status === 401 || caught.status === 404)) {
                 clearSubscriptionCredentials(network);
-                setCredentials(null);
                 setSubscription(null);
                 setError('This browser no longer has the key for its old watch list. Create a fresh one below.');
                 return null;
@@ -81,20 +83,34 @@ export function useNotificationSubscription(network: MonitorNetwork, config: V2P
     }, [network]);
 
     useEffect(() => {
+        let cancelled = false;
+
+        queueMicrotask(() => {
+            if (cancelled) {
+                return;
+            }
+            void Promise.all([
+                inspectPush(),
+                credentials ? fetchSubscription(credentials) : Promise.resolve(),
+            ]).finally(() => {
+                if (!cancelled) {
+                    setIsLoading(false);
+                }
+            });
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [credentials, fetchSubscription, inspectPush]);
+
+    useEffect(() => subscribeToSubscriptionScope(network, () => {
         const stored = loadSubscriptionCredentials(network);
         setCredentials(stored);
-        setSubscription(null);
-        setTelegramLink(null);
-        setError(null);
-        setNotice(null);
-        setIsLoading(true);
-        lastUploadedPushEndpoint.current = null;
-
-        void Promise.all([
-            inspectPush(),
-            stored ? fetchSubscription(stored) : Promise.resolve(),
-        ]).finally(() => setIsLoading(false));
-    }, [fetchSubscription, inspectPush, network]);
+        if (!stored) {
+            setSubscription(null);
+            setTelegramLink(null);
+        }
+    }), [network]);
 
     const reconcileChannels = useCallback((): Promise<void> => {
         if (!credentials) {
@@ -207,7 +223,6 @@ export function useNotificationSubscription(network: MonitorNetwork, config: V2P
                 managementToken: created.managementToken,
             };
             saveSubscriptionCredentials(network, nextCredentials);
-            setCredentials(nextCredentials);
             setSubscription(created.subscription);
             setNotice('Watch list created. Connect at least one notification channel.');
             return created.subscription;
@@ -417,7 +432,6 @@ export function useNotificationSubscription(network: MonitorNetwork, config: V2P
                 lastUploadedPushEndpoint.current = null;
             });
             clearSubscriptionCredentials(network);
-            setCredentials(null);
             setSubscription(null);
             setTelegramLink(null);
             await inspectPush();

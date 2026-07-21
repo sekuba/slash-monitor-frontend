@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useSlashingStore } from '@/store/slashingStore';
 import { formatTimeRemaining } from '@/lib/utils';
 import { calculateProtectedRoundRange } from '@/lib/pauseProtection';
@@ -9,6 +10,14 @@ interface SlashingTimelineProps {
 
 export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
     const { config, currentRound, currentSlot, currentEpoch, detectedSlashings, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, pauseStartedAtSlot, pauseEndsAtSlot } = useSlashingStore();
+    const [nowSeconds, setNowSeconds] = useState(() => Math.floor(Date.now() / 1000));
+
+    useEffect(() => {
+        const interval = window.setInterval(() => {
+            setNowSeconds(Math.floor(Date.now() / 1000));
+        }, 1_000);
+        return () => window.clearInterval(interval);
+    }, []);
 
     if (!config) {
         return null;
@@ -208,10 +217,9 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
       {/* Global Pause Section */}
       {!isSlashingEnabled && slashingDisabledUntil > 0n && pauseStartedAtSlot !== null && pauseEndsAtSlot !== null && (() => {
             // Timing calculations
-            const now = Math.floor(Date.now() / 1000);
             const pauseEndsAt = Number(slashingDisabledUntil);
             const pauseStartedAt = pauseEndsAt - Number(slashingDisableDuration);
-            const secondsUntilPauseEnds = Math.max(0, pauseEndsAt - now);
+            const secondsUntilPauseEnds = Math.max(0, pauseEndsAt - nowSeconds);
             const slotsUntilPauseEnds = Number(pauseEndsAtSlot > currentSlot ? pauseEndsAtSlot - currentSlot : 0n);
 
             // Calculate protected round range using shared utility

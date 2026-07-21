@@ -133,28 +133,28 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
         }
     }, [applySnapshot, config.consoleLogProbability, initializeMonitor, setIsScanning, setMonitorFailure]);
 
-    const scheduleNextPoll = useCallback((generation: number) => {
-        if (!isActiveRef.current || generation !== runGenerationRef.current) {
-            return;
-        }
-
-        timeoutRef.current = setTimeout(async () => {
-            if (!isActiveRef.current || generation !== runGenerationRef.current) {
-                return;
-            }
-
-            await poll(undefined, generation);
-            if (isActiveRef.current && generation === runGenerationRef.current) {
-                scheduleNextPoll(generation);
-            }
-        }, config.pollInterval);
-    }, [config.pollInterval, poll]);
-
     useEffect(() => {
         let cancelled = false;
         const generation = runGenerationRef.current + 1;
         runGenerationRef.current = generation;
         isActiveRef.current = true;
+
+        function scheduleNextPoll() {
+            if (!isActiveRef.current || generation !== runGenerationRef.current) {
+                return;
+            }
+
+            timeoutRef.current = setTimeout(async () => {
+                if (!isActiveRef.current || generation !== runGenerationRef.current) {
+                    return;
+                }
+
+                await poll(undefined, generation);
+                if (isActiveRef.current && generation === runGenerationRef.current) {
+                    scheduleNextPoll();
+                }
+            }, config.pollInterval);
+        }
 
         const start = async () => {
             try {
@@ -165,7 +165,7 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
 
                 await poll(initialState, generation);
                 if (!cancelled && generation === runGenerationRef.current) {
-                    scheduleNextPoll(generation);
+                    scheduleNextPoll();
                 }
             }
             catch (error) {
@@ -197,7 +197,7 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
                 timeoutRef.current = null;
             }
         };
-    }, [config.pollInterval, initializeMonitor, poll, scheduleNextPoll, setInitializationError, setIsScanning, setMonitorFailure]);
+    }, [config.pollInterval, initializeMonitor, poll, setInitializationError, setIsScanning, setMonitorFailure]);
 }
 
 function buildSnapshot(

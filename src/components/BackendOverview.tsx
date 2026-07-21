@@ -32,7 +32,7 @@ export function BackendOverview({ network }: { network: MonitorNetwork }) {
                 lastReceivedAt={monitor.lastReceivedAt}
                 onRefresh={() => void monitor.refresh()}
             />
-            <SubscriptionPanel network={network} config={monitor.config} />
+            <SubscriptionPanel key={network} network={network} config={monitor.config} />
             {monitor.status && (
                 <div className="mb-10 grid gap-6 xl:grid-cols-2">
                     <PendingOffenseList
