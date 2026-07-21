@@ -167,6 +167,20 @@ automatic process restarts, and filesystem hardening. Because `ProtectHome=yes`
 is enabled, it intentionally runs an installed copy from `/opt` rather than a
 checkout under a user's home directory.
 
+The system service also requires Node 24 or newer at a stable system-wide path.
+Session-managed `fnm`/`nvm` paths under `/run/user` or a home directory are not
+available to `DynamicUser`. If necessary, install the currently selected Node
+binary system-wide and use its explicit path in the unit:
+
+```bash
+node --version
+sudo install -m 0755 "$(readlink -f "$(command -v node)")" /usr/local/bin/node
+sudo /usr/local/bin/node --version
+```
+
+In that setup, change `ExecStart` in the installed unit to
+`ExecStart=/usr/local/bin/node src/main.mjs`.
+
 1. From the `collector` directory, install the dependency-free runtime:
 
 ```bash
@@ -175,13 +189,21 @@ sudo install -m 0644 package.json README.md /opt/slashmon/collector/
 sudo install -m 0644 src/*.mjs /opt/slashmon/collector/src/
 ```
 
-2. Create `/etc/slashmon-offense-collector.env` containing at least the admin
-   URL and, when enabled, the API key. Make it readable only by root.
+2. Install the systemd-specific environment template, then edit the admin API
+   key. This template uses the writable `StateDirectory` under `/var/lib`; do
+   not use the local-development `.env.example`, whose relative database path
+   points inside `/opt`.
+
+```bash
+sudo install -m 0600 deploy/slashmon-offense-collector.env.example \
+  /etc/slashmon-offense-collector.env
+sudoedit /etc/slashmon-offense-collector.env
+```
+
 3. Install and enable the unit:
 
 ```bash
 sudo install -m 0644 deploy/slashmon-offense-collector.service /etc/systemd/system/
-sudo install -m 0600 .env /etc/slashmon-offense-collector.env
 sudo systemctl daemon-reload
 sudo systemctl enable --now slashmon-offense-collector
 sudo systemctl status slashmon-offense-collector
