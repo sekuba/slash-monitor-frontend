@@ -1,0 +1,35 @@
+[Unit]
+Description=Slashmon Aztec offense collector
+Documentation=file:/opt/slashmon/collector/README.md
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=10
+
+[Service]
+Type=simple
+DynamicUser=yes
+StateDirectory=slashmon-offense-collector
+WorkingDirectory=/opt/slashmon/collector
+EnvironmentFile=-/etc/slashmon-offense-collector.env
+Environment=NODE_ENV=production
+Environment=COLLECTOR_DATABASE_PATH=/var/lib/slashmon-offense-collector/offenses.sqlite
+ExecStart=/usr/bin/env node src/main.mjs
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+UMask=0077
+
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=yes
+
+[Install]
+WantedBy=multi-user.target
