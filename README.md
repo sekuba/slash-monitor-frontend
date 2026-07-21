@@ -55,9 +55,12 @@ pnpm dev
 pnpm dev:backend
 ```
 
-The browser API defaults to the same origin. For split local processes, set
+The browser API defaults to the same origin. For two local processes, set
 `VITE_API_BASE_URL=http://127.0.0.1:8790` and set the backend CORS origin to
-`http://localhost:5173`.
+`http://localhost:5173`. To test against a production backend without weakening
+its exact CORS policy, leave `VITE_API_BASE_URL` empty and set the development-
+only `SLASHMON_DEV_API_PROXY_TARGET=https://api.slashveto.me`; Vite will proxy
+`/api` server-side while the browser remains same-origin with localhost.
 
 Run the whole gate before committing:
 
