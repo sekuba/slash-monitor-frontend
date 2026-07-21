@@ -1,3 +1,5 @@
+import { createECDH } from 'node:crypto';
+
 export const SEQUENCER_A = '0x1111111111111111111111111111111111111111';
 export const SEQUENCER_B = '0x2222222222222222222222222222222222222222';
 
@@ -20,4 +22,11 @@ export const silentLogger = {
   info() {},
   warn() {},
   error() {},
+};
+
+const pushKeyFixture = createECDH('prime256v1');
+pushKeyFixture.setPrivateKey(Buffer.alloc(32, 2));
+export const PUSH_KEYS = {
+  p256dh: pushKeyFixture.getPublicKey().toString('base64url'),
+  auth: Buffer.alloc(16, 3).toString('base64url'),
 };

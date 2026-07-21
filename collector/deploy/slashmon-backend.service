@@ -1,6 +1,6 @@
 [Unit]
-Description=Slashmon Aztec offense collector
-Documentation=file:/opt/slashmon/collector/README.md
+Description=Slashmon v2 backend
+Documentation=file:/opt/slashmon/current/collector/README.md
 Wants=network-online.target
 After=network-online.target
 StartLimitIntervalSec=60
@@ -9,27 +9,42 @@ StartLimitBurst=10
 [Service]
 Type=simple
 DynamicUser=yes
+
+# Keep the v1 state directory: the schema is migrated in place and alerts keep
+# their continuity across the service rename.
 StateDirectory=slashmon-offense-collector
-WorkingDirectory=/opt/slashmon/collector
-EnvironmentFile=-/etc/slashmon-offense-collector.env
+StateDirectoryMode=0700
+WorkingDirectory=/opt/slashmon/current/collector
+EnvironmentFile=/etc/slashmon-backend.env
 Environment=NODE_ENV=production
 Environment=COLLECTOR_DATABASE_PATH=/var/lib/slashmon-offense-collector/offenses.sqlite
-ExecStart=/usr/bin/env node src/main.mjs
+ExecStart=/usr/bin/node src/main.mjs
+
 Restart=always
 RestartSec=5
-TimeoutStopSec=20
+TimeoutStopSec=45
 UMask=0077
 
+CapabilityBoundingSet=
+LockPersonality=yes
 NoNewPrivileges=yes
 PrivateDevices=yes
 PrivateTmp=yes
+ProtectClock=yes
 ProtectControlGroups=yes
 ProtectHome=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
 ProtectKernelModules=yes
 ProtectKernelTunables=yes
+ProtectProc=invisible
 ProtectSystem=strict
+RemoveIPC=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
 RestrictSUIDSGID=yes
+SystemCallArchitectures=native
 
 [Install]
 WantedBy=multi-user.target

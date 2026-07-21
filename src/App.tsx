@@ -14,8 +14,8 @@ const createConfig = (isTestnet: boolean): MonitorConfigInput => {
     // Check for custom RPC URL in localStorage (set via debug view)
     const customRpcUrl = getCustomRpcUrl(chainId);
     const defaultL1RpcUrl = isTestnet
-        ? (import.meta.env.VITE_TESTNET_L1_RPC_URL || import.meta.env.VITE_L1_RPC_URL || 'http://localhost:8545')
-        : (import.meta.env.VITE_L1_RPC_URL || 'http://localhost:8545');
+        ? (import.meta.env.VITE_TESTNET_L1_RPC_URL || import.meta.env.VITE_L1_RPC_URL || '')
+        : (import.meta.env.VITE_L1_RPC_URL || '');
 
     return {
         l1RpcUrl: normalizeRpcUrls(customRpcUrl || defaultL1RpcUrl),
@@ -41,13 +41,20 @@ export function App() {
     // Memoize config to prevent re-creation on every render
     const config = useMemo(() => createConfig(isTestnet), [isTestnet]);
     const toggleNetwork = useCallback(() => {
-        window.location.href = isTestnet ? '/' : '/?network=testnet';
+        const next = new URL(window.location.href);
+        if (isTestnet) {
+            next.searchParams.delete('network');
+        }
+        else {
+            next.searchParams.set('network', 'testnet');
+        }
+        window.location.assign(next);
     }, [isTestnet]);
 
     useSlashingMonitor(config);
 
     return (
-        <div className="min-h-screen bg-gray-950 text-white">
+        <div className="min-h-screen bg-brand-black text-white">
             <Dashboard network={network} onToggleNetwork={toggleNetwork} />
         </div>
     );

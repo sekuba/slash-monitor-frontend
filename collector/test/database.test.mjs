@@ -21,7 +21,7 @@ test('successful snapshots persist, withdraw after a grace count, and reactivate
 
   assert.deepEqual(
     repository.recordSuccessfulPoll([offenseA, offenseB], { observedAt: 1_000, withdrawAfterMissedPolls: 2 }),
-    { sequence: 1, observed: 2, inserted: 2, reactivated: 0, withdrawn: 0 },
+    { sequence: 1, observed: 2, inserted: 2, updated: 0, reactivated: 0, withdrawn: 0, events: 2 },
   );
   repository.recordSuccessfulPoll([offenseA], { observedAt: 2_000, withdrawAfterMissedPolls: 2 });
   assert.equal(repository.getOffense(offenseB.id).status, 'active');
@@ -56,6 +56,50 @@ test('database state survives reopening and failures do not mutate offense snaps
   assert.equal(repository.getOffense(offense.id).status, 'active');
   assert.equal(repository.getSyncState().consecutiveFailures, 1);
   assert.equal(repository.getSyncState().lastError, 'node restarting');
+  repository.close();
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test('database runtime identity persists and refuses network, chain, or Registry reuse', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'slashmon-collector-'));
+  const databasePath = path.join(directory, 'offenses.sqlite');
+  const identity = {
+    network: 'mainnet',
+    chainId: 1,
+    registryAddress: '0xA000000000000000000000000000000000000001',
+  };
+
+  let repository = new OffenseRepository(databasePath);
+  assert.deepEqual(repository.bindRuntimeIdentity(identity), {
+    ...identity,
+    registryAddress: identity.registryAddress.toLowerCase(),
+  });
+  assert.deepEqual(repository.bindRuntimeIdentity(identity), {
+    ...identity,
+    registryAddress: identity.registryAddress.toLowerCase(),
+  });
+  repository.close();
+
+  repository = new OffenseRepository(databasePath);
+  assert.deepEqual(repository.bindRuntimeIdentity(identity), {
+    ...identity,
+    registryAddress: identity.registryAddress.toLowerCase(),
+  });
+  assert.throws(
+    () => repository.bindRuntimeIdentity({ ...identity, network: 'testnet' }),
+    /database is bound to mainnet/,
+  );
+  assert.throws(
+    () => repository.bindRuntimeIdentity({ ...identity, chainId: 11_155_111 }),
+    /refusing mainnet chain 11155111/,
+  );
+  assert.throws(
+    () => repository.bindRuntimeIdentity({
+      ...identity,
+      registryAddress: '0xB000000000000000000000000000000000000002',
+    }),
+    /Registry 0xb000000000000000000000000000000000000002/,
+  );
   repository.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });

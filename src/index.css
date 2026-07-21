@@ -1,7 +1,3 @@
-/* Import Space Grotesk font for neo-brutalist aesthetic */
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700;800&display=swap')
-layer(base);
-
 @import 'tailwindcss';
 
 @theme {
@@ -48,7 +44,7 @@ layer(base);
 }
 
 :root {
-  font-family: 'Space Grotesk', 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'Arial', 'Helvetica Neue', system-ui, -apple-system, sans-serif;
   line-height: 1.4;
   font-weight: 600;
 
@@ -65,6 +61,7 @@ layer(base);
 body {
   margin: 0;
   min-height: 100vh;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   background: linear-gradient(135deg, #001f18 0%, #00122e 50%, #2e0026 100%);
   background-attachment: fixed;
 }
@@ -87,6 +84,18 @@ button {
   letter-spacing: 0.05em;
 }
 
+button,
+a,
+input,
+textarea,
+select {
+  outline-offset: 4px;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-chartreuse);
+}
+
 /* Hard shadows, no blur */
 .shadow-sm,
 .shadow,
@@ -107,4 +116,15 @@ button {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

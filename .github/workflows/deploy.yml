@@ -1,4 +1,4 @@
-name: Deploy to GitHub Pages
+name: Deploy public monitor to GitHub Pages
 
 on:
   push:
@@ -26,7 +26,7 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Setup PNPM
+      - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           run_install: false
@@ -35,7 +35,8 @@ jobs:
         id: pnpm-cache
         run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/cache@v4
+      - name: Cache pnpm store
+        uses: actions/cache@v4
         with:
           path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
           key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
@@ -45,13 +46,49 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build
-        run: pnpm build
+      - name: Require reachable HTTPS endpoints for the PWA
         env:
-          VITE_L1_RPC_URL: ${{ secrets.VITE_L1_RPC_URL }}
-          VITE_REGISTRY_ADDRESS: ${{ secrets.VITE_REGISTRY_ADDRESS }}
-          VITE_TESTNET_L1_RPC_URL: ${{ secrets.VITE_TESTNET_L1_RPC_URL }}
-          VITE_TESTNET_REGISTRY_ADDRESS: ${{ secrets.VITE_TESTNET_REGISTRY_ADDRESS }}
+          PUBLIC_API_ORIGIN: ${{ vars.VITE_API_BASE_URL }}
+          MAINNET_L1_RPC_URLS: ${{ vars.VITE_L1_RPC_URL }}
+          TESTNET_L1_RPC_URLS: ${{ vars.VITE_TESTNET_L1_RPC_URL }}
+        run: |
+          require_https_list() {
+            local name="$1"
+            local value="$2"
+
+            if [[ -z "$value" ]]; then
+              echo "Set the $name repository variable; Pages must never ship a localhost fallback."
+              return 1
+            fi
+
+            local endpoints
+            IFS=',' read -ra endpoints <<< "$value"
+            for endpoint in "${endpoints[@]}"; do
+              endpoint="${endpoint#"${endpoint%%[![:space:]]*}"}"
+              endpoint="${endpoint%"${endpoint##*[![:space:]]}"}"
+              if [[ "$endpoint" != https://* ]]; then
+                echo "$name must contain only HTTPS URLs."
+                return 1
+              fi
+            done
+          }
+
+          if [[ -z "$PUBLIC_API_ORIGIN" || "$PUBLIC_API_ORIGIN" != https://* || "$PUBLIC_API_ORIGIN" == *,* ]]; then
+            echo "VITE_API_BASE_URL must be one public HTTPS API origin."
+            exit 1
+          fi
+          require_https_list VITE_L1_RPC_URL "$MAINNET_L1_RPC_URLS"
+          require_https_list VITE_TESTNET_L1_RPC_URL "$TESTNET_L1_RPC_URLS"
+
+      - name: Lint, test, syntax-check, and build
+        run: pnpm check
+        env:
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+          VITE_BASE_PATH: ${{ vars.VITE_BASE_PATH || '/slashmon/' }}
+          VITE_L1_RPC_URL: ${{ vars.VITE_L1_RPC_URL }}
+          VITE_REGISTRY_ADDRESS: ${{ vars.VITE_REGISTRY_ADDRESS }}
+          VITE_TESTNET_L1_RPC_URL: ${{ vars.VITE_TESTNET_L1_RPC_URL }}
+          VITE_TESTNET_REGISTRY_ADDRESS: ${{ vars.VITE_TESTNET_REGISTRY_ADDRESS }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

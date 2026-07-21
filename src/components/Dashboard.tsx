@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useSlashingStore } from '@/store/slashingStore';
 import { RoundCard } from './RoundCard';
 import { StatsPanel } from './StatsPanel';
@@ -6,8 +6,8 @@ import { Header } from './Header';
 import { SlashingTimeline } from './SlashingTimeline';
 import { DebugView } from './DebugView';
 import { SlashingHelpModal } from './SlashingHelpModal';
+import { BackendOverview } from './BackendOverview';
 import { collectTargetedSequencers, deriveRoundPresentation } from '@/lib/utils';
-import { requestNotificationPermission, areNotificationsEnabled } from '@/lib/notifications';
 import { clearCustomRpcUrl, reloadApp } from '@/lib/rpcOverride';
 
 interface DashboardProps {
@@ -17,8 +17,6 @@ interface DashboardProps {
 
 export function Dashboard({ network, onToggleNetwork }: DashboardProps) {
     const { detectedSlashings, isInitialized, initializationError, isScanning, currentRound, config, isSlashingEnabled, pauseStartedAtSlot, pauseEndsAtSlot, audit } = useSlashingStore();
-    const [showNotificationBanner, setShowNotificationBanner] = useState(false);
-    const [isRequestingNotifications, setIsRequestingNotifications] = useState(false);
     const [showDebugView, setShowDebugView] = useState(false);
     const [showSlashingHelpModal, setShowSlashingHelpModal] = useState(false);
 
@@ -58,33 +56,16 @@ export function Dashboard({ network, onToggleNetwork }: DashboardProps) {
         .filter(({ display, slashing }) => display.isActionable && slashing.slashActions && slashing.slashActions.length > 0)
         .map(({ slashing }) => slashing)), [slashingStates]);
 
-    useEffect(() => {
-        if ('Notification' in window && Notification.permission === 'default') {
-            setShowNotificationBanner(true);
-        }
-    }, []);
-    const handleEnableNotifications = async () => {
-        setIsRequestingNotifications(true);
-        try {
-            const permission = await requestNotificationPermission();
-            if (permission === 'granted' || permission === 'denied') {
-                setShowNotificationBanner(false);
-            }
-        }
-        catch (error) {
-            console.error('Error requesting notification permission:', error);
-        }
-        finally {
-            setIsRequestingNotifications(false);
-        }
-    };
     if (!isInitialized) {
         if (initializationError) {
-            return (<div className="min-h-screen flex items-center justify-center px-4">
-        <div className="max-w-2xl bg-oxblood border-5 border-vermillion p-8 shadow-brutal-vermillion">
+            return (<div className="min-h-screen">
+        <Header network={network} onToggleNetwork={onToggleNetwork} />
+        <main className="max-w-7xl mx-auto px-4 py-8">
+          <BackendOverview network={network} />
+          <div className="max-w-2xl mx-auto bg-oxblood border-5 border-vermillion p-8 shadow-brutal-vermillion">
           <h1 className="text-vermillion text-2xl font-black uppercase mb-4">Monitor unavailable</h1>
           <p className="text-whisper-white font-bold break-words">{initializationError}</p>
-          <p className="text-whisper-white/70 text-sm font-bold mt-4">The monitor will retry automatically. No slashing status is being asserted.</p>
+          <p className="text-whisper-white/70 text-sm font-bold mt-4">The independent browser verifier will retry automatically. Backend warning coverage is reported separately above.</p>
           <button
             onClick={() => {
               clearCustomRpcUrl(network === 'testnet' ? 11155111 : 1);
@@ -94,15 +75,20 @@ export function Dashboard({ network, onToggleNetwork }: DashboardProps) {
           >
             Reset custom RPC
           </button>
-        </div>
+          </div>
+        </main>
       </div>);
         }
 
-        return (<div className="min-h-screen flex items-center justify-center">
-        <div className="text-center bg-brand-black border-5 border-chartreuse p-8 shadow-brutal-chartreuse">
+        return (<div className="min-h-screen">
+        <Header network={network} onToggleNetwork={onToggleNetwork} />
+        <main className="max-w-7xl mx-auto px-4 py-8">
+          <BackendOverview network={network} />
+          <div className="mx-auto max-w-2xl text-center bg-brand-black border-5 border-chartreuse p-8 shadow-brutal-chartreuse">
           <div className="animate-spin h-16 w-16 border-5 border-chartreuse border-t-transparent mx-auto mb-4"></div>
-          <p className="text-chartreuse font-black uppercase tracking-wider">Initializing Monitor...</p>
-        </div>
+          <p className="text-chartreuse font-black uppercase tracking-wider">Initializing Independent L1 Verifier...</p>
+          </div>
+        </main>
       </div>);
     }
     return (<div className="min-h-screen">
@@ -151,6 +137,8 @@ export function Dashboard({ network, onToggleNetwork }: DashboardProps) {
 
       <main className="max-w-7xl mx-auto px-4 py-8">
 
+        <BackendOverview network={network} />
+
         {audit.status !== 'ok' && (
           <div className={`${audit.status === 'stale' || audit.status === 'fatal' ? 'bg-oxblood border-vermillion shadow-brutal-vermillion' : 'bg-aubergine border-orchid shadow-brutal-orchid'} border-5 p-5 mb-6`}>
             <h2 className={`${audit.status === 'stale' || audit.status === 'fatal' ? 'text-vermillion' : 'text-orchid'} text-xl font-black uppercase mb-2`}>
@@ -178,42 +166,13 @@ export function Dashboard({ network, onToggleNetwork }: DashboardProps) {
 
         <SlashingTimeline onOpenHelp={() => setShowSlashingHelpModal(true)} />
 
-        {showNotificationBanner && !areNotificationsEnabled() && (<div className="bg-lapis border-5 border-aqua p-6 mb-6 shadow-brutal-aqua">
-            <div className="flex items-start gap-4">
-              <div className="shrink-0 bg-aqua border-3 border-brand-black p-2">
-                <svg className="w-8 h-8 text-brand-black stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
-                </svg>
-              </div>
-              <div className="flex-1">
-                <h3 className="text-aqua font-black uppercase text-lg mb-2">Enable Notifications</h3>
-                <p className="text-whisper-white text-sm font-bold mb-4">
-                  Get instant alerts when slashings are detected or action is required.
-                </p>
-                <div className="flex gap-3">
-                  <button onClick={handleEnableNotifications} disabled={isRequestingNotifications} className="px-6 py-3 bg-chartreuse hover:bg-chartreuse/90 disabled:bg-chartreuse/50 text-brand-black border-3 border-brand-black font-black uppercase text-sm transition-transform hover:-translate-y-0.5 shadow-brutal">
-                    {isRequestingNotifications ? 'Requesting...' : 'Enable Now'}
-                  </button>
-                  <button onClick={() => setShowNotificationBanner(false)} className="px-6 py-3 bg-transparent hover:bg-aqua/20 text-aqua border-3 border-aqua font-black uppercase text-sm transition-colors">
-                    Later
-                  </button>
-                </div>
-              </div>
-              <button onClick={() => setShowNotificationBanner(false)} className="shrink-0 text-aqua hover:text-whisper-white transition-colors" aria-label="Dismiss">
-                <svg className="w-6 h-6 stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M6 18L18 6M6 6l12 12"/>
-                </svg>
-              </button>
-            </div>
-          </div>)}
-        
         {isScanning && (<div className="mb-6 bg-lapis border-5 border-aqua p-5 shadow-brutal-aqua">
             <div className="flex items-center gap-4">
               <div className="animate-spin h-8 w-8 border-5 border-aqua border-t-transparent"></div>
               <div>
                 <h3 className="text-aqua font-black uppercase text-lg">Scanning Historical Rounds</h3>
                 <p className="text-whisper-white text-sm font-bold">
-                  Performing initial scan. Notifications enabled after completion.
+                  The browser is independently verifying current and historical L1 state.
                 </p>
               </div>
             </div>

@@ -25,12 +25,12 @@ Aztec's slashing mechanism uses a multi-stage process with several time-based sa
          v
 ┌─────────────────┐
 │ Newly Executable│  Status: 'newly-executable' (first executable round)
-└────────┬────────┘  Execution is now permissionless; veto promptly
+└────────┬────────┘  Permissionless only while Slasher is enabled and not vetoed
          │
          v
 ┌─────────────────┐
 │ Executable      │  Duration: (LIFETIME - EXECUTION_DELAY) rounds
-│ Window          │  Can execute at any time during this period
+│ Window          │  Callable only while Slasher is enabled and not vetoed
 └────────┬────────┘
          │
          ├─ Expiry slot: (R + 1 + LIFETIME_IN_ROUNDS) × ROUND_SIZE
@@ -71,10 +71,15 @@ Aztec's slashing mechanism uses a multi-stage process with several time-based sa
 - **Effect**: Permanently blocks that exact payload address and action set
 - **Changing tally**: A changed action set produces a new payload address that must be reviewed separately
 - **Timing**: Can be called any time after the payload is known and before that payload executes
-- **Window**: Veto as early as possible; execution becomes permissionless at the executable slot
+- **Window**: Veto as early as possible; after the executable slot, execution is permissionless only while the Slasher's global gate is enabled
 
 ### Emergency Halt
 - **Function**: `Slasher.setSlashingEnabled(false)`
 - **Effect**: Pauses ALL slashing execution for SLASHING_DISABLE_DURATION
 - **Does NOT**: Block voting (voting continues normally)
-- **Does NOT**: Veto individual rounds (they can still be executed after halt ends)
+- **Does NOT**: Veto individual rounds (a still-live round can execute after the halt ends)
+- **Expiry interaction**: A round whose expiry arrives during the scheduled halt is protected under that schedule; a later-expiring round is delayed, not safe
+
+The vetoer can lift a halt early. Slashmon therefore reports the timing window,
+the current global gate, and scheduled protection separately. See
+[`docs/architecture.md`](docs/architecture.md) for the exact monitoring model.

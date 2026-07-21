@@ -1,27 +1,121 @@
 import { AztecAdminClient } from './admin-client.mjs';
 import { CollectorApiServer } from './api-server.mjs';
+import { WebPushChannel, TelegramChannel, TelegramClient } from './channels.mjs';
 import { OffenseCollector } from './collector.mjs';
 import { loadConfig } from './config.mjs';
 import { OffenseRepository } from './database.mjs';
+import { DeliveryWorker } from './delivery-worker.mjs';
+import { L1Collector } from './l1-collector.mjs';
+import { L1Scanner } from './l1-scanner.mjs';
 import { Logger, errorMessage } from './logger.mjs';
+import { TelegramBot } from './telegram-bot.mjs';
 
 async function main() {
   const config = loadConfig();
   const logger = new Logger(config.logLevel);
   const repository = new OffenseRepository(config.databasePath);
-  const client = new AztecAdminClient({
+  try {
+    repository.bindRuntimeIdentity({
+      network: config.network,
+      chainId: config.l1ChainId,
+      registryAddress: config.l1RegistryAddress,
+    });
+  } catch (error) {
+    repository.close();
+    throw error;
+  }
+
+  const adminClient = new AztecAdminClient({
     url: config.adminUrl,
+    nodeUrl: config.nodeUrl,
     apiKey: config.adminApiKey,
+    nodeApiKey: config.nodeApiKey,
     timeoutMs: config.requestTimeoutMs,
     maxResponseBytes: config.maxResponseBytes,
     maxOffenses: config.maxOffensesPerPoll,
   });
-  const collector = new OffenseCollector({
-    client,
+  const offenseCollector = new OffenseCollector({
+    client: adminClient,
     repository,
+    network: config.network,
+    expectedChainId: config.l1ChainId,
+    expectedRegistryAddress: config.l1RegistryAddress,
+    syncMaxL1AgeMs: config.syncMaxL1AgeMs,
+    syncMaxL2StallMs: config.syncMaxL2StallMs,
+    syncMaxFutureSkewMs: config.l1MaxFutureSkewMs,
     pollIntervalMs: config.pollIntervalMs,
     maxBackoffMs: config.maxBackoffMs,
     withdrawAfterMissedPolls: config.withdrawAfterMissedPolls,
+    logger,
+  });
+
+  const l1Scanner = new L1Scanner({
+    rpcUrls: config.l1RpcUrls,
+    chainId: config.l1ChainId,
+    registryAddress: config.l1RegistryAddress,
+    confirmations: config.l1Confirmations,
+    requestTimeoutMs: config.l1RequestTimeoutMs,
+    snapshotTimeoutMs: config.l1SnapshotTimeoutMs,
+    maxHeadAgeMs: config.l1MaxHeadAgeMs,
+    maxHeadStallMs: config.l1MaxHeadStallMs,
+    maxFutureSkewMs: config.l1MaxFutureSkewMs,
+    slashLogLookbackBlocks: config.l1SlashLogLookbackBlocks,
+    slashLogChunkSize: config.l1SlashLogChunkSize,
+    slashLogOverlapBlocks: config.l1SlashLogOverlapBlocks,
+    slashLogReorgRewindBlocks: config.l1SlashLogReorgRewindBlocks,
+    slashLogProviderTimeoutMs: config.l1SlashLogProviderTimeoutMs,
+  });
+  const l1Collector = new L1Collector({
+    scanner: l1Scanner,
+    repository,
+    network: config.network,
+    pollIntervalMs: config.l1PollIntervalMs,
+    maxBackoffMs: config.l1MaxBackoffMs,
+    maxSlashLogChunksPerPoll: config.l1SlashLogMaxChunksPerPoll,
+    maxSlashLogRunMs: config.l1SlashLogMaxRunMs,
+    logger,
+  });
+
+  const channels = {};
+  if (config.vapid) {
+    channels.web_push = new WebPushChannel({
+      vapid: config.vapid,
+      publicUrl: config.publicUrl,
+      timeoutMs: config.deliveryRequestTimeoutMs,
+    });
+  }
+  let telegramBot;
+  let telegramReady = false;
+  if (config.telegram) {
+    const telegramClient = new TelegramClient({
+      token: config.telegram.token,
+      timeoutMs: config.deliveryRequestTimeoutMs,
+    });
+    channels.telegram = new TelegramChannel({
+      client: telegramClient,
+      publicUrl: config.publicUrl,
+      isReady: () => telegramReady,
+    });
+    telegramBot = new TelegramBot({
+      client: telegramClient,
+      repository,
+      network: config.network,
+      expectedUsername: config.telegram.username,
+      pollTimeoutSeconds: config.telegram.pollTimeoutSeconds,
+      onReadinessChange: (ready) => { telegramReady = ready; },
+      logger,
+    });
+  }
+
+  const deliveryWorker = new DeliveryWorker({
+    repository,
+    channels,
+    pollIntervalMs: config.deliveryPollIntervalMs,
+    batchSize: config.deliveryBatchSize,
+    concurrency: config.deliveryConcurrency,
+    maxAttempts: config.deliveryMaxAttempts,
+    leaseMs: config.deliveryLeaseMs,
+    requestTimeoutMs: config.deliveryRequestTimeoutMs,
     logger,
   });
   const api = new CollectorApiServer({
@@ -30,24 +124,53 @@ async function main() {
     port: config.port,
     corsOrigin: config.corsOrigin,
     staleAfterMs: config.staleAfterMs,
+    l1StaleAfterMs: config.l1StaleAfterMs,
     publicConfig: {
       pollIntervalMs: config.pollIntervalMs,
       maxBackoffMs: config.maxBackoffMs,
       staleAfterMs: config.staleAfterMs,
       withdrawAfterMissedPolls: config.withdrawAfterMissedPolls,
     },
+    network: config.network,
+    publicUrl: config.publicUrl,
+    vapidPublicKey: config.vapid?.publicKey,
+    telegramBotUsername: config.telegram?.username,
+    isTelegramReady: () => telegramReady,
+    maxSequencers: config.maxSequencersPerWatchlist,
+    maxRequestBodyBytes: config.maxRequestBodyBytes,
+    rateLimitWindowMs: config.rateLimitWindowMs,
+    rateLimitMaxMutations: config.rateLimitMaxMutations,
+    trustLoopbackProxy: config.trustLoopbackProxy,
+    linkTokenTtlMs: config.linkTokenTtlMs,
     logger,
   });
 
+  const workers = [
+    ['aztec', offenseCollector],
+    ['l1', l1Collector],
+    ['delivery', deliveryWorker],
+    ...(telegramBot ? [['telegram', telegramBot]] : []),
+  ];
   let shuttingDown = false;
-  const shutdown = async (signal) => {
-    if (shuttingDown) {
-      return;
-    }
+  let fatal = false;
+
+  const shutdown = async (reason) => {
+    if (shuttingDown) return;
     shuttingDown = true;
-    logger.info('Collector shutting down', { signal });
-    await Promise.allSettled([collector.stop(), api.close()]);
+    logger.info('Slashmon backend shutting down', { reason });
+    await Promise.allSettled([
+      ...workers.map(([, worker]) => worker.stop()),
+      api.close(),
+    ]);
     repository.close();
+  };
+
+  const fail = async (name, error) => {
+    if (shuttingDown || fatal) return;
+    fatal = true;
+    logger.error('A supervised backend loop exited', { worker: name, error: errorMessage(error) });
+    await shutdown(`${name}-failed`);
+    process.exitCode = 1;
   };
 
   process.once('SIGINT', () => void shutdown('SIGINT'));
@@ -55,7 +178,14 @@ async function main() {
 
   try {
     await api.listen();
-    collector.start();
+    for (const [name, worker] of workers) {
+      worker.start().then(
+        () => {
+          if (!shuttingDown) void fail(name, new Error('worker stopped unexpectedly'));
+        },
+        (error) => void fail(name, error),
+      );
+    }
   } catch (error) {
     await shutdown('startup-error');
     throw error;
@@ -66,7 +196,7 @@ main().catch((error) => {
   process.stderr.write(`${JSON.stringify({
     timestamp: new Date().toISOString(),
     level: 'error',
-    message: 'Collector failed',
+    message: 'Slashmon backend failed',
     data: { error: errorMessage(error) },
   })}\n`);
   process.exitCode = 1;

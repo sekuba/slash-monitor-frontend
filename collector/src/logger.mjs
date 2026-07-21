@@ -38,8 +38,17 @@ export class Logger {
 }
 
 export function errorMessage(error) {
-  if (error instanceof Error) {
-    return error.message.slice(0, 1_000);
-  }
-  return String(error).slice(0, 1_000);
+  const message = error instanceof Error ? error.message : String(error);
+  return redactSensitiveText(message).slice(0, 1_000);
+}
+
+export function redactSensitiveText(value) {
+  return String(value)
+    // Viem and fetch-family errors can include the full RPC URL. Query strings,
+    // userinfo, and even hostnames are commonly credentials in hosted RPCs.
+    .replace(/https?:\/\/[^\s"'<>)}\]]+/gi, '[redacted-url]')
+    .replace(
+      /\b(authorization|x-api-key)\s*[:=]\s*(?:bearer\s+)?[^\s,;]+/gi,
+      '$1: [redacted]',
+    );
 }
