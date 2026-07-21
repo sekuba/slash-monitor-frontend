@@ -163,10 +163,18 @@ source configuration module.
 ## systemd
 
 The supplied unit uses `DynamicUser`, a persistent systemd state directory,
-automatic process restarts, and filesystem hardening.
+automatic process restarts, and filesystem hardening. Because `ProtectHome=yes`
+is enabled, it intentionally runs an installed copy from `/opt` rather than a
+checkout under a user's home directory.
 
-1. Place this repository at `/opt/slashmon` or adjust `WorkingDirectory` in the
-   unit.
+1. From the `collector` directory, install the dependency-free runtime:
+
+```bash
+sudo install -d -m 0755 /opt/slashmon/collector/src
+sudo install -m 0644 package.json README.md /opt/slashmon/collector/
+sudo install -m 0644 src/*.mjs /opt/slashmon/collector/src/
+```
+
 2. Create `/etc/slashmon-offense-collector.env` containing at least the admin
    URL and, when enabled, the API key. Make it readable only by root.
 3. Install and enable the unit:
@@ -181,6 +189,8 @@ sudo systemctl status slashmon-offense-collector
 
 The database is stored in
 `/var/lib/slashmon-offense-collector/offenses.sqlite` and survives reboots.
+After changing collector source, repeat the three runtime installation commands
+and run `sudo systemctl restart slashmon-offense-collector`.
 
 ## Development
 
