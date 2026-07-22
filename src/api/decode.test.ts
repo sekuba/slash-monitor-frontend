@@ -16,14 +16,10 @@ describe('Slashmon v2 API decoders', () => {
     it('decodes public channel configuration without accepting secrets', () => {
         expect(decodePublicConfig({
             schemaVersion: 2,
-            data: {
-                network: 'mainnet',
-                channels: {
-                    webPush: { enabled: true, publicKey: 'vapid-public' },
-                    telegram: { enabled: true, botUsername: 'slashmon_bot' },
-                },
-                limits: { maxSequencers: 25 },
-            },
+            network: 'mainnet',
+            vapidPublicKey: 'vapid-public',
+            telegramBotUsername: 'slashmon_bot',
+            maxSequencers: 25,
         })).toEqual({
             network: 'mainnet',
             webPush: { enabled: true, publicKey: 'vapid-public' },
@@ -43,39 +39,33 @@ describe('Slashmon v2 API decoders', () => {
         };
         const status = decodeStatus({
             schemaVersion: 2,
-            data: {
-                status: 'healthy',
-                generatedAt: '2026-07-21T10:00:01.000Z',
-                sources: { l1: source, aztec: source },
-                delivery: {
-                    status: 'degraded',
-                    overdueDeliveries: 2,
-                    expiredLeases: 0,
-                    recentTerminalFailures: 1,
-                },
-                pendingOffenses: [{
-                    id: 'offense-1',
-                    sequencer: address,
-                    amount: '1000000000000000000',
-                    offenseType: 3,
-                    offenseTypeName: 'inactivity',
-                    epochOrSlot: '42',
-                    timeUnit: 'epoch',
-                    status: 'active',
-                    firstSeenAt: '2026-07-21T09:59:00.000Z',
-                    lastSeenAt: '2026-07-21T10:00:00.000Z',
-                    withdrawnAt: null,
-                    observationCount: 4,
-                }],
-            },
+            network: 'mainnet',
+            status: 'healthy',
+            generatedAt: '2026-07-21T10:00:01.000Z',
+            sources: { l1: source, aztec: source },
+            delivery: { status: 'degraded' },
+            pendingOffenses: [{
+                id: 'offense-1',
+                sequencer: address,
+                amount: '1000000000000000000',
+                offenseType: 3,
+                offenseTypeName: 'inactivity',
+                epochOrSlot: '42',
+                timeUnit: 'epoch',
+                status: 'active',
+                firstSeenAt: '2026-07-21T09:59:00.000Z',
+                lastSeenAt: '2026-07-21T10:00:00.000Z',
+                withdrawnAt: null,
+                observationCount: 4,
+            }],
         }, 'mainnet');
 
         expect(status.sources.l1.status).toBe('healthy');
         expect(status.delivery).toEqual({
             status: 'degraded',
-            overdueDeliveries: 2,
+            overdueDeliveries: 0,
             expiredLeases: 0,
-            recentTerminalFailures: 1,
+            recentTerminalFailures: 0,
         });
         expect(status.pendingOffenses[0].network).toBe('mainnet');
         expect(status.pendingOffenses[0].amount).toBe('1000000000000000000');
@@ -86,9 +76,12 @@ describe('Slashmon v2 API decoders', () => {
             schemaVersion: 2,
             data: [{
                 id: 'event-1',
+                network: 'mainnet',
                 type: 'pending_offense_detected',
-                source: 'aztec-node',
+                source: 'aztec_node',
+                certainty: 'pending',
                 sequencer: address,
+                targets: [address],
                 title: 'Pending offense',
                 body: 'Observed locally',
                 data: {
@@ -98,7 +91,7 @@ describe('Slashmon v2 API decoders', () => {
                     timeUnit: 'epoch',
                     amount: '2000000000000000000000',
                 },
-                observedAt: '2026-07-21T10:00:00.000Z',
+                occurredAt: '2026-07-21T10:00:00.000Z',
             }],
             pagination: { nextCursor: 'cursor-2' },
         }, 'mainnet');
@@ -119,12 +112,16 @@ describe('Slashmon v2 API decoders', () => {
             schemaVersion: 2,
             data: {
                 id: 'event-1',
+                network: 'mainnet',
                 type: 'onchain_executable',
                 source: 'ethereum_l1',
+                certainty: 'confirmed',
+                sequencer: address,
                 targets: [address],
                 title: 'Slashing is executable',
                 body: 'A watched sequencer is in the payload.',
-                observedAt: '2026-07-21T10:00:00.000Z',
+                data: {},
+                occurredAt: '2026-07-21T10:00:00.000Z',
             },
         }, 'mainnet');
 
@@ -141,7 +138,12 @@ describe('Slashmon v2 API decoders', () => {
                 id: 'sub-1',
                 network: 'mainnet',
                 addresses: [address],
-                channels: {},
+                channels: {
+                    webPush: { connected: false, enabled: false, verified: false },
+                    telegram: { connected: false, enabled: false, verified: false },
+                },
+                createdAt: null,
+                updatedAt: null,
             },
         })).toThrow(ApiContractError);
     });
@@ -154,9 +156,11 @@ describe('Slashmon v2 API decoders', () => {
                 network: 'mainnet',
                 addresses: [address],
                 channels: {
-                    webPush: { connected: true, enabled: false },
-                    telegram: { connected: false, enabled: false },
+                    webPush: { connected: true, enabled: false, verified: false },
+                    telegram: { connected: false, enabled: false, verified: false },
                 },
+                createdAt: null,
+                updatedAt: null,
             },
         });
 
@@ -169,9 +173,17 @@ describe('Slashmon v2 API decoders', () => {
     });
 
     it('accepts only official HTTPS Telegram deep links', () => {
-        expect(decodeTelegramLink({ data: { url: 'https://t.me/slashmon_bot?start=opaque' } }).url)
+        expect(decodeTelegramLink({
+            schemaVersion: 2,
+            url: 'https://t.me/slashmon_bot?start=opaque',
+            expiresAt: null,
+        }).url)
             .toContain('https://t.me/');
-        expect(() => decodeTelegramLink({ data: { url: 'https://evil.example/start' } }))
+        expect(() => decodeTelegramLink({
+            schemaVersion: 2,
+            url: 'https://evil.example/start',
+            expiresAt: null,
+        }))
             .toThrow(ApiContractError);
     });
 });

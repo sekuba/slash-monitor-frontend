@@ -209,9 +209,9 @@ unverified endpoints are removed after 24 hours. Telegram links are armed only
 after the configured bot has passed an exact `getMe` username check and disabled
 webhook delivery, so a typo cannot route alerts through the wrong bot.
 
-The old public `/api/v1/*` offense routes return HTTP 410. The v2 status and
-event feeds replace their legacy response shapes and clearly distinguish
-pending node-local proposals from confirmed L1 observations.
+The public v2 status and event feeds clearly distinguish pending node-local
+proposals from confirmed L1 observations. Unsupported API versions use the
+ordinary 404 response.
 
 ## Persistence and restart behavior
 

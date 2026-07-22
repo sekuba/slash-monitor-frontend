@@ -16,7 +16,7 @@ const PUSH_SUBSCRIPTION = {
   keys: PUSH_KEYS,
 };
 
-test('API reports health and retires the legacy v1 API', async (t) => {
+test('API reports health without exposing full collector snapshots', async (t) => {
   const repository = new OffenseRepository(':memory:');
   repository.listOnchainRounds = () => {
     throw new Error('health and public status must not serialize full L1 round snapshots');
@@ -44,12 +44,6 @@ test('API reports health and retires the legacy v1 API', async (t) => {
   assert.equal(publicStatus.onchainRounds, undefined);
   assert.equal(publicStatus.outbox, undefined);
 
-  for (const path of ['/api/v1/status', '/api/v1/offenses', `/api/v1/offenses/${offense.id}`]) {
-    const response = await fetch(`${baseUrl}${path}`, { headers: { origin: ALLOWED_ORIGIN } });
-    assert.equal(response.status, 410);
-    assert.equal(response.headers.get('access-control-allow-origin'), ALLOWED_ORIGIN);
-    assert.equal((await response.json()).error.code, 'legacy_api_retired');
-  }
 });
 
 test('health becomes stale without discarding the last snapshot', async (t) => {

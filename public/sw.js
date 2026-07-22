@@ -107,7 +107,7 @@ function safeTargetUrl(data) {
 
   const network = data && data.network === 'testnet' ? 'testnet' : 'mainnet';
   url.hash = '';
-  url.searchParams.set('view', 'watch');
+  url.searchParams.set('view', 'pingme');
   url.searchParams.set('network', network);
 
   const eventId = safeIdentifier(data && data.eventId) || safeIdentifier(url.searchParams.get('event'));

@@ -18,8 +18,8 @@ describe('top-level view isolation', () => {
         vi.unstubAllGlobals();
     });
 
-    it('renders Watch and permanent navigation without initializing the client scanner', () => {
-        installBrowser('https://slashmon.example/?view=watch&network=mainnet');
+    it('renders PINGME and permanent navigation without initializing the client scanner', () => {
+        installBrowser('https://slashmon.example/?view=pingme&network=mainnet');
 
         const markup = renderToStaticMarkup(<App />);
 
@@ -28,7 +28,7 @@ describe('top-level view isolation', () => {
         expect(markup).toContain('Watch My Sequencers');
         expect(markup.indexOf('Connecting To Warning Network')).toBeLessThan(markup.indexOf('Watch My Sequencers'));
         expect(markup).toContain('Monitor');
-        expect(markup).toContain('Watch');
+        expect(markup).toContain('>PINGME</button>');
         expect(markup).toContain('Debug');
         expect(markup).not.toContain('Client scanner network');
         expect(markup).toContain('brutal-button--nav-selected');

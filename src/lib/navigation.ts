@@ -1,6 +1,6 @@
 import type { MonitorNetwork } from '@/types/v2Api';
 
-export type AppView = 'monitor' | 'watch' | 'debug';
+export type AppView = 'monitor' | 'pingme' | 'debug';
 
 export interface AppLocation {
     view: AppView;
@@ -11,11 +11,12 @@ export interface AppLocation {
 export function parseAppSearch(search: string): AppLocation {
     const params = new URLSearchParams(search);
     const requestedView = params.get('view');
+    const view = requestedView === 'pingme' || requestedView === 'debug' ? requestedView : 'monitor';
 
     return {
-        view: requestedView === 'watch' || requestedView === 'debug' ? requestedView : 'monitor',
+        view,
         network: params.get('network') === 'testnet' ? 'testnet' : 'mainnet',
-        selectedEventId: readEventId(params.get('event')),
+        selectedEventId: view === 'pingme' ? readEventId(params.get('event')) : null,
     };
 }
 
@@ -31,7 +32,7 @@ export function urlForView(currentHref: string, view: AppView): URL {
     else {
         next.searchParams.set('view', view);
     }
-    if (view !== 'watch') {
+    if (view !== 'pingme') {
         next.searchParams.delete('event');
     }
     return next;

@@ -152,9 +152,6 @@ export class CollectorApiServer {
         return writeJson(response, health.httpStatus, health.body);
       }
 
-      if (url.pathname.startsWith('/api/v1/')) {
-        return this.handleV1();
-      }
       if (url.pathname.startsWith('/api/v2/')) {
         return await this.handleV2(method, url, request, response);
       }
@@ -176,14 +173,6 @@ export class CollectorApiServer {
       });
       return writeJson(response, 500, { error: { code: 'internal_error', message: 'Internal server error' } });
     }
-  }
-
-  handleV1() {
-    throw new HttpError(
-      410,
-      'legacy_api_retired',
-      'The legacy v1 offense API is retired; use the v2 status and event feeds',
-    );
   }
 
   async handleV2(method, url, request, response) {
@@ -209,7 +198,7 @@ export class CollectorApiServer {
       });
       return writeJson(response, 200, {
         schemaVersion: 2,
-        data: page.data ?? page.events ?? page,
+        data: page.data,
         pagination: { nextCursor: page.nextCursor ?? null },
         generatedAt: toIso(this.now()),
       });
@@ -288,7 +277,7 @@ export class CollectorApiServer {
       const page = this.repository.listEvents({ ...query, addresses: watchlist.addresses });
       return writeJson(response, 200, {
         schemaVersion: 2,
-        data: page.data ?? page.events ?? page,
+        data: page.data,
         pagination: { nextCursor: page.nextCursor ?? null },
         generatedAt: toIso(this.now()),
       });
@@ -340,7 +329,7 @@ export class CollectorApiServer {
     if (suffix === '/channels/web-push' && method === 'PUT') {
       if (!this.vapidPublicKey) throw new HttpError(503, 'web_push_unavailable', 'Web Push is not configured');
       const body = await readJsonBody(request, this.maxRequestBodyBytes);
-      const subscription = parsePushSubscription(body.subscription ?? body);
+      const subscription = parsePushSubscription(body.subscription);
       const result = this.repository.upsertEndpoint({
         watchlistId: id,
         kind: 'web_push',
@@ -438,7 +427,7 @@ export class CollectorApiServer {
 
   buildBaseV2Status() {
     const now = this.now();
-    const aztec = sourceHealthFromLegacy(this.repository.getSyncState(), this.staleAfterMs, now);
+    const aztec = sourceHealthFromOffenseSync(this.repository.getSyncState(), this.staleAfterMs, now);
     const l1SnapshotState = this.repository.getSourceState('l1');
     const l1SlashLogState = this.repository.getSourceState('l1_slash_logs');
     const l1 = l1SlashLogState
@@ -453,9 +442,7 @@ export class CollectorApiServer {
     const webPush = this.vapidPublicKey
       ? deliveryChannelHealth(this.repository.getSourceState('web_push'))
       : { status: 'disabled', enabled: false };
-    const deliveryQueue = publicDeliveryHealth(
-      this.repository.getDeliveryHealthStatus?.({ now }) ?? this.repository.getDeliveryHealth?.({ now }),
-    );
+    const deliveryQueue = publicDeliveryHealth(this.repository.getDeliveryHealthStatus({ now }));
     const critical = [aztec.status, l1.status];
     const sourceStatus = critical.every((value) => value === 'healthy')
       ? 'healthy'
@@ -533,33 +520,20 @@ export class CollectorApiServer {
 
 function parseEventQuery(searchParams, expectedNetwork) {
   const network = normalizeNetwork(searchParams.get('network') ?? expectedNetwork, expectedNetwork);
-  const addresses = parseSequencers(searchParams);
-  const explicitAddresses = searchParams.getAll('address')
+  const addresses = searchParams.getAll('address')
     .flatMap((value) => value.split(','))
     .map((value) => value.trim())
     .filter(Boolean);
-  const allAddresses = explicitAddresses.length > 0
-    ? normalizeAddresses(explicitAddresses, MAX_SEQUENCER_FILTERS)
-    : addresses;
   const cursor = searchParams.get('cursor');
   if (cursor && (cursor.length > 200 || !/^[A-Za-z0-9_.:-]+$/.test(cursor))) {
     throw new HttpError(400, 'invalid_cursor', 'cursor is malformed');
   }
   return {
     network,
-    addresses: allAddresses,
+    addresses: addresses.length > 0 ? normalizeAddresses(addresses, MAX_SEQUENCER_FILTERS) : [],
     cursor: cursor ?? undefined,
     limit: parseQueryInteger(searchParams.get('limit'), 'limit', 50, 1, 100),
   };
-}
-
-function parseSequencers(searchParams) {
-  const values = searchParams.getAll('sequencer')
-    .flatMap((value) => value.split(','))
-    .map((value) => value.trim())
-    .filter(Boolean);
-  if (values.length === 0) return [];
-  return normalizeAddresses(values, MAX_SEQUENCER_FILTERS);
 }
 
 function parseQueryInteger(raw, name, defaultValue, min, max) {
@@ -622,7 +596,7 @@ function writeJson(response, status, body) {
   response.end(encoded);
 }
 
-function sourceHealthFromLegacy(state, staleAfterMs, now) {
+function sourceHealthFromOffenseSync(state, staleAfterMs, now) {
   return sourceHealth({
     lastAttemptAt: state.lastAttemptAt,
     lastSuccessAt: state.lastSuccessAt,
@@ -660,8 +634,8 @@ function sourceHealth(state, staleAfterMs, now) {
     consecutiveFailures: Number(state.consecutiveFailures ?? 0),
     successfulPolls: Number(state.successfulPolls ?? 0),
     errorClass: state.lastError ? 'upstream_error' : null,
-    blockNumber: state.lastBlockNumber ?? state.blockNumber ?? null,
-    blockHash: state.lastBlockHash ?? state.blockHash ?? null,
+    blockNumber: state.lastBlockNumber ?? null,
+    blockHash: state.lastBlockHash ?? null,
   };
 }
 
@@ -706,16 +680,16 @@ function publicDeliveryHealth(health) {
   // Exact global queue counts/timestamps can reveal the cadence and volume of
   // capability-scoped pending alerts. Public callers only need to know whether
   // notification coverage is healthy; operators can inspect SQLite/journald.
-  return { status: health?.status === 'degraded' ? 'degraded' : 'healthy' };
+  return { status: health.status === 'degraded' ? 'degraded' : 'healthy' };
 }
 
 function toPublicWatchlist(watchlist) {
-  const endpoints = watchlist.endpoints ?? [];
+  const endpoints = watchlist.endpoints;
   return {
     id: watchlist.id,
     network: watchlist.network,
-    addresses: watchlist.addresses ?? [],
-    enabled: watchlist.enabled !== false,
+    addresses: watchlist.addresses,
+    enabled: watchlist.enabled,
     channels: {
       webPush: channelSummary(endpoints, 'web_push'),
       telegram: channelSummary(endpoints, 'telegram'),

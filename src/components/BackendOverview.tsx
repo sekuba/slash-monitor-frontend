@@ -4,7 +4,7 @@ import { SubscriptionPanel } from './SubscriptionPanel';
 import { useBackendMonitor } from '@/hooks/useBackendMonitor';
 import type { MonitorNetwork } from '@/types/v2Api';
 
-type BackendView = 'watch' | 'debug';
+type BackendView = 'pingme' | 'debug';
 
 export function BackendOverview({ network, view }: { network: MonitorNetwork; view: BackendView }) {
     const monitor = useBackendMonitor(network);
@@ -52,7 +52,7 @@ export function BackendOverview({ network, view }: { network: MonitorNetwork; vi
         return health;
     }
 
-    if (view === 'watch') {
+    if (view === 'pingme') {
         return (
             <>
                 {health}

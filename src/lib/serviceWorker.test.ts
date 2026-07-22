@@ -21,14 +21,14 @@ function loadWorker(scope: string, clients: Record<string, unknown> = {}) {
 }
 
 describe('Web Push notification targets', () => {
-    it('opens a notification event in the matching Watch view', () => {
+    it('opens a notification event in the matching PINGME view', () => {
         const target = loadWorker('https://slashmon.example/app/').buildTarget({
             eventId: 'event-42',
             network: 'testnet',
-            url: '?view=watch&network=testnet&event=event-42',
+            url: '?view=pingme&network=testnet&event=event-42',
         });
 
-        expect(target).toBe('https://slashmon.example/app/?view=watch&network=testnet&event=event-42');
+        expect(target).toBe('https://slashmon.example/app/?view=pingme&network=testnet&event=event-42');
     });
 
     it('rejects cross-origin and out-of-scope payload targets', () => {
@@ -38,15 +38,15 @@ describe('Web Push notification targets', () => {
             eventId: 'event-1',
             network: 'mainnet',
             url: 'https://attacker.example/steal',
-        })).toBe('https://slashmon.example/app/?view=watch&network=mainnet&event=event-1');
+        })).toBe('https://slashmon.example/app/?view=pingme&network=mainnet&event=event-1');
         expect(buildTarget({
             eventId: 'event-2',
             network: 'mainnet',
             url: 'https://slashmon.example/admin/',
-        })).toBe('https://slashmon.example/app/?view=watch&network=mainnet&event=event-2');
+        })).toBe('https://slashmon.example/app/?view=pingme&network=mainnet&event=event-2');
     });
 
-    it('navigates an in-scope app client to the correct Watch event on click', async () => {
+    it('navigates an in-scope app client to the correct PINGME event on click', async () => {
         const navigate = vi.fn(async () => undefined);
         const focus = vi.fn(async () => undefined);
         const outsideNavigate = vi.fn(async () => undefined);
@@ -71,7 +71,7 @@ describe('Web Push notification targets', () => {
 
         expect(outsideNavigate).not.toHaveBeenCalled();
         expect(navigate).toHaveBeenCalledWith(
-            'https://slashmon.example/app/?view=watch&network=mainnet&event=event-77',
+            'https://slashmon.example/app/?view=pingme&network=mainnet&event=event-77',
         );
         expect(clients.openWindow).not.toHaveBeenCalled();
     });

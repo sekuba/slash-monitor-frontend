@@ -26,29 +26,27 @@ describe('Slashmon capability-scoped API reads', () => {
     it('keeps the capability in Authorization across status, history, and event detail reads', async () => {
         const fetchMock = vi.fn(async (input: string | URL | Request, _init?: RequestInit) => {
             const url = String(input);
-            const data = url.endsWith('/status')
+            const payload = url.endsWith('/status')
                 ? {
+                    schemaVersion: 2,
+                    network: 'mainnet',
                     status: 'healthy',
                     generatedAt: '2026-07-21T10:00:01.000Z',
                     sources: { l1: source, aztec: source },
+                    delivery: { status: 'healthy' },
                     pendingOffenses: [],
                 }
                 : url.includes('/events/pending-event-1')
                     ? {
-                        id: 'pending-event-1',
-                        type: 'pending_offense_detected',
-                        source: 'aztec_node',
-                        targets: [address],
-                        observedAt: '2026-07-21T10:00:00.000Z',
+                        schemaVersion: 2,
+                        data: event('pending-event-1', 'pending_offense_detected', 'aztec_node', 'pending'),
                     }
-                    : [{
-                        id: 'event-1',
-                        type: 'onchain_targeted',
-                        source: 'ethereum_l1',
-                        targets: [address],
-                        observedAt: '2026-07-21T10:00:00.000Z',
-                    }];
-            return new Response(JSON.stringify({ schemaVersion: 2, data }), {
+                    : {
+                        schemaVersion: 2,
+                        data: [event('event-1', 'onchain_targeted', 'ethereum_l1', 'confirmed')],
+                        pagination: { nextCursor: null },
+                    };
+            return new Response(JSON.stringify(payload), {
                 status: 200,
                 headers: { 'content-type': 'application/json' },
             });
@@ -77,3 +75,19 @@ describe('Slashmon capability-scoped API reads', () => {
         }
     });
 });
+
+function event(id: string, type: string, eventSource: string, certainty: 'pending' | 'confirmed') {
+    return {
+        id,
+        network: 'mainnet',
+        type,
+        source: eventSource,
+        certainty,
+        sequencer: address,
+        targets: [address],
+        title: 'Test event',
+        body: 'Test event body',
+        data: {},
+        occurredAt: '2026-07-21T10:00:00.000Z',
+    };
+}

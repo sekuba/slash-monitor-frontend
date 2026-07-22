@@ -56,7 +56,7 @@ export function App() {
     const navigateTo = useCallback((view: AppView) => {
         const next = urlForView(window.location.href, view);
         window.history.pushState({}, '', next);
-        if (location.view === 'watch' && view !== 'watch') {
+        if (location.view === 'pingme' && view !== 'pingme') {
             restartScanner();
         }
         setLocation(parseAppSearch(next.search));
@@ -84,7 +84,7 @@ export function App() {
     useEffect(() => {
         const handlePopState = () => {
             const next = parseAppSearch(window.location.search);
-            if (next.network !== location.network || (location.view === 'watch' && next.view !== 'watch')) {
+            if (next.network !== location.network || (location.view === 'pingme' && next.view !== 'pingme')) {
                 restartScanner();
             }
             setLocation(next);
@@ -99,12 +99,12 @@ export function App() {
                 activeView={location.view}
                 onNavigate={navigateTo}
             />
-            {location.view === 'watch' ? (
+            {location.view === 'pingme' ? (
                 <main className="mx-auto max-w-7xl px-4 py-8">
                     <BackendOverview
                         key={`${location.network}:${location.selectedEventId ?? ''}`}
                         network={location.network}
-                        view="watch"
+                        view="pingme"
                     />
                 </main>
             ) : (

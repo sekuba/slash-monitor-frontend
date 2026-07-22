@@ -25,47 +25,40 @@ export class ApiContractError extends Error {
 }
 
 export function decodePublicConfig(input: unknown): V2PublicConfig {
-    const envelope = expectV2Envelope(input, 'config');
-    const root = optionalObject(envelope.data) ?? envelope;
-    const channels = optionalObject(root.channels) ?? root;
-    const webPush = optionalObject(channels.webPush) ?? {};
-    const telegram = optionalObject(channels.telegram) ?? {};
-    const limits = optionalObject(root.limits) ?? {};
-    const publicKey = optionalString(webPush.publicKey) ?? optionalString(root.vapidPublicKey);
-    const telegramBotUsername = optionalString(telegram.botUsername) ?? optionalString(root.telegramBotUsername);
+    const root = expectV2Envelope(input, 'config');
+    const publicKey = optionalString(root.vapidPublicKey);
+    const telegramBotUsername = optionalString(root.telegramBotUsername);
 
     return {
-        network: networkValue(root.network ?? envelope.network, 'config.network'),
+        network: networkValue(root.network, 'config.network'),
         webPush: {
-            enabled: optionalBoolean(webPush.enabled) ?? Boolean(publicKey),
+            enabled: Boolean(publicKey),
             publicKey: publicKey ?? null,
         },
         telegram: {
-            enabled: optionalBoolean(telegram.enabled) ?? Boolean(telegramBotUsername),
+            enabled: Boolean(telegramBotUsername),
             botUsername: telegramBotUsername ?? null,
         },
         limits: {
             maxSequencers: boundedInteger(
-                limits.maxSequencers ?? root.maxSequencers,
+                root.maxSequencers,
                 'config.limits.maxSequencers',
                 1,
                 1_000,
-                100,
             ),
         },
     };
 }
 
-export function decodeStatus(input: unknown, fallbackNetwork: MonitorNetwork): V2Status {
-    const envelope = expectV2Envelope(input, 'status');
-    const root = optionalObject(envelope.data) ?? envelope;
-    const responseNetwork = optionalNetwork(root.network);
-    if (responseNetwork && responseNetwork !== fallbackNetwork) {
-        throw new ApiContractError(`status network is ${responseNetwork}, expected ${fallbackNetwork}`);
+export function decodeStatus(input: unknown, expectedNetwork: MonitorNetwork): V2Status {
+    const root = expectV2Envelope(input, 'status');
+    const responseNetwork = networkValue(root.network, 'status.network');
+    if (responseNetwork !== expectedNetwork) {
+        throw new ApiContractError(`status network is ${responseNetwork}, expected ${expectedNetwork}`);
     }
     const sources = expectObject(root.sources, 'status.sources');
-    const offenses = optionalArray(root.pendingOffenses) ?? [];
-    const delivery = optionalObject(root.delivery);
+    const offenses = expectArray(root.pendingOffenses, 'status.pendingOffenses');
+    const delivery = expectObject(root.delivery, 'status.delivery');
 
     return {
         status: healthStatus(root.status, 'status.status'),
@@ -75,84 +68,61 @@ export function decodeStatus(input: unknown, fallbackNetwork: MonitorNetwork): V
             aztec: decodeSourceHealth(sources.aztec, 'status.sources.aztec'),
         },
         delivery: {
-            status: delivery
-                ? healthStatus(delivery.status, 'status.delivery.status')
-                : 'healthy',
-            overdueDeliveries: boundedInteger(
-                delivery?.overdueDeliveries,
-                'status.delivery.overdueDeliveries',
-                0,
-                Number.MAX_SAFE_INTEGER,
-                0,
-            ),
-            expiredLeases: boundedInteger(
-                delivery?.expiredLeases,
-                'status.delivery.expiredLeases',
-                0,
-                Number.MAX_SAFE_INTEGER,
-                0,
-            ),
-            recentTerminalFailures: boundedInteger(
-                delivery?.recentTerminalFailures,
-                'status.delivery.recentTerminalFailures',
-                0,
-                Number.MAX_SAFE_INTEGER,
-                0,
-            ),
+            status: healthStatus(delivery.status, 'status.delivery.status'),
+            overdueDeliveries: 0,
+            expiredLeases: 0,
+            recentTerminalFailures: 0,
         },
         pendingOffenses: offenses.map((offense, index) => decodePendingOffense(
             offense,
-            fallbackNetwork,
+            responseNetwork,
             `status.pendingOffenses[${index}]`,
         )),
     };
 }
 
-export function decodeEventPage(input: unknown, fallbackNetwork: MonitorNetwork): EventPage {
+export function decodeEventPage(input: unknown, expectedNetwork: MonitorNetwork): EventPage {
     const root = expectV2Envelope(input, 'events');
     const dataValue = root.data;
     const data = expectArray(dataValue, 'events.data').map((event, index) => decodeEvent(
         event,
-        fallbackNetwork,
+        expectedNetwork,
         `events.data[${index}]`,
     ));
-    const pagination = optionalObject(root.pagination);
+    const pagination = expectObject(root.pagination, 'events.pagination');
 
     return {
         data,
-        nextCursor: optionalString(pagination?.nextCursor ?? root.nextCursor) ?? null,
+        nextCursor: optionalString(pagination.nextCursor) ?? null,
     };
 }
 
-export function decodeEventDetail(input: unknown, fallbackNetwork: MonitorNetwork): MonitorEvent {
+export function decodeEventDetail(input: unknown, expectedNetwork: MonitorNetwork): MonitorEvent {
     const envelope = expectV2Envelope(input, 'event');
-    const root = optionalObject(envelope.data) ?? envelope;
-    return decodeEvent(root, fallbackNetwork, 'event');
+    return decodeEvent(expectObject(envelope.data, 'event.data'), expectedNetwork, 'event.data');
 }
 
 export function decodeSubscription(input: unknown): ManagedSubscription {
     const envelope = expectV2Envelope(input, 'subscription');
-    const root = optionalObject(envelope.data) ?? envelope;
-    return decodeSubscriptionObject(root, 'subscription');
+    return decodeSubscriptionObject(expectObject(envelope.data, 'subscription.data'), 'subscription.data');
 }
 
 export function decodeCreatedSubscription(input: unknown): CreatedSubscription {
     const envelope = expectV2Envelope(input, 'created subscription');
-    const root = optionalObject(envelope.data) ?? envelope;
-    const subscriptionValue = optionalObject(root.subscription) ?? root;
-    const managementToken = optionalString(root.managementToken) ?? optionalString(envelope.managementToken);
+    const root = expectObject(envelope.data, 'created subscription.data');
+    const managementToken = optionalString(root.managementToken);
     if (!managementToken) {
         throw new ApiContractError('created subscription is missing managementToken');
     }
 
     return {
-        subscription: decodeSubscriptionObject(subscriptionValue, 'created subscription'),
+        subscription: decodeSubscriptionObject(root, 'created subscription.data'),
         managementToken,
     };
 }
 
 export function decodeTelegramLink(input: unknown): TelegramLink {
-    const root = unwrapObject(input, 'Telegram link');
+    const root = expectV2Envelope(input, 'Telegram link');
     const url = expectString(root.url, 'Telegram link.url');
     let parsed: URL;
     try {
@@ -176,7 +146,7 @@ function decodeSourceHealth(input: unknown, path: string): SourceHealth {
     const status = healthStatus(value.status, `${path}.status`);
     return {
         status,
-        dataFresh: optionalBoolean(value.dataFresh) ?? status === 'healthy',
+        dataFresh: expectBoolean(value.dataFresh, `${path}.dataFresh`),
         dataAgeMs: nullableNonNegativeNumber(value.dataAgeMs, `${path}.dataAgeMs`),
         lastAttemptAt: nullableIsoString(value.lastAttemptAt, `${path}.lastAttemptAt`),
         lastSuccessAt: nullableIsoString(value.lastSuccessAt, `${path}.lastSuccessAt`),
@@ -184,7 +154,7 @@ function decodeSourceHealth(input: unknown, path: string): SourceHealth {
     };
 }
 
-function decodePendingOffense(input: unknown, fallbackNetwork: MonitorNetwork, path: string): PendingOffense {
+function decodePendingOffense(input: unknown, network: MonitorNetwork, path: string): PendingOffense {
     const value = expectObject(input, path);
     const status = expectString(value.status, `${path}.status`);
     if (status !== 'active' && status !== 'withdrawn') {
@@ -193,7 +163,7 @@ function decodePendingOffense(input: unknown, fallbackNetwork: MonitorNetwork, p
 
     return {
         id: expectString(value.id, `${path}.id`),
-        network: optionalNetwork(value.network) ?? fallbackNetwork,
+        network,
         sequencer: address(value.sequencer, `${path}.sequencer`),
         amount: optionalDecimalString(value.amount, `${path}.amount`),
         offenseType: nullableInteger(value.offenseType, `${path}.offenseType`),
@@ -208,37 +178,39 @@ function decodePendingOffense(input: unknown, fallbackNetwork: MonitorNetwork, p
     };
 }
 
-function decodeEvent(input: unknown, fallbackNetwork: MonitorNetwork, path: string): MonitorEvent {
+function decodeEvent(input: unknown, expectedNetwork: MonitorNetwork, path: string): MonitorEvent {
     const value = expectObject(input, path);
     const source = expectString(value.source, `${path}.source`);
-    const data = optionalObject(value.data);
-    const certaintyValue = optionalString(value.certainty);
-    const certainty = certaintyValue === 'pending' || certaintyValue === 'confirmed'
-        ? certaintyValue
-        : source.toLowerCase().includes('aztec') || source.toLowerCase().includes('pending')
-            ? 'pending'
-            : 'confirmed';
-    const explicitTargets = optionalArray(value.targets)?.map((target, index) =>
-        address(target, `${path}.targets[${index}]`)) ?? [];
-    const singletonTarget = value.sequencer ?? data?.sequencer ?? data?.address;
-    const targets = explicitTargets.length > 0
-        ? explicitTargets
-        : singletonTarget === null || singletonTarget === undefined
-            ? []
-            : [address(singletonTarget, `${path}.sequencer`)];
+    const data = expectObject(value.data, `${path}.data`);
+    const certaintyValue = expectString(value.certainty, `${path}.certainty`);
+    if (certaintyValue !== 'pending' && certaintyValue !== 'confirmed') {
+        throw new ApiContractError(`${path}.certainty must be pending or confirmed`);
+    }
+    const network = networkValue(value.network, `${path}.network`);
+    if (network !== expectedNetwork) {
+        throw new ApiContractError(`${path}.network is ${network}, expected ${expectedNetwork}`);
+    }
+    const targets = expectArray(value.targets, `${path}.targets`).map((target, index) =>
+        address(target, `${path}.targets[${index}]`));
+    const sequencer = value.sequencer === null
+        ? null
+        : address(value.sequencer, `${path}.sequencer`);
+    if (sequencer !== (targets[0] ?? null)) {
+        throw new ApiContractError(`${path}.sequencer must match the first target`);
+    }
 
     return {
         id: expectString(value.id, `${path}.id`),
-        network: optionalNetwork(value.network) ?? fallbackNetwork,
+        network,
         type: expectString(value.type, `${path}.type`),
         source,
-        certainty,
-        sequencer: targets[0] ?? null,
+        certainty: certaintyValue,
+        sequencer,
         targets,
-        title: optionalString(value.title) ?? humanize(expectString(value.type, `${path}.type`)),
-        body: optionalString(value.body) ?? '',
+        title: expectString(value.title, `${path}.title`),
+        body: expectText(value.body, `${path}.body`),
         offense: decodeEventOffense(data, `${path}.data`),
-        occurredAt: isoString(value.occurredAt ?? value.observedAt ?? value.createdAt, `${path}.observedAt`),
+        occurredAt: isoString(value.occurredAt, `${path}.occurredAt`),
     };
 }
 
@@ -259,10 +231,9 @@ function decodeEventOffense(data: Record<string, unknown> | null, path: string):
 
 function decodeSubscriptionObject(value: Record<string, unknown>, path: string): ManagedSubscription {
     const network = networkValue(value.network, `${path}.network`);
-    const sequencerValues = value.sequencers ?? value.addresses;
-    const sequencers = expectArray(sequencerValues, `${path}.addresses`).map((item, index) =>
-        address(item, `${path}.sequencers[${index}]`));
-    const channels = optionalObject(value.channels) ?? {};
+    const sequencers = expectArray(value.addresses, `${path}.addresses`).map((item, index) =>
+        address(item, `${path}.addresses[${index}]`));
+    const channels = expectObject(value.channels, `${path}.channels`);
 
     return {
         id: expectString(value.id, `${path}.id`),
@@ -278,25 +249,13 @@ function decodeSubscriptionObject(value: Record<string, unknown>, path: string):
 }
 
 function decodeChannel(input: unknown, path: string): NotificationChannelState {
-    if (typeof input === 'boolean') {
-        return { connected: input, enabled: input, verified: input, label: null };
-    }
-    if (input === null || input === undefined) {
-        return { connected: false, enabled: false, verified: false, label: null };
-    }
     const value = expectObject(input, path);
-    const enabled = optionalBoolean(value.enabled) ?? false;
     return {
-        connected: optionalBoolean(value.connected) ?? enabled,
-        enabled,
-        verified: optionalBoolean(value.verified) ?? enabled,
-        label: optionalString(value.label) ?? null,
+        connected: expectBoolean(value.connected, `${path}.connected`),
+        enabled: expectBoolean(value.enabled, `${path}.enabled`),
+        verified: expectBoolean(value.verified, `${path}.verified`),
+        label: null,
     };
-}
-
-function unwrapObject(input: unknown, path: string): Record<string, unknown> {
-    const envelope = expectObject(input, `${path} response`);
-    return optionalObject(envelope.data) ?? envelope;
 }
 
 function expectV2Envelope(input: unknown, path: string): Record<string, unknown> {
@@ -328,13 +287,16 @@ function expectArray(value: unknown, path: string): unknown[] {
     return value;
 }
 
-function optionalArray(value: unknown): unknown[] | null {
-    return Array.isArray(value) ? value : null;
-}
-
 function expectString(value: unknown, path: string): string {
     if (typeof value !== 'string' || !value.trim()) {
         throw new ApiContractError(`${path} must be a non-empty string`);
+    }
+    return value;
+}
+
+function expectText(value: unknown, path: string): string {
+    if (typeof value !== 'string') {
+        throw new ApiContractError(`${path} must be a string`);
     }
     return value;
 }
@@ -343,8 +305,11 @@ function optionalString(value: unknown): string | null {
     return typeof value === 'string' && value.trim() ? value : null;
 }
 
-function optionalBoolean(value: unknown): boolean | null {
-    return typeof value === 'boolean' ? value : null;
+function expectBoolean(value: unknown, path: string): boolean {
+    if (typeof value !== 'boolean') {
+        throw new ApiContractError(`${path} must be a boolean`);
+    }
+    return value;
 }
 
 function address(value: unknown, path: string): Address {
@@ -424,17 +389,9 @@ function boundedInteger(
     path: string,
     minimum: number,
     maximum: number,
-    fallback: number,
 ): number {
-    if (value === null || value === undefined) {
-        return fallback;
-    }
     if (!Number.isSafeInteger(value) || (value as number) < minimum || (value as number) > maximum) {
         throw new ApiContractError(`${path} must be an integer between ${minimum} and ${maximum}`);
     }
     return value as number;
-}
-
-function humanize(value: string): string {
-    return value.replace(/[_-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }

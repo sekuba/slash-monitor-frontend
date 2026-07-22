@@ -22,7 +22,7 @@ export function Header({ activeView, onNavigate }: HeaderProps) {
           </div>
 
           <div className="flex flex-wrap items-center gap-3 sm:justify-end">
-            {(['monitor', 'watch', 'debug'] as const).map((view) => (
+            {(['monitor', 'pingme', 'debug'] as const).map((view) => (
               <button
                 key={view}
                 type="button"
@@ -30,7 +30,7 @@ export function Header({ activeView, onNavigate }: HeaderProps) {
                 className={`brutal-button brutal-button--outline-chartreuse ${activeView === view ? 'brutal-button--nav-selected' : ''}`}
                 aria-current={activeView === view ? 'page' : undefined}
               >
-                {view === 'watch' ? 'Watch' : view[0].toUpperCase() + view.slice(1)}
+                {view === 'pingme' ? 'PINGME' : view[0].toUpperCase() + view.slice(1)}
               </button>
             ))}
             <a href="https://github.com/sekuba/slashmon" target="_blank" rel="noopener noreferrer" className="brutal-button brutal-button--outline-chartreuse brutal-button--icon" aria-label="View on GitHub">

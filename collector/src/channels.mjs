@@ -205,7 +205,7 @@ export class TelegramChannel {
 }
 
 export function notificationPath(event) {
-  const params = new URLSearchParams({ view: 'watch', network: event.network, event: event.id });
+  const params = new URLSearchParams({ view: 'pingme', network: event.network, event: event.id });
   return `?${params.toString()}`;
 }
 
