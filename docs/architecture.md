@@ -159,10 +159,12 @@ shared `name.github.io` origin remains useful for the public monitor, but the
 PWA refuses to create notification watches there; service-worker path scope is
 not a storage security boundary.
 
-Public HTTP reads expose only source health and Ethereum L1 state. Pending
-node-local intelligence is returned only through a bearer-capability watch list
-and only when an event target intersects that list. This keeps one operator's
-early node suspicions from becoming an unauthenticated global feed.
+Public HTTP reads expose source health, the latest active offenses proposed by
+Slashmon's Aztec node, and the combined node-local and Ethereum L1 event feed.
+Node-local items are explicitly labelled pending because they represent one
+node's early view rather than consensus. Bearer-capability watch-list reads
+intersect the same feeds with the list's addresses; the capability protects
+watch management and address associations, not the underlying public signal.
 
 ## Deployment shape
 

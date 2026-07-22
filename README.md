@@ -74,11 +74,12 @@ and builds the PWA.
 ## A small but important trust note
 
 The Aztec admin endpoint describes what one node currently believes is
-slashable. It is not consensus and must stay private. L1 payloads are read at a
-pinned Ethereum block and can be independently checked by anyone. Notification
-providers are best-effort transports, so serious operators should keep the
-dashboard and source-health checks in their routine instead of treating one
-push message as an oracle.
+slashable. It is public in Slashmon's node-local feed, but it is not consensus
+and is always labelled pending. L1 payloads are read at a pinned Ethereum block
+and can be independently checked by anyone. Notification providers are
+best-effort transports, so serious operators should keep the dashboard and
+source-health checks in their routine instead of treating one push message as
+an oracle.
 
 Production setup lives in [the runbook](docs/runbook.md). Keep secrets out of
 `VITE_*`: those values are shipped to every browser.

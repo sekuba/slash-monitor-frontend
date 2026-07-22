@@ -84,13 +84,13 @@ export function useBackendMonitor(network: MonitorNetwork) {
                 const previousStatus = previous.scopeKey === scopeKey ? previous.status : null;
                 const previousEvents = previous.scopeKey === scopeKey ? previous.events : null;
                 const receivedStatus = status.status === 'fulfilled'
-                    ? restrictPublicStatus(status.value, Boolean(credentials))
+                    ? status.value
                     : previousStatus;
                 const baseEvents = events.status === 'fulfilled'
-                    ? restrictPublicEvents(events.value, Boolean(credentials))
+                    ? events.value
                     : previousEvents;
                 const receivedSelectedEvent = selectedEvent.status === 'fulfilled'
-                    ? restrictPublicEvent(selectedEvent.value, Boolean(credentials))
+                    ? selectedEvent.value
                     : null;
                 const nextEvents = baseEvents
                     ? prependSelectedEvent(baseEvents, receivedSelectedEvent)
@@ -230,23 +230,6 @@ function readSelectedEventId(): string | null {
 function prependSelectedEvent(page: EventPage, selected: EventPage['data'][number] | null): EventPage {
     if (!selected || page.data.some((event) => event.id === selected.id)) return page;
     return { ...page, data: [selected, ...page.data] };
-}
-
-function restrictPublicStatus(status: V2Status, hasWatchlistCapability: boolean): V2Status {
-    return hasWatchlistCapability ? status : { ...status, pendingOffenses: [] };
-}
-
-function restrictPublicEvents(page: EventPage, hasWatchlistCapability: boolean): EventPage {
-    return hasWatchlistCapability
-        ? page
-        : { ...page, data: page.data.filter((event) => event.certainty === 'confirmed') };
-}
-
-function restrictPublicEvent(
-    event: MonitorEvent | null,
-    hasWatchlistCapability: boolean,
-): MonitorEvent | null {
-    return hasWatchlistCapability || event?.certainty === 'confirmed' ? event : null;
 }
 
 function toErrorMessage(error: unknown): string {

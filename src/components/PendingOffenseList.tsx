@@ -7,9 +7,7 @@ interface PendingOffenseListProps {
 }
 
 export function PendingOffenseList({ offenses, hasWatchlistCapability }: PendingOffenseListProps) {
-    const active = hasWatchlistCapability
-        ? offenses.filter((offense) => offense.status === 'active')
-        : [];
+    const active = offenses.filter((offense) => offense.status === 'active');
 
     return (
         <section className="border-5 border-orchid bg-aubergine p-5 shadow-brutal-orchid">
@@ -21,8 +19,8 @@ export function PendingOffenseList({ offenses, hasWatchlistCapability }: Pending
                     <h2 className="text-2xl font-black text-orchid">Pending Offenses</h2>
                     <p className="mt-2 text-sm font-bold text-whisper-white">
                         {hasWatchlistCapability
-                            ? 'Seen by Slashmon’s Aztec node before the L1 vote settles. Useful smoke signal, not consensus truth.'
-                            : 'Node-local accusations are capability-scoped, not a public feed. Save a watch list to reveal only signals targeting those addresses.'}
+                            ? 'Proposed by Slashmon’s Aztec node for this watch list before the L1 vote settles. Pending signal, not consensus truth.'
+                            : 'Proposed by Slashmon’s Aztec node before the L1 vote settles. Public pending signal, not consensus truth.'}
                     </p>
                 </div>
                 <span className="border-3 border-brand-black bg-orchid px-3 py-2 text-xl font-black text-brand-black">
@@ -34,7 +32,7 @@ export function PendingOffenseList({ offenses, hasWatchlistCapability }: Pending
                 <div className="border-3 border-orchid bg-brand-black p-4 text-sm font-bold text-whisper-white/80">
                     {hasWatchlistCapability
                         ? 'No pending offenses target this watch list in the latest successful node snapshot.'
-                        : 'No watch-list key is stored in this browser, so pending node signals stay sealed.'}
+                        : 'No pending offenses appear in the latest successful node snapshot.'}
                 </div>
             ) : (
                 <div className="space-y-3">

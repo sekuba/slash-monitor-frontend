@@ -16,7 +16,7 @@ const PUSH_SUBSCRIPTION = {
   keys: PUSH_KEYS,
 };
 
-test('API reports health and retires the node-intelligence-leaking v1 API', async (t) => {
+test('API reports health and retires the legacy v1 API', async (t) => {
   const repository = new OffenseRepository(':memory:');
   repository.listOnchainRounds = () => {
     throw new Error('health and public status must not serialize full L1 round snapshots');
@@ -98,7 +98,7 @@ test('overall L1 health remains degraded while confirmed slash-log backfill has 
   assert.equal(status.sources.l1.status, 'degraded');
 });
 
-test('v2 config, status, event filtering, and exact-origin CORS share one real snapshot', async (t) => {
+test('v2 config, public node/L1 feeds, watch filtering, and CORS share one real snapshot', async (t) => {
   const repository = healthyRepository();
   const { baseUrl } = await startApi(t, repository);
 
@@ -123,7 +123,7 @@ test('v2 config, status, event filtering, and exact-origin CORS share one real s
   assert.equal(status.status, 'healthy');
   assert.equal(status.sources.aztec.status, 'healthy');
   assert.equal(status.sources.l1.status, 'healthy');
-  assert.equal(status.pendingOffenses, undefined);
+  assert.deepEqual(status.pendingOffenses.map((item) => item.sequencer), [SEQUENCER_A]);
   assert.match(status.generatedAt, /^2026-07-21T/);
 
   const wrongNetworkResponse = await fetch(`${baseUrl}/api/v2/status?network=testnet`);
@@ -135,14 +135,19 @@ test('v2 config, status, event filtering, and exact-origin CORS share one real s
   );
   const publicEvents = await publicEventsResponse.json();
   assert.equal(publicEvents.schemaVersion, 2);
-  assert.deepEqual(publicEvents.data, []);
+  assert.deepEqual(
+    publicEvents.data.map((event) => ({ source: event.source, certainty: event.certainty })),
+    [{ source: 'aztec_node', certainty: 'pending' }],
+  );
   const [pendingEvent] = repository.listEvents({ network: 'mainnet', addresses: [SEQUENCER_A] }).data;
 
   const publicPendingDetailResponse = await fetch(
     `${baseUrl}/api/v2/events/${pendingEvent.id}?network=mainnet`,
   );
-  assert.equal(publicPendingDetailResponse.status, 404);
-  assert.equal((await publicPendingDetailResponse.json()).error.code, 'event_not_found');
+  assert.equal(publicPendingDetailResponse.status, 200);
+  const publicPendingDetail = await publicPendingDetailResponse.json();
+  assert.equal(publicPendingDetail.data.id, pendingEvent.id);
+  assert.equal(publicPendingDetail.data.certainty, 'pending');
 
   const matchingSubscription = await createSubscription(baseUrl, [SEQUENCER_A]);
   const unrelatedSubscription = await createSubscription(baseUrl, [SEQUENCER_B]);

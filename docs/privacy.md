@@ -42,11 +42,13 @@ The HTTPS reverse proxy can log IP addresses and request paths. Do not put
 sequencer lists or management tokens in URLs, and configure access-log
 retention deliberately instead of accepting an eternal default.
 
-Public API reads contain health metadata and public Ethereum L1 events only.
-Pending Aztec-node offenses and their event details require a watch-list bearer
-capability, and the backend intersects them with that watch list's addresses.
-The retired v1 offense endpoints return HTTP 410. An opaque event ID is not a
-substitute for authorization.
+Public API reads contain health metadata, active offenses proposed by
+Slashmon's Aztec node, and node-local and Ethereum L1 events. Node-local events
+identify public sequencer addresses and are labelled pending; they do not expose
+who watches those addresses or any delivery metadata. Watch-list bearer
+capabilities remain required for watch management and saved-watch views.
+Endpoint-scoped catch-up and notification-test events remain private. The
+retired v1 offense endpoints return HTTP 410.
 
 ## User controls
 

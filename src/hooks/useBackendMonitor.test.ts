@@ -19,7 +19,7 @@ function fakeApi() {
 }
 
 describe('backend read capability selection', () => {
-    it('uses only public status and L1 event reads without stored credentials', async () => {
+    it('uses public status and combined node/L1 event reads without stored credentials', async () => {
         const api = fakeApi();
         const requests = createBackendReadRequests(api, 'mainnet', null, 'event-1');
 
@@ -33,7 +33,7 @@ describe('backend read capability selection', () => {
         expect(api.getSubscriptionEvent).not.toHaveBeenCalled();
     });
 
-    it('uses watchlist-scoped reads and resolves a private deep-linked event', async () => {
+    it('uses watchlist-scoped reads and resolves a deep-linked event', async () => {
         const api = fakeApi();
         const credentials = { id: 'watch-1', managementToken: 'secret-capability' };
         const requests = createBackendReadRequests(api, 'testnet', credentials, 'pending-event-1');

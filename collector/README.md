@@ -155,11 +155,13 @@ the other source.
 - `GET /api/v2/config` returns enabled channels, the VAPID public key, Telegram
   bot username, and public limits. No secrets are returned.
 - `GET /api/v2/status?network=mainnet` returns source/delivery freshness and
-  current public onchain rounds. It does not publish node-local offenses.
+  up to 1,000 active offenses from Slashmon's Aztec node, labelled pending.
 - `GET /api/v2/events?network=mainnet&address=0x...&limit=40&cursor=...`
-  returns only L1 events, optionally filtered to one sequencer.
+  returns the combined node-local and L1 event journal, optionally filtered to
+  one sequencer. Node-local events are labelled pending.
 - `GET /api/v2/events/:id?network=mainnet` resolves a notification deep link
-  for a public L1 event after it has fallen out of the first feed page.
+  for a public node-local or L1 event after it has fallen out of the first feed
+  page.
 
 Big integers cross the API as decimal strings. Addresses are normalized to
 lowercase for matching. The configured `SLASHMON_NETWORK` is the only accepted
@@ -189,9 +191,9 @@ requires `Authorization: Bearer <token>`. The token is a bearer secret; never
 put it in a URL or log it.
 
 The capability-scoped status and event reads intersect node-local offenses and
-journal events with that watch list's sequencer addresses. They are also what a
-PWA uses to resolve a private pending-alert deep link. Knowing an event ID alone
-does not reveal a pending signal.
+journal events with that watch list's sequencer addresses. They let the PWA
+show the same public signals as a focused watch-list view while keeping watch
+management and the address association behind the bearer capability.
 
 The Telegram-link route returns a short-lived, single-use deep link. Opening it
 and sending `/start` binds that chat without placing the watched addresses in
@@ -207,9 +209,9 @@ unverified endpoints are removed after 24 hours. Telegram links are armed only
 after the configured bot has passed an exact `getMe` username check and disabled
 webhook delivery, so a typo cannot route alerts through the wrong bot.
 
-The old public `/api/v1/*` offense routes return HTTP 410. Keeping them would
-publish one private node's pre-consensus intelligence without a watch-list
-capability, which is not a compatibility promise worth preserving.
+The old public `/api/v1/*` offense routes return HTTP 410. The v2 status and
+event feeds replace their legacy response shapes and clearly distinguish
+pending node-local proposals from confirmed L1 observations.
 
 ## Persistence and restart behavior
 

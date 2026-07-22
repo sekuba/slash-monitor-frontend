@@ -182,7 +182,7 @@ export class CollectorApiServer {
     throw new HttpError(
       410,
       'legacy_api_retired',
-      'The v1 offense API exposed node-local intelligence without a watchlist capability; use the v2 API',
+      'The legacy v1 offense API is retired; use the v2 status and event feeds',
     );
   }
 
@@ -203,7 +203,10 @@ export class CollectorApiServer {
     }
     if (method === 'GET' && url.pathname === '/api/v2/events') {
       const query = parseEventQuery(url.searchParams, this.network);
-      const page = this.repository.listEvents({ ...query, sources: ['ethereum_l1'] });
+      const page = this.repository.listEvents({
+        ...query,
+        sources: ['aztec_node', 'ethereum_l1'],
+      });
       return writeJson(response, 200, {
         schemaVersion: 2,
         data: page.data ?? page.events ?? page,
@@ -218,7 +221,7 @@ export class CollectorApiServer {
       }
       const network = normalizeNetwork(url.searchParams.get('network') ?? this.network, this.network);
       const event = this.repository.getEvent(id);
-      if (!event || event.network !== network || event.source !== 'ethereum_l1') {
+      if (!event || event.network !== network || !['aztec_node', 'ethereum_l1'].includes(event.source)) {
         throw new HttpError(404, 'event_not_found', 'Event not found');
       }
       return writeJson(response, 200, {
@@ -501,7 +504,14 @@ export class CollectorApiServer {
     if (this.publicStatusCache && this.publicStatusCache.expiresAt > now) {
       return this.publicStatusCache.value;
     }
-    const value = this.buildBaseV2Status();
+    const value = {
+      ...this.buildBaseV2Status(),
+      pendingOffenses: this.repository.listOffenses({
+        status: 'active',
+        limit: 1_000,
+        offset: 0,
+      }),
+    };
     this.publicStatusCache = { value, expiresAt: now + 1_000 };
     return value;
   }

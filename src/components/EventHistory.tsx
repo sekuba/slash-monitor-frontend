@@ -28,13 +28,13 @@ export function EventHistory({ events, hasWatchlistCapability, selectedEventErro
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                 <div>
                     <div className="mb-2 inline-flex border-3 border-brand-black bg-aqua px-3 py-1 text-xs font-black uppercase text-brand-black">
-                        L1 Event Log
+                        Node + L1 Event Log
                     </div>
                     <h2 className="text-2xl font-black text-aqua">Recent Events</h2>
                     <p className="mt-2 text-sm font-bold text-whisper-white">
                         {hasWatchlistCapability
-                            ? 'Events targeting this browser’s saved watch list, including its private node-local warnings.'
-                            : 'Public L1 history only. Save a watch list to unlock its matching node-local warnings.'}
+                            ? 'Node-local proposals and L1 events targeting this browser’s saved watch list.'
+                            : 'Public node-local proposals and L1 history. Pending items come from Slashmon’s single Aztec node.'}
                     </p>
                 </div>
                 <span className="border-3 border-brand-black bg-aqua px-3 py-2 text-xl font-black text-brand-black">
@@ -52,7 +52,7 @@ export function EventHistory({ events, hasWatchlistCapability, selectedEventErro
                 <div className="border-3 border-aqua bg-brand-black p-4 text-sm font-bold text-whisper-white/80">
                     {hasWatchlistCapability
                         ? 'No journaled slashing events target this watch list yet.'
-                        : 'No public L1 slashing events have been journaled yet.'}
+                        : 'No public node-local or L1 slashing events have been journaled yet.'}
                 </div>
             ) : (
                 <div className="max-h-[34rem] space-y-3 overflow-y-auto pr-1">
