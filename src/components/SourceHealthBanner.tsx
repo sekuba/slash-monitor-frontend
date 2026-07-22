@@ -7,6 +7,7 @@ interface SourceHealthBannerProps {
     isLoading: boolean;
     lastReceivedAt: number | null;
     onRefresh: () => void;
+    clientScannerMounted?: boolean;
 }
 
 export function SourceHealthBanner({
@@ -15,6 +16,7 @@ export function SourceHealthBanner({
     isLoading,
     lastReceivedAt,
     onRefresh,
+    clientScannerMounted = true,
 }: SourceHealthBannerProps) {
     const [clock, setClock] = useState(0);
     useEffect(() => {
@@ -34,7 +36,9 @@ export function SourceHealthBanner({
                             {error ?? 'Fetching durable L1 and Aztec-node observations…'}
                         </p>
                         <p className="mt-2 text-xs font-bold text-whisper-white/70">
-                            The direct L1 verifier below remains independent. Closed-tab notifications need this backend.
+                            {clientScannerMounted
+                                ? 'The direct L1 verifier below remains independent. Closed-tab notifications need this backend.'
+                                : 'This backend powers durable watches and closed-tab notifications; it does not start the browser L1 scanner.'}
                         </p>
                     </div>
                     {!isLoading && (
@@ -75,7 +79,9 @@ export function SourceHealthBanner({
                             : degraded ? 'Warning Coverage Degraded' : 'Warning Network Online'}
                     </h2>
                     <p className="mt-1 text-sm font-bold text-whisper-white">
-                        Backend alerts are durable. The dashboard’s direct L1 scan is a separate verifier.
+                        {clientScannerMounted
+                            ? 'Backend alerts are durable. The browser’s direct L1 scan is a separate verifier.'
+                            : 'Backend alerts are durable. This Watch view does not run the browser’s direct L1 scanner.'}
                     </p>
                     {error && <p className="mt-2 text-xs font-bold text-vermillion">Latest refresh: {error}</p>}
                 </div>

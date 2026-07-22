@@ -32,7 +32,9 @@ self.addEventListener('notificationclick', (event) => {
     });
 
     for (const client of windows) {
-      if (new URL(client.url).origin !== self.location.origin) {
+      const clientUrl = new URL(client.url);
+      const scopeUrl = new URL(self.registration.scope);
+      if (clientUrl.origin !== scopeUrl.origin || !clientUrl.pathname.startsWith(scopeUrl.pathname)) {
         continue;
       }
       if ('navigate' in client) {
@@ -70,6 +72,9 @@ function buildNotification(payload) {
   const body = safeText(payload.body, 'A watched sequencer has a new slashing event.', 600);
   const eventId = safeIdentifier(payload.eventId || metadata.eventId);
   const network = (payload.network || metadata.network) === 'testnet' ? 'testnet' : 'mainnet';
+  const url = typeof payload.url === 'string'
+    ? payload.url
+    : typeof metadata.url === 'string' ? metadata.url : '';
   const tag = safeIdentifier(payload.tag) || eventId || `slashmon-${network}`;
 
   return {
@@ -80,19 +85,37 @@ function buildNotification(payload) {
       badge: ICON_PATH,
       tag,
       renotify: true,
-      data: { eventId, network },
+      data: { eventId, network, url },
     },
   };
 }
 
 function safeTargetUrl(data) {
-  const url = new URL('./', self.registration.scope);
+  const scope = new URL(self.registration.scope);
+  let url = new URL('./', scope);
+  if (data && typeof data.url === 'string' && data.url.trim()) {
+    try {
+      const candidate = new URL(data.url, scope);
+      if (candidate.origin === scope.origin && candidate.pathname.startsWith(scope.pathname)) {
+        url = candidate;
+      }
+    }
+    catch {
+      // Fall through to the service-worker scope root.
+    }
+  }
+
   const network = data && data.network === 'testnet' ? 'testnet' : 'mainnet';
+  url.hash = '';
+  url.searchParams.set('view', 'watch');
   url.searchParams.set('network', network);
 
-  const eventId = safeIdentifier(data && data.eventId);
+  const eventId = safeIdentifier(data && data.eventId) || safeIdentifier(url.searchParams.get('event'));
   if (eventId) {
     url.searchParams.set('event', eventId);
+  }
+  else {
+    url.searchParams.delete('event');
   }
 
   return url.href;

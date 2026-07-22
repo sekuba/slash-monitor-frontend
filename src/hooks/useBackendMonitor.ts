@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { slashmonApi } from '@/api/client';
+import { SlashmonApiError, slashmonApi } from '@/api/client';
 import {
     loadSubscriptionCredentials,
     subscribeToSubscriptionScope,
@@ -16,6 +16,7 @@ interface BackendMonitorState {
     scopeKey: string | null;
     isLoading: boolean;
     error: string | null;
+    selectedEventError: string | null;
     lastReceivedAt: number | null;
 }
 
@@ -26,6 +27,7 @@ const initialState: BackendMonitorState = {
     scopeKey: null,
     isLoading: true,
     error: null,
+    selectedEventError: null,
     lastReceivedAt: null,
 };
 
@@ -75,7 +77,8 @@ export function useBackendMonitor(network: MonitorNetwork) {
             const failures = [config, status, events]
                 .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
                 .map((result) => toErrorMessage(result.reason));
-            const receivedAnything = [config, status, events].some((result) => result.status === 'fulfilled');
+            const receivedAnything = [config, status, events, selectedEvent]
+                .some((result) => result.status === 'fulfilled');
 
             setState((previous) => {
                 const previousStatus = previous.scopeKey === scopeKey ? previous.status : null;
@@ -91,7 +94,15 @@ export function useBackendMonitor(network: MonitorNetwork) {
                     : null;
                 const nextEvents = baseEvents
                     ? prependSelectedEvent(baseEvents, receivedSelectedEvent)
-                    : null;
+                    : receivedSelectedEvent
+                        ? { data: [receivedSelectedEvent], nextCursor: null }
+                        : null;
+                const selectedEventIsAvailable = Boolean(
+                    selectedEventId && (
+                        receivedSelectedEvent?.id === selectedEventId ||
+                        (events.status === 'fulfilled' && baseEvents?.data.some((event) => event.id === selectedEventId))
+                    ),
+                );
                 return {
                     config: config.status === 'fulfilled' ? config.value : previous.config,
                     status: receivedStatus,
@@ -99,6 +110,11 @@ export function useBackendMonitor(network: MonitorNetwork) {
                     scopeKey,
                     isLoading: false,
                     error: failures.length > 0 ? failures[0] : null,
+                    selectedEventError: !selectedEventId || selectedEventIsAvailable
+                        ? null
+                        : selectedEventFailureMessage(
+                            selectedEvent.status === 'rejected' ? selectedEvent.reason : null,
+                        ),
                     lastReceivedAt: receivedAnything ? Date.now() : previous.lastReceivedAt,
                 };
             });
@@ -141,6 +157,7 @@ export function useBackendMonitor(network: MonitorNetwork) {
         status: scopeIsCurrent ? state.status : null,
         events: scopeIsCurrent ? state.events : null,
         error: scopeIsCurrent ? state.error : null,
+        selectedEventError: scopeIsCurrent ? state.selectedEventError : null,
         isLoading: state.isLoading || !scopeIsCurrent,
         hasWatchlistCapability: Boolean(credentials),
         refresh,
@@ -234,4 +251,14 @@ function restrictPublicEvent(
 
 function toErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : 'Unable to reach the Slashmon backend';
+}
+
+export function selectedEventFailureMessage(error: unknown): string {
+    if (error instanceof SlashmonApiError && (error.status === 401 || error.status === 403)) {
+        return 'This notification-linked event is not authorized for the watch credential stored in this browser.';
+    }
+    if (error instanceof SlashmonApiError && error.status === 404) {
+        return 'This notification-linked event is unavailable. It may belong to another network or no longer be retained.';
+    }
+    return 'This notification-linked event could not be loaded. It may be unavailable, inaccessible, or no longer retained.';
 }

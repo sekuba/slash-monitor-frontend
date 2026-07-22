@@ -5,9 +5,10 @@ import type { MonitorEvent } from '@/types/v2Api';
 interface EventHistoryProps {
     events: MonitorEvent[];
     hasWatchlistCapability: boolean;
+    selectedEventError?: string | null;
 }
 
-export function EventHistory({ events, hasWatchlistCapability }: EventHistoryProps) {
+export function EventHistory({ events, hasWatchlistCapability, selectedEventError = null }: EventHistoryProps) {
     const selectedEventId = new URLSearchParams(window.location.search).get('event');
     const scrolledEventIdRef = useRef<string | null>(null);
 
@@ -40,6 +41,12 @@ export function EventHistory({ events, hasWatchlistCapability }: EventHistoryPro
                     {events.length}
                 </span>
             </div>
+
+            {selectedEventError && (
+                <div className="mb-4 border-3 border-vermillion bg-brand-black p-4 text-sm font-bold text-vermillion" role="alert">
+                    {selectedEventError}
+                </div>
+            )}
 
             {events.length === 0 ? (
                 <div className="border-3 border-aqua bg-brand-black p-4 text-sm font-bold text-whisper-white/80">

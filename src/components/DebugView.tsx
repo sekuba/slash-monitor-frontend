@@ -1,36 +1,36 @@
 import React, { useState } from 'react';
 import { useSlashingStore } from '../store/slashingStore';
 import { formatEther } from 'viem';
-import { clearCustomRpcUrl, getCustomRpcUrl, reloadApp } from '@/lib/rpcOverride';
+import { getCustomRpcUrl } from '@/lib/rpcOverride';
+import type { MonitorConfigInput } from '@/types/slashing';
 
-export const DebugView: React.FC = () => {
+interface DebugViewProps {
+  configInput: MonitorConfigInput;
+  onResetRpc: () => void;
+  onUpdateRpc: (url: string) => void;
+}
+
+export const DebugView: React.FC<DebugViewProps> = ({ configInput, onResetRpc, onUpdateRpc }) => {
   const [customRpcUrl, setCustomRpcUrl] = useState<string>('');
-  const { config, l1BlockNumber, l1Timestamp, currentRound, currentSlot, currentEpoch, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, stats, audit, updateRpcUrl } = useSlashingStore();
-  const customRpcOverride = config ? getCustomRpcUrl(config.chainId) : null;
+  const [rpcNotice, setRpcNotice] = useState<string | null>(null);
+  const { config, isInitialized, initializationError, l1BlockNumber, l1Timestamp, currentRound, currentSlot, currentEpoch, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, stats, audit } = useSlashingStore();
+  const customRpcOverride = getCustomRpcUrl(configInput.chainId);
+  const notInitialized = 'Not initialized';
 
   const handleRpcUrlChange = () => {
     if (!customRpcUrl.trim()) {
-      alert('Please enter a valid RPC URL');
+      setRpcNotice('Enter an RPC URL before starting a new scanner attempt.');
       return;
     }
-    updateRpcUrl(customRpcUrl.trim());
+    onUpdateRpc(customRpcUrl.trim());
+    setCustomRpcUrl('');
+    setRpcNotice('Custom RPC saved. A fresh client scanner attempt has started.');
   };
 
   const handleResetRpcUrl = () => {
-    if (!config) {
-      return;
-    }
-    clearCustomRpcUrl(config.chainId);
-    reloadApp();
+    onResetRpc();
+    setRpcNotice('Custom RPC cleared. A fresh client scanner attempt has started.');
   };
-
-  if (!config) {
-    return (
-      <div className="bg-lapis border-5 border-aqua p-8 shadow-brutal-aqua">
-        <div className="text-aqua font-black uppercase text-xl">Loading configuration...</div>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -57,16 +57,16 @@ export const DebugView: React.FC = () => {
           Contract Parameters
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <ConfigItem label="SlashingProposer.QUORUM()" value={config.quorum?.toString() || 'Not loaded'} />
-          <ConfigItem label="SlashingProposer.ROUND_SIZE()" value={config.slashingRoundSize?.toString() || 'Not loaded'} />
-          <ConfigItem label="SlashingProposer.ROUND_SIZE_IN_EPOCHS()" value={config.slashingRoundSizeInEpochs?.toString() || 'Not loaded'} />
-          <ConfigItem label="SlashingProposer.EXECUTION_DELAY_IN_ROUNDS()" value={config.executionDelayInRounds?.toString() || 'Not loaded'} />
-          <ConfigItem label="SlashingProposer.LIFETIME_IN_ROUNDS()" value={config.lifetimeInRounds?.toString() || 'Not loaded'} />
-          <ConfigItem label="SlashingProposer.SLASH_OFFSET_IN_ROUNDS()" value={config.slashOffsetInRounds?.toString() || 'Not loaded'} />
-          <ConfigItem label="SlashingProposer.COMMITTEE_SIZE()" value={config.committeeSize?.toString() || 'Not loaded'} />
-          <ConfigItem label="Rollup.getSlotDuration()" value={config.slotDuration ? `${config.slotDuration}s` : 'Not loaded'} />
-          <ConfigItem label="Rollup.getEpochDuration()" value={config.epochDuration ? `${config.epochDuration}slots` : 'Not loaded'} />
-          <ConfigItem label="Slasher.SLASHING_DISABLE_DURATION()" value={slashingDisableDuration ? `${slashingDisableDuration}s` : 'Not loaded'} />
+          <ConfigItem label="SlashingProposer.QUORUM()" value={config?.quorum?.toString() ?? notInitialized} />
+          <ConfigItem label="SlashingProposer.ROUND_SIZE()" value={config?.slashingRoundSize?.toString() ?? notInitialized} />
+          <ConfigItem label="SlashingProposer.ROUND_SIZE_IN_EPOCHS()" value={config?.slashingRoundSizeInEpochs?.toString() ?? notInitialized} />
+          <ConfigItem label="SlashingProposer.EXECUTION_DELAY_IN_ROUNDS()" value={config?.executionDelayInRounds?.toString() ?? notInitialized} />
+          <ConfigItem label="SlashingProposer.LIFETIME_IN_ROUNDS()" value={config?.lifetimeInRounds?.toString() ?? notInitialized} />
+          <ConfigItem label="SlashingProposer.SLASH_OFFSET_IN_ROUNDS()" value={config?.slashOffsetInRounds?.toString() ?? notInitialized} />
+          <ConfigItem label="SlashingProposer.COMMITTEE_SIZE()" value={config?.committeeSize?.toString() ?? notInitialized} />
+          <ConfigItem label="Rollup.getSlotDuration()" value={config ? `${config.slotDuration}s` : notInitialized} />
+          <ConfigItem label="Rollup.getEpochDuration()" value={config ? `${config.epochDuration} slots` : notInitialized} />
+          <ConfigItem label="Slasher.SLASHING_DISABLE_DURATION()" value={isInitialized ? `${slashingDisableDuration}s` : notInitialized} />
         </div>
       </section>
 
@@ -79,19 +79,21 @@ export const DebugView: React.FC = () => {
           Current Chain State
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StateCard label="SlashingProposer.getCurrentRound()" value={currentRound?.toString() || 'Not loaded'} />
-          <StateCard label="L1 Snapshot Block" value={l1BlockNumber?.toString() || 'Not loaded'} />
-          <StateCard label="L1 Snapshot Time" value={l1Timestamp ? new Date(Number(l1Timestamp) * 1000).toLocaleString() : 'Not loaded'} />
-          <StateCard label="Rollup.getCurrentSlot()" value={currentSlot?.toString() || 'Not loaded'} />
-          <StateCard label="Rollup.getCurrentEpoch()" value={currentEpoch?.toString() || 'Not loaded'} />
+          <StateCard label="SlashingProposer.getCurrentRound()" value={isInitialized ? currentRound.toString() : notInitialized} />
+          <StateCard label="L1 Snapshot Block" value={isInitialized ? l1BlockNumber.toString() : notInitialized} />
+          <StateCard label="L1 Snapshot Time" value={isInitialized ? new Date(Number(l1Timestamp) * 1000).toLocaleString() : notInitialized} />
+          <StateCard label="Rollup.getCurrentSlot()" value={isInitialized ? currentSlot.toString() : notInitialized} />
+          <StateCard label="Rollup.getCurrentEpoch()" value={isInitialized ? currentEpoch.toString() : notInitialized} />
           <StateCard
             label="Slasher.isSlashingEnabled()"
-            value={isSlashingEnabled ? 'YES' : 'NO'}
-            highlight={isSlashingEnabled}
+            value={isInitialized ? (isSlashingEnabled ? 'YES' : 'NO') : notInitialized}
+            highlight={isInitialized ? isSlashingEnabled : undefined}
           />
           <StateCard
             label="Slasher.slashingDisabledUntil()"
-            value={slashingDisabledUntil ? new Date(Number(slashingDisabledUntil) * 1000).toLocaleString() : 'N/A'}
+            value={isInitialized
+              ? (slashingDisabledUntil > 0n ? new Date(Number(slashingDisabledUntil) * 1000).toLocaleString() : 'N/A')
+              : notInitialized}
             wide
           />
         </div>
@@ -107,13 +109,8 @@ export const DebugView: React.FC = () => {
         <div className="space-y-3">
           <StateCard
             label="Latest Scan"
-            value={{
-              ok: 'FULLY VERIFIED',
-              partial: 'PARTIAL COVERAGE',
-              stale: 'STALE',
-              fatal: 'UNAVAILABLE',
-            }[audit.status]}
-            highlight={audit.status === 'ok'}
+            value={debugScanLabel(isInitialized, initializationError, audit.status)}
+            highlight={isInitialized ? audit.status === 'ok' : undefined}
             wide
           />
           <StateCard
@@ -133,6 +130,11 @@ export const DebugView: React.FC = () => {
               ))}
             </div>
           )}
+          {initializationError && (
+            <div className="bg-brand-black border-3 border-vermillion p-4 text-sm font-bold text-whisper-white" role="alert">
+              {initializationError}
+            </div>
+          )}
         </div>
       </section>
 
@@ -149,7 +151,7 @@ export const DebugView: React.FC = () => {
             <div className="text-sm text-whisper-white mb-3">
               <span className="font-black uppercase text-orchid">Current RPC URL: </span>
               <span className="font-mono text-xs break-all">
-                {Array.isArray(config.l1RpcUrl) ? config.l1RpcUrl.join(', ') : config.l1RpcUrl}
+                {Array.isArray(configInput.l1RpcUrl) ? configInput.l1RpcUrl.join(', ') || 'Not configured' : configInput.l1RpcUrl || 'Not configured'}
               </span>
               {customRpcOverride && (
                 <span className="ml-3 px-2 py-1 bg-chartreuse text-brand-black text-xs font-black uppercase">CUSTOM</span>
@@ -166,7 +168,7 @@ export const DebugView: React.FC = () => {
                   onChange={(e) => setCustomRpcUrl(e.target.value)}
                   placeholder="https://eth-mainnet.g.alchemy.com/v2/..."
                   className="w-full bg-brand-black border-3 border-whisper-white/30 px-4 py-3 text-whisper-white font-mono text-sm focus:border-orchid focus:outline-hidden"
-                  onKeyPress={(e) => {
+                  onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       handleRpcUrlChange();
                     }
@@ -190,34 +192,8 @@ export const DebugView: React.FC = () => {
                 </button>
               )}
             </div>
+            {rpcNotice && <p className="mt-3 text-sm font-bold text-aqua" role="status">{rpcNotice}</p>}
           </div>
-        </div>
-      </section>
-
-      {/* App reload */}
-      <section className="bg-oxblood border-5 border-vermillion p-6 shadow-brutal-vermillion">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <svg className="w-7 h-7 text-vermillion stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-            </svg>
-            <h3 className="text-2xl font-black text-vermillion uppercase">App Reload</h3>
-          </div>
-          <button
-            type="button"
-            onClick={reloadApp}
-            className="brutal-button brutal-button--outline-danger brutal-button--lg"
-            aria-label="Reload app"
-          >
-            <div className="flex items-center gap-2">
-              <svg className="w-5 h-5 text-vermillion stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-              </svg>
-              <span className="text-sm font-bold uppercase tracking-wider text-vermillion">
-                Reload App
-              </span>
-            </div>
-          </button>
         </div>
       </section>
 
@@ -249,25 +225,41 @@ export const DebugView: React.FC = () => {
           Environment Configuration
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <ConfigItem label="L1 RPC URL" value={Array.isArray(config.l1RpcUrl) ? config.l1RpcUrl.join(', ') : config.l1RpcUrl} />
-          <ConfigItem label="Registry Address" value={config.registryAddress} copyable />
-          <ConfigItem label="Rollup Address" value={config.rollupAddress} copyable />
-          <ConfigItem label="Rollup Version" value={config.rollupVersion.toString()} />
-          <ConfigItem label="Slasher Address" value={config.slasherAddress} copyable />
-          <ConfigItem label="Slashing Proposer Address" value={config.slashingProposerAddress} copyable />
-          <ConfigItem label="Pending Slasher" value={config.pendingSlasherAddress} copyable />
-          <ConfigItem label="Pending Slashing Proposer" value={config.pendingSlashingProposerAddress} copyable />
-          <ConfigItem label="Pending Slasher Ready At" value={config.pendingSlasherReadyAt === 0n ? 'None' : new Date(Number(config.pendingSlasherReadyAt) * 1000).toISOString()} />
-          <ConfigItem label="Legacy Slasher" value={config.legacySlasherAddress} copyable />
-          <ConfigItem label="Legacy Slashing Proposer" value={config.legacySlashingProposerAddress} copyable />
-          <ConfigItem label="Legacy Authorized Until" value={config.legacySlasherAuthorizedUntil === 0n ? 'None' : new Date(Number(config.legacySlasherAuthorizedUntil) * 1000).toISOString()} />
-          <ConfigItem label="Poll Interval" value={`${config.pollInterval}ms`} />
-          <ConfigItem label="Countdown Interval" value={`${config.realtimeCountdownInterval}ms`} />
+          <ConfigItem label="L1 RPC URL" value={Array.isArray(configInput.l1RpcUrl) ? configInput.l1RpcUrl.join(', ') || 'Not configured' : configInput.l1RpcUrl || 'Not configured'} />
+          <ConfigItem label="Registry Address" value={configInput.registryAddress} copyable />
+          <ConfigItem label="Rollup Address" value={config?.rollupAddress ?? notInitialized} copyable={Boolean(config)} />
+          <ConfigItem label="Rollup Version" value={config?.rollupVersion.toString() ?? notInitialized} />
+          <ConfigItem label="Slasher Address" value={config?.slasherAddress ?? notInitialized} copyable={Boolean(config)} />
+          <ConfigItem label="Slashing Proposer Address" value={config?.slashingProposerAddress ?? notInitialized} copyable={Boolean(config)} />
+          <ConfigItem label="Pending Slasher" value={config?.pendingSlasherAddress ?? notInitialized} copyable={Boolean(config)} />
+          <ConfigItem label="Pending Slashing Proposer" value={config?.pendingSlashingProposerAddress ?? notInitialized} copyable={Boolean(config)} />
+          <ConfigItem label="Pending Slasher Ready At" value={!config ? notInitialized : config.pendingSlasherReadyAt === 0n ? 'None' : new Date(Number(config.pendingSlasherReadyAt) * 1000).toISOString()} />
+          <ConfigItem label="Legacy Slasher" value={config?.legacySlasherAddress ?? notInitialized} copyable={Boolean(config)} />
+          <ConfigItem label="Legacy Slashing Proposer" value={config?.legacySlashingProposerAddress ?? notInitialized} copyable={Boolean(config)} />
+          <ConfigItem label="Legacy Authorized Until" value={!config ? notInitialized : config.legacySlasherAuthorizedUntil === 0n ? 'None' : new Date(Number(config.legacySlasherAuthorizedUntil) * 1000).toISOString()} />
+          <ConfigItem label="Poll Interval" value={`${configInput.pollInterval}ms`} />
+          <ConfigItem label="Countdown Interval" value={`${configInput.realtimeCountdownInterval}ms`} />
         </div>
       </section>
     </div>
   );
 };
+
+export function debugScanLabel(
+  isInitialized: boolean,
+  initializationError: string | null,
+  auditStatus: 'ok' | 'partial' | 'stale' | 'fatal',
+): string {
+  if (!isInitialized) {
+    return initializationError ? 'INITIALIZATION FAILED' : 'NOT INITIALIZED';
+  }
+  return {
+    ok: 'FULLY VERIFIED',
+    partial: 'PARTIAL COVERAGE',
+    stale: 'STALE',
+    fatal: 'UNAVAILABLE',
+  }[auditStatus];
+}
 
 // Helper Components
 

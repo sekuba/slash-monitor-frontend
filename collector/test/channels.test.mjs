@@ -46,6 +46,7 @@ test('WebPushChannel builds a scoped high-urgency payload and returns the provid
   assert.equal(payload.title, EVENT.title);
   assert.equal(payload.data.eventId, EVENT.id);
   assert.equal(payload.data.url, notificationPath(EVENT));
+  assert.equal(payload.data.url, '?view=watch&network=mainnet&event=event%2Fwith+spaces');
   assert.equal(captured[2].vapidDetails.privateKey, 'private');
   assert.equal(captured[2].urgency, 'high');
   assert.equal(captured[2].TTL, 7 * 24 * 60 * 60);
@@ -245,7 +246,7 @@ test('TelegramClient long polling and TelegramChannel preserve routing semantics
   assert.deepEqual(result, { providerMessageId: '99' });
   assert.equal(message.chatId, '-100123');
   assert.match(message.text, /^🚨 Sequencer targeted/);
-  assert.match(message.text, /https:\/\/slashmon\.example\/base\/\?network=mainnet&event=event%2Fwith\+spaces$/);
+  assert.match(message.text, /https:\/\/slashmon\.example\/base\/\?view=watch&network=mainnet&event=event%2Fwith\+spaces$/);
 });
 
 test('TelegramChannel keeps queued alerts retryable until the bot identity is validated', async () => {

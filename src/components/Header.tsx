@@ -1,10 +1,13 @@
+import type { AppView } from '@/lib/navigation';
+
 interface HeaderProps {
+    activeView: AppView;
     network: 'mainnet' | 'testnet';
+    onNavigate: (view: AppView) => void;
     onToggleNetwork: () => void;
-    onShowWatch: () => void;
 }
 
-export function Header({ network, onToggleNetwork, onShowWatch }: HeaderProps) {
+export function Header({ activeView, network, onNavigate, onToggleNetwork }: HeaderProps) {
 
     const isMainnet = network === 'mainnet';
     const networkButtonClass = isMainnet ? 'brutal-button--outline-danger' : 'brutal-button--outline-aqua';
@@ -26,9 +29,17 @@ export function Header({ network, onToggleNetwork, onShowWatch }: HeaderProps) {
           </div>
 
           <div className="flex flex-wrap items-center gap-3 sm:justify-end">
-            <button type="button" onClick={onShowWatch} className="brutal-button">
-              Watch Sequencers
-            </button>
+            {(['monitor', 'watch', 'debug'] as const).map((view) => (
+              <button
+                key={view}
+                type="button"
+                onClick={() => onNavigate(view)}
+                className={`brutal-button ${activeView === view ? 'brutal-button--aqua' : 'brutal-button--outline-aqua'}`}
+                aria-current={activeView === view ? 'page' : undefined}
+              >
+                {view === 'watch' ? 'Watch' : view[0].toUpperCase() + view.slice(1)}
+              </button>
+            ))}
             <button type="button" onClick={onToggleNetwork} className={`brutal-button ${networkButtonClass}`} aria-label={`Switch to ${isMainnet ? 'Testnet' : 'Mainnet'}`}>
               <div className="flex items-center gap-2">
                 <div className={`w-3 h-3 rounded-full ${isMainnet ? 'bg-vermillion' : 'bg-aqua'}`}></div>

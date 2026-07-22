@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createBackendReadRequests } from './useBackendMonitor';
+import { SlashmonApiError } from '@/api/client';
+import { createBackendReadRequests, selectedEventFailureMessage } from './useBackendMonitor';
 import type { EventPage, MonitorEvent, V2Status } from '@/types/v2Api';
 
 const status = {} as V2Status;
@@ -61,5 +62,14 @@ describe('backend read capability selection', () => {
         expect(api.getStatus).not.toHaveBeenCalled();
         expect(api.getEvents).not.toHaveBeenCalled();
         expect(api.getEvent).not.toHaveBeenCalled();
+    });
+
+    it('keeps event-detail failures separate and explains inaccessible deep links', () => {
+        expect(selectedEventFailureMessage(new SlashmonApiError('Forbidden', 403, 'forbidden')))
+            .toMatch(/not authorized/);
+        expect(selectedEventFailureMessage(new SlashmonApiError('Missing', 404, 'not_found')))
+            .toMatch(/another network or no longer be retained/);
+        expect(selectedEventFailureMessage(new Error('backend offline')))
+            .toMatch(/unavailable, inaccessible, or no longer retained/);
     });
 });

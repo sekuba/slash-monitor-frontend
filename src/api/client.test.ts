@@ -73,6 +73,7 @@ describe('Slashmon capability-scoped API reads', () => {
         ]);
         for (const [, init] of fetchMock.mock.calls) {
             expect((init?.headers as Headers).get('authorization')).toBe('Bearer bearer-secret');
+            expect(init?.cache).toBe('no-store');
         }
     });
 });

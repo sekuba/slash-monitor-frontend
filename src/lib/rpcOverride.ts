@@ -12,11 +12,6 @@ export function clearCustomRpcUrl(chainId: number): void {
     localStorage.removeItem(getCustomRpcUrlKey(chainId));
 }
 
-export function reloadApp(): void {
-    window.location.reload();
-}
-
-export function updateRpcUrl(url: string, chainId: number): void {
+export function setCustomRpcUrl(chainId: number, url: string): void {
     localStorage.setItem(getCustomRpcUrlKey(chainId), url);
-    reloadApp();
 }
