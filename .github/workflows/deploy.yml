@@ -16,6 +16,8 @@ concurrency:
 
 jobs:
   build:
+    environment:
+      name: github-pages
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -84,7 +86,7 @@ jobs:
         run: pnpm check
         env:
           VITE_API_BASE_URL: https://api.slashveto.me
-          VITE_BASE_PATH: ${{ vars.VITE_BASE_PATH || '/slashmon/' }}
+          VITE_BASE_PATH: ${{ vars.VITE_BASE_PATH || '/' }}
           VITE_L1_RPC_URL: ${{ vars.VITE_L1_RPC_URL }}
           VITE_REGISTRY_ADDRESS: ${{ vars.VITE_REGISTRY_ADDRESS }}
           VITE_TESTNET_L1_RPC_URL: ${{ vars.VITE_TESTNET_L1_RPC_URL }}
