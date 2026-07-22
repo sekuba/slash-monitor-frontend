@@ -28,7 +28,7 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
             return;
         const interval = setInterval(() => {
             setCurrentTime(Date.now());
-        }, config.realtimeCountdownInterval);
+        }, 1_000);
         return () => clearInterval(interval);
     }, [config]);
 

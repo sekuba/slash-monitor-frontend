@@ -1,11 +1,11 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { parseAddressList, formatAddressList } from '@/lib/addresses';
 import { useNotificationSubscription } from '@/hooks/useNotificationSubscription';
-import type { MonitorNetwork, V2PublicConfig } from '@/types/v2Api';
+import type { BackendConfig, MonitorNetwork } from '@/types/backendApi';
 
 interface SubscriptionPanelProps {
     network: MonitorNetwork;
-    config: V2PublicConfig | null;
+    config: BackendConfig | null;
 }
 
 export function SubscriptionPanel({ network, config }: SubscriptionPanelProps) {

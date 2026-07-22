@@ -2,11 +2,9 @@ import { EventHistory } from './EventHistory';
 import { SourceHealthBanner } from './SourceHealthBanner';
 import { SubscriptionPanel } from './SubscriptionPanel';
 import { useBackendMonitor } from '@/hooks/useBackendMonitor';
-import type { MonitorNetwork } from '@/types/v2Api';
+import type { MonitorNetwork } from '@/types/backendApi';
 
-type BackendView = 'pingme' | 'debug';
-
-export function BackendOverview({ network, view }: { network: MonitorNetwork; view: BackendView }) {
+export function BackendOverview({ network }: { network: MonitorNetwork }) {
     const monitor = useBackendMonitor(network);
     const configuredNetwork = monitor.config?.network;
 
@@ -17,24 +15,10 @@ export function BackendOverview({ network, view }: { network: MonitorNetwork; vi
             isLoading={monitor.isLoading}
             lastReceivedAt={monitor.lastReceivedAt}
             onRefresh={() => void monitor.refresh()}
-            clientScannerMounted={view === 'debug'}
-            compact={view === 'debug'}
         />
     );
 
     if (configuredNetwork && configuredNetwork !== network) {
-        if (view === 'debug') {
-            return (
-                <SourceHealthBanner
-                    status={null}
-                    error={`This notification backend watches ${configuredNetwork}, not ${network}. The independent L1 verifier below still works.`}
-                    isLoading={false}
-                    lastReceivedAt={monitor.lastReceivedAt}
-                    onRefresh={() => void monitor.refresh()}
-                    compact
-                />
-            );
-        }
         return (
             <>
                 {health}
@@ -48,25 +32,17 @@ export function BackendOverview({ network, view }: { network: MonitorNetwork; vi
         );
     }
 
-    if (view === 'debug') {
-        return health;
-    }
-
-    if (view === 'pingme') {
-        return (
-            <>
-                {health}
-                <SubscriptionPanel key={network} network={network} config={monitor.config} />
-                <div className="mb-10">
-                    <EventHistory
-                        events={monitor.events?.data ?? []}
-                        hasWatchlistCapability={monitor.hasWatchlistCapability}
-                        selectedEventError={monitor.selectedEventError}
-                    />
-                </div>
-            </>
-        );
-    }
-
-    return null;
+    return (
+        <>
+            {health}
+            <SubscriptionPanel key={network} network={network} config={monitor.config} />
+            <div className="mb-10">
+                <EventHistory
+                    events={monitor.events?.data ?? []}
+                    hasWatchlistCapability={monitor.hasWatchlistCapability}
+                    selectedEventError={monitor.selectedEventError}
+                />
+            </div>
+        </>
+    );
 }

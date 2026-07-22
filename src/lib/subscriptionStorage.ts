@@ -1,12 +1,12 @@
-import type { MonitorNetwork } from '@/types/v2Api';
+import type { MonitorNetwork } from '@/types/backendApi';
 
 export interface StoredSubscriptionCredentials {
     id: string;
     managementToken: string;
 }
 
-const STORAGE_PREFIX = 'slashmon:v2:subscription:';
-const CHANGE_EVENT_PREFIX = 'slashmon:v2:subscription-change:';
+const STORAGE_PREFIX = 'slashmon:subscription:';
+const CHANGE_EVENT_PREFIX = 'slashmon:subscription-change:';
 const SHARED_GITHUB_PAGES_SUFFIX = '.github.io';
 
 /**

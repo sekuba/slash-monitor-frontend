@@ -49,28 +49,15 @@ export function SlashingHelpModal({ isOpen, onClose, targetedSequencers }: Slash
         return null;
     }
 
-    const hoursThresholdForDayDisplay = config.hoursThresholdForDayDisplay;
     const roundSeconds = config.slashingRoundSize * config.slotDuration;
     const votingDelaySeconds = config.slashOffsetInRounds * roundSeconds;
     const executionDelaySeconds = config.executionDelayInRounds * roundSeconds;
     const payloadLifetimeSeconds = config.lifetimeInRounds * roundSeconds;
 
-    const roundDuration = formatTimeRemaining(roundSeconds, {
-        approximate: true,
-        hoursThresholdForDayDisplay,
-    });
-    const votingDelay = formatTimeRemaining(votingDelaySeconds, {
-        approximate: true,
-        hoursThresholdForDayDisplay,
-    });
-    const executionDelay = formatTimeRemaining(executionDelaySeconds, {
-        approximate: true,
-        hoursThresholdForDayDisplay,
-    });
-    const payloadLifetime = formatTimeRemaining(payloadLifetimeSeconds, {
-        approximate: true,
-        hoursThresholdForDayDisplay,
-    });
+    const roundDuration = formatTimeRemaining(roundSeconds, { approximate: true });
+    const votingDelay = formatTimeRemaining(votingDelaySeconds, { approximate: true });
+    const executionDelay = formatTimeRemaining(executionDelaySeconds, { approximate: true });
+    const payloadLifetime = formatTimeRemaining(payloadLifetimeSeconds, { approximate: true });
     const normalizedTargetedSequencerFilter = targetedSequencerFilter.trim().toLowerCase();
     const normalizedMinimumAppearancesFilter = minimumAppearancesFilter.trim();
     const minimumAppearances = normalizedMinimumAppearancesFilter === '' ? 0 : Number(normalizedMinimumAppearancesFilter);

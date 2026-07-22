@@ -22,7 +22,7 @@ export function Header({ activeView, onNavigate }: HeaderProps) {
           </div>
 
           <div className="flex flex-wrap items-center gap-3 sm:justify-end">
-            {(['monitor', 'pingme', 'debug'] as const).map((view) => (
+            {(['monitor', 'pingme'] as const).map((view) => (
               <button
                 key={view}
                 type="button"

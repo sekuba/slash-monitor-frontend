@@ -29,7 +29,6 @@ test('API reports health without exposing full collector snapshots', async (t) =
     now: () => 20_000,
     staleAfterMs: 60_000,
     l1StaleAfterMs: 60_000,
-    publicConfig: { pollIntervalMs: 15_000 },
   });
 
   const healthResponse = await fetch(`${baseUrl}/health`);
@@ -92,7 +91,7 @@ test('overall L1 health remains degraded while confirmed slash-log backfill has 
   assert.equal(status.sources.l1.status, 'degraded');
 });
 
-test('v2 config, public node/L1 feeds, watch filtering, and CORS share one real snapshot', async (t) => {
+test('config, public journal, watch filtering, and CORS share one real snapshot', async (t) => {
   const repository = healthyRepository();
   const { baseUrl } = await startApi(t, repository);
 
@@ -115,9 +114,11 @@ test('v2 config, public node/L1 feeds, watch filtering, and CORS share one real 
   assert.equal(status.schemaVersion, 2);
   assert.equal(status.network, 'mainnet');
   assert.equal(status.status, 'healthy');
-  assert.equal(status.sources.aztec.status, 'healthy');
-  assert.equal(status.sources.l1.status, 'healthy');
-  assert.deepEqual(status.pendingOffenses.map((item) => item.sequencer), [SEQUENCER_A]);
+  assert.deepEqual(status.sources, {
+    l1: { status: 'healthy' },
+    aztec: { status: 'healthy' },
+  });
+  assert.deepEqual(status.delivery, { status: 'healthy' });
   assert.match(status.generatedAt, /^2026-07-21T/);
 
   const wrongNetworkResponse = await fetch(`${baseUrl}/api/v2/status?network=testnet`);
@@ -147,15 +148,6 @@ test('v2 config, public node/L1 feeds, watch filtering, and CORS share one real 
   const unrelatedSubscription = await createSubscription(baseUrl, [SEQUENCER_B]);
   const matching = matchingSubscription.body.data;
   const unrelated = unrelatedSubscription.body.data;
-
-  const matchingStatus = await authenticatedJson(baseUrl, matching.id, matching.managementToken, {
-    path: '/status',
-  });
-  const unrelatedStatus = await authenticatedJson(baseUrl, unrelated.id, unrelated.managementToken, {
-    path: '/status',
-  });
-  assert.deepEqual(matchingStatus.body.pendingOffenses.map((item) => item.sequencer), [SEQUENCER_A]);
-  assert.deepEqual(unrelatedStatus.body.pendingOffenses, []);
 
   const matchingEvents = await authenticatedJson(baseUrl, matching.id, matching.managementToken, {
     path: '/events',
@@ -199,7 +191,7 @@ test('v2 config, public node/L1 feeds, watch filtering, and CORS share one real 
   assert.equal(blockedMutation.body.error.code, 'origin_not_allowed');
 });
 
-test('v2 subscriptions use bearer capability auth and validate partial updates', async (t) => {
+test('subscriptions use bearer capability auth and replace their addresses', async (t) => {
   const repository = healthyRepository();
   const { baseUrl } = await startApi(t, repository);
 
@@ -224,22 +216,8 @@ test('v2 subscriptions use bearer capability auth and validate partial updates',
   const fetched = await authenticatedJson(baseUrl, id, managementToken);
   assert.equal(fetched.response.status, 200);
   assert.equal(fetched.body.data.managementToken, undefined);
-  assert.equal(fetched.body.data.enabled, true);
-
-  const paused = await authenticatedJson(baseUrl, id, managementToken, {
-    method: 'PATCH',
-    body: { enabled: false },
-  });
-  assert.equal(paused.response.status, 200);
-  assert.equal(paused.body.data.enabled, false);
-  assert.deepEqual(paused.body.data.addresses, [SEQUENCER_A]);
-
-  const badBoolean = await authenticatedJson(baseUrl, id, managementToken, {
-    method: 'PATCH',
-    body: { enabled: 'false' },
-  });
-  assert.equal(badBoolean.response.status, 400);
-  assert.equal(badBoolean.body.error.code, 'invalid_enabled');
+  assert.deepEqual(fetched.body.data.addresses, [SEQUENCER_A]);
+  assert.equal(fetched.body.data.enabled, undefined);
 
   const emptyPatch = await authenticatedJson(baseUrl, id, managementToken, {
     method: 'PATCH',
@@ -248,12 +226,18 @@ test('v2 subscriptions use bearer capability auth and validate partial updates',
   assert.equal(emptyPatch.response.status, 400);
   assert.equal(emptyPatch.body.error.code, 'empty_patch');
 
-  const updated = await authenticatedJson(baseUrl, id, managementToken, {
+  const removedField = await authenticatedJson(baseUrl, id, managementToken, {
     method: 'PATCH',
     body: { addresses: [SEQUENCER_B], enabled: true },
   });
+  assert.equal(removedField.response.status, 400);
+  assert.equal(removedField.body.error.code, 'unknown_field');
+
+  const updated = await authenticatedJson(baseUrl, id, managementToken, {
+    method: 'PATCH',
+    body: { addresses: [SEQUENCER_B] },
+  });
   assert.equal(updated.response.status, 200);
-  assert.equal(updated.body.data.enabled, true);
   assert.deepEqual(updated.body.data.addresses, [SEQUENCER_B]);
 
   const deleted = await authenticatedJson(baseUrl, id, managementToken, { method: 'DELETE' });
@@ -264,7 +248,7 @@ test('v2 subscriptions use bearer capability auth and validate partial updates',
   assert.equal(afterDelete.body.error.code, 'subscription_not_found');
 });
 
-test('v2 validates push endpoints and wires Web Push, Telegram, and test deliveries', async (t) => {
+test('notification channels validate endpoints and queue test deliveries', async (t) => {
   const repository = healthyRepository();
   let now = NOW;
   const { baseUrl } = await startApi(t, repository, { now: () => now });

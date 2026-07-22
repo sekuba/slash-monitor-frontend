@@ -17,7 +17,8 @@
     "test:frontend": "vitest run src",
     "test:backend": "pnpm --filter @slashmon/backend test",
     "check:backend": "pnpm --filter @slashmon/backend check",
-    "check": "pnpm lint && pnpm test && pnpm check:backend && pnpm build"
+    "check:shell": "bash -n scripts/*.sh",
+    "check": "pnpm lint && pnpm test && pnpm check:backend && pnpm check:shell && pnpm build"
   },
   "dependencies": {
     "react": "^19.2.7",

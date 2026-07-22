@@ -8,7 +8,7 @@ import {
   WARNING_DELIVERY_LIFETIME_MS,
 } from './delivery-policy.mjs';
 
-const SCHEMA_VERSION = 13;
+const SCHEMA_VERSION = 1;
 
 const HOUR_MS = 60 * 60_000;
 const DAY_MS = 24 * HOUR_MS;
@@ -54,321 +54,228 @@ export class OffenseRepository {
     }
     if (databasePath !== ':memory:') fs.mkdirSync(path.dirname(databasePath), { recursive: true });
     this.db = new DatabaseSync(databasePath);
-    this.db.exec('PRAGMA journal_mode = WAL');
-    this.db.exec('PRAGMA synchronous = FULL');
-    this.db.exec('PRAGMA foreign_keys = ON');
-    this.db.exec('PRAGMA busy_timeout = 5000');
-    this.migrate();
-    this.prepareStatements();
-    this.enqueueUnverifiedWebPushChecks();
+    try {
+      this.db.exec('PRAGMA journal_mode = WAL');
+      this.db.exec('PRAGMA synchronous = FULL');
+      this.db.exec('PRAGMA foreign_keys = ON');
+      this.db.exec('PRAGMA busy_timeout = 5000');
+      this.initializeSchema();
+      this.prepareStatements();
+      this.enqueueUnverifiedWebPushChecks();
+    } catch (error) {
+      this.db.close();
+      throw error;
+    }
   }
 
-  migrate() {
-    let version = Number(this.db.prepare('PRAGMA user_version').get().user_version);
-    if (version > SCHEMA_VERSION) {
-      throw new Error(`Slashmon database schema ${version} is newer than this binary supports`);
+  initializeSchema() {
+    const version = Number(this.db.prepare('PRAGMA user_version').get().user_version);
+    if (version === SCHEMA_VERSION) {
+      const currentSchema = this.db.prepare(`
+        SELECT COUNT(*) AS count FROM sqlite_master
+        WHERE type = 'table' AND name IN ('offenses', 'watchlists', 'events', 'deliveries')
+      `).get().count === 4;
+      const offenseColumns = currentSchema
+        ? this.db.prepare('PRAGMA table_info(offenses)').all().map((column) => column.name)
+        : [];
+      if (currentSchema && offenseColumns.includes('sequencer')) return;
+      throw new Error(`Slashmon requires an empty database; found unsupported schema ${version}`);
     }
-    if (version === 0) {
-      this.db.exec(`
-        BEGIN IMMEDIATE;
-        CREATE TABLE offenses (
-          id TEXT PRIMARY KEY,
-          sequencer TEXT NOT NULL,
-          amount TEXT NOT NULL,
-          offense_type INTEGER NOT NULL,
-          offense_type_name TEXT NOT NULL,
-          epoch_or_slot TEXT NOT NULL,
-          time_unit TEXT NOT NULL,
-          status TEXT NOT NULL CHECK (status IN ('active', 'withdrawn')),
-          first_seen_at INTEGER NOT NULL,
-          last_seen_at INTEGER NOT NULL,
-          withdrawn_at INTEGER,
-          observation_count INTEGER NOT NULL DEFAULT 1,
-          reactivation_count INTEGER NOT NULL DEFAULT 0,
-          missed_polls INTEGER NOT NULL DEFAULT 0,
-          last_poll_sequence INTEGER NOT NULL
-        );
-        CREATE INDEX offenses_status_last_seen_idx ON offenses(status, last_seen_at DESC);
-        CREATE INDEX offenses_sequencer_idx ON offenses(sequencer, last_seen_at DESC);
-        CREATE TABLE sync_state (
-          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-          last_attempt_at INTEGER,
-          last_success_at INTEGER,
-          consecutive_failures INTEGER NOT NULL DEFAULT 0,
-          successful_polls INTEGER NOT NULL DEFAULT 0,
-          last_error TEXT
-        );
-        INSERT INTO sync_state(singleton) VALUES (1);
-        PRAGMA user_version = 2;
-        COMMIT;
-      `);
-      version = 2;
+    const tableCount = Number(this.db.prepare(`
+      SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+    `).get().count);
+    if (version !== 0 || tableCount !== 0) {
+      throw new Error(`Slashmon requires an empty database; found unsupported schema ${version}`);
     }
-    if (version === 1) {
-      this.db.exec(`
-        BEGIN IMMEDIATE;
-        ALTER TABLE offenses RENAME COLUMN validator TO sequencer;
-        DROP INDEX offenses_validator_idx;
-        CREATE INDEX offenses_sequencer_idx ON offenses(sequencer, last_seen_at DESC);
-        PRAGMA user_version = 2;
-        COMMIT;
-      `);
-      version = 2;
-    }
-    if (version === 2) {
-      this.db.exec(`
-        BEGIN IMMEDIATE;
-        CREATE TABLE source_state (
-          source TEXT PRIMARY KEY,
-          last_attempt_at INTEGER,
-          last_success_at INTEGER,
-          consecutive_failures INTEGER NOT NULL DEFAULT 0,
-          successful_polls INTEGER NOT NULL DEFAULT 0,
-          last_error TEXT,
-          last_block_number TEXT,
-          last_block_hash TEXT,
-          metadata_json TEXT
-        );
-        INSERT INTO source_state(source) VALUES ('l1'), ('telegram');
 
-        CREATE TABLE events (
-          id TEXT PRIMARY KEY,
-          network TEXT NOT NULL,
-          source TEXT NOT NULL,
-          type TEXT NOT NULL,
-          severity TEXT NOT NULL CHECK (severity IN ('info', 'warning', 'critical')),
-          title TEXT NOT NULL,
-          body TEXT NOT NULL,
-          data_json TEXT NOT NULL DEFAULT '{}',
-          observed_at INTEGER NOT NULL,
-          created_at INTEGER NOT NULL
-        );
-        CREATE INDEX events_network_cursor_idx ON events(network, observed_at DESC, id DESC);
-        CREATE TABLE event_targets (
-          event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-          sequencer TEXT NOT NULL,
-          PRIMARY KEY(event_id, sequencer)
-        );
-        CREATE INDEX event_targets_sequencer_idx ON event_targets(sequencer, event_id);
+    this.db.exec(`
+      BEGIN IMMEDIATE;
+      CREATE TABLE offenses (
+        id TEXT PRIMARY KEY,
+        sequencer TEXT NOT NULL,
+        amount TEXT NOT NULL,
+        offense_type INTEGER NOT NULL,
+        offense_type_name TEXT NOT NULL,
+        epoch_or_slot TEXT NOT NULL,
+        time_unit TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('active', 'withdrawn')),
+        first_seen_at INTEGER NOT NULL,
+        last_seen_at INTEGER NOT NULL,
+        withdrawn_at INTEGER,
+        observation_count INTEGER NOT NULL DEFAULT 1,
+        reactivation_count INTEGER NOT NULL DEFAULT 0,
+        missed_polls INTEGER NOT NULL DEFAULT 0,
+        last_poll_sequence INTEGER NOT NULL
+      );
+      CREATE INDEX offenses_status_last_seen_idx ON offenses(status, last_seen_at DESC);
+      CREATE INDEX offenses_sequencer_idx ON offenses(sequencer, last_seen_at DESC);
 
-        CREATE TABLE watchlists (
-          id TEXT PRIMARY KEY,
-          management_token_hash TEXT NOT NULL,
-          network TEXT NOT NULL,
-          enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL
-        );
-        CREATE TABLE watchlist_addresses (
-          watchlist_id TEXT NOT NULL REFERENCES watchlists(id) ON DELETE CASCADE,
-          sequencer TEXT NOT NULL,
-          PRIMARY KEY(watchlist_id, sequencer)
-        );
-        CREATE INDEX watchlist_addresses_match_idx ON watchlist_addresses(sequencer, watchlist_id);
-        CREATE TABLE delivery_endpoints (
-          id TEXT PRIMARY KEY,
-          watchlist_id TEXT NOT NULL REFERENCES watchlists(id) ON DELETE CASCADE,
-          kind TEXT NOT NULL CHECK (kind IN ('web_push', 'telegram')),
-          destination TEXT NOT NULL,
-          config_json TEXT,
-          enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
-          last_error TEXT,
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL,
-          UNIQUE(kind, destination)
-        );
-        CREATE INDEX delivery_endpoints_watchlist_idx ON delivery_endpoints(watchlist_id, kind);
-        CREATE TABLE deliveries (
-          id TEXT PRIMARY KEY,
-          event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-          endpoint_id TEXT NOT NULL REFERENCES delivery_endpoints(id) ON DELETE CASCADE,
-          status TEXT NOT NULL CHECK (status IN ('pending', 'sending', 'retry', 'sent', 'failed')),
-          attempts INTEGER NOT NULL DEFAULT 0,
-          next_attempt_at INTEGER NOT NULL,
-          lease_expires_at INTEGER,
-          last_attempt_at INTEGER,
-          sent_at INTEGER,
-          provider_message_id TEXT,
-          last_error TEXT,
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL,
-          UNIQUE(event_id, endpoint_id)
-        );
-        CREATE INDEX deliveries_due_idx ON deliveries(status, next_attempt_at, created_at);
+      CREATE TABLE sync_state (
+        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+        last_attempt_at INTEGER,
+        last_success_at INTEGER,
+        consecutive_failures INTEGER NOT NULL DEFAULT 0,
+        successful_polls INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT
+      );
+      INSERT INTO sync_state(singleton) VALUES (1);
 
-        CREATE TABLE telegram_link_tokens (
-          token_hash TEXT PRIMARY KEY,
-          watchlist_id TEXT NOT NULL REFERENCES watchlists(id) ON DELETE CASCADE,
-          expires_at INTEGER NOT NULL,
-          created_at INTEGER NOT NULL,
-          consumed_at INTEGER,
-          consumed_chat_id TEXT
-        );
-        CREATE INDEX telegram_link_expiry_idx ON telegram_link_tokens(expires_at);
-        CREATE TABLE telegram_state (
-          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-          update_offset INTEGER
-        );
-        INSERT INTO telegram_state(singleton) VALUES (1);
+      CREATE TABLE source_state (
+        source TEXT PRIMARY KEY,
+        last_attempt_at INTEGER,
+        last_success_at INTEGER,
+        consecutive_failures INTEGER NOT NULL DEFAULT 0,
+        successful_polls INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        last_block_number TEXT,
+        last_block_hash TEXT,
+        metadata_json TEXT
+      );
+      INSERT INTO source_state(source) VALUES ('l1'), ('telegram');
 
-        CREATE TABLE onchain_rounds (
-          id TEXT PRIMARY KEY,
-          network TEXT NOT NULL,
-          chain_id INTEGER NOT NULL,
-          block_number TEXT NOT NULL,
-          block_hash TEXT NOT NULL,
-          stack_role TEXT NOT NULL,
-          slasher_address TEXT NOT NULL,
-          proposer_address TEXT NOT NULL,
-          round TEXT NOT NULL,
-          status TEXT NOT NULL,
-          ballot_count TEXT NOT NULL,
-          is_executed INTEGER NOT NULL CHECK (is_executed IN (0, 1)),
-          is_vetoed INTEGER NOT NULL CHECK (is_vetoed IN (0, 1)),
-          payload_address TEXT,
-          actions_json TEXT NOT NULL,
-          committees_json TEXT NOT NULL,
-          details_json TEXT NOT NULL,
-          first_seen_at INTEGER NOT NULL,
-          last_seen_at INTEGER NOT NULL,
-          UNIQUE(network, proposer_address, round)
-        );
-        CREATE INDEX onchain_rounds_network_status_idx ON onchain_rounds(network, status, last_seen_at DESC);
-        PRAGMA user_version = 3;
-        COMMIT;
-      `);
-      version = 3;
-    }
-    if (version === 3) {
-      this.db.exec(`
-        BEGIN IMMEDIATE;
-        ALTER TABLE onchain_rounds ADD COLUMN early_targets_json TEXT NOT NULL DEFAULT '[]';
-        PRAGMA user_version = 4;
-        COMMIT;
-      `);
-      version = 4;
-    }
-    if (version === 4) {
-      this.db.exec(`
-        BEGIN IMMEDIATE;
-        ALTER TABLE watchlists ADD COLUMN last_test_at INTEGER;
-        PRAGMA user_version = 5;
-        COMMIT;
-      `);
-      version = 5;
-    }
-    if (version === 5) {
-      this.db.exec(`
-        BEGIN IMMEDIATE;
-        CREATE INDEX IF NOT EXISTS deliveries_endpoint_status_idx ON deliveries(endpoint_id, status);
-        PRAGMA user_version = 6;
-        COMMIT;
-      `);
-      version = 6;
-    }
-    if (version === 6) {
-      this.db.exec(`
-        BEGIN IMMEDIATE;
-        CREATE INDEX IF NOT EXISTS watchlists_created_idx ON watchlists(created_at);
-        PRAGMA user_version = 7;
-        COMMIT;
-      `);
-      version = 7;
-    }
-    if (version === 7) {
-      this.db.exec(`
-        BEGIN IMMEDIATE;
-        CREATE TABLE l1_slash_logs (
-          id TEXT PRIMARY KEY,
-          event_id TEXT NOT NULL UNIQUE REFERENCES events(id) ON DELETE CASCADE,
-          network TEXT NOT NULL,
-          chain_id INTEGER NOT NULL,
-          rollup_address TEXT NOT NULL,
-          block_number INTEGER NOT NULL,
-          block_hash TEXT NOT NULL,
-          transaction_hash TEXT NOT NULL,
-          log_index INTEGER NOT NULL,
-          sequencer TEXT NOT NULL,
-          amount TEXT NOT NULL,
-          canonical INTEGER NOT NULL DEFAULT 1 CHECK (canonical IN (0, 1)),
-          first_seen_at INTEGER NOT NULL,
-          last_seen_at INTEGER NOT NULL,
-          UNIQUE(chain_id, block_hash, transaction_hash, log_index)
-        );
-        CREATE INDEX l1_slash_logs_target_idx
-          ON l1_slash_logs(network, sequencer, canonical, block_number DESC);
-        CREATE INDEX l1_slash_logs_canonical_block_idx
-          ON l1_slash_logs(network, canonical, block_number);
-        PRAGMA user_version = 8;
-        COMMIT;
-      `);
-      version = 8;
-    }
-    if (version === 8) {
-      this.db.exec(`
-        BEGIN IMMEDIATE;
-        ALTER TABLE watchlists ADD COLUMN unconnected_since INTEGER;
-        ALTER TABLE delivery_endpoints ADD COLUMN verified_at INTEGER;
-        UPDATE watchlists SET unconnected_since = updated_at
-        WHERE NOT EXISTS (
-          SELECT 1 FROM delivery_endpoints endpoint WHERE endpoint.watchlist_id = watchlists.id
-        );
-        UPDATE delivery_endpoints SET verified_at = created_at
-        WHERE kind = 'telegram' OR EXISTS (
-          SELECT 1 FROM deliveries delivery
-          WHERE delivery.endpoint_id = delivery_endpoints.id AND delivery.status = 'sent'
-        );
-        CREATE INDEX delivery_endpoints_verification_idx
-          ON delivery_endpoints(verified_at, created_at);
-        CREATE INDEX deliveries_status_lease_idx
-          ON deliveries(status, lease_expires_at);
-        CREATE INDEX deliveries_status_updated_idx
-          ON deliveries(status, updated_at);
-        PRAGMA user_version = 9;
-        COMMIT;
-      `);
-      version = 9;
-    }
-    if (version === 9) {
-      this.db.exec(`
-        BEGIN IMMEDIATE;
-        ALTER TABLE events ADD COLUMN last_replayed_at INTEGER;
-        PRAGMA user_version = 10;
-        COMMIT;
-      `);
-      version = 10;
-    }
-    if (version === 10) {
-      this.db.exec(`
-        BEGIN IMMEDIATE;
-        ALTER TABLE delivery_endpoints ADD COLUMN last_catchup_at INTEGER;
-        PRAGMA user_version = 11;
-        COMMIT;
-      `);
-      version = 11;
-    }
-    if (version === 11) {
-      this.db.exec(`
-        BEGIN IMMEDIATE;
-        ALTER TABLE l1_slash_logs ADD COLUMN reconfirmation_count INTEGER NOT NULL DEFAULT 0;
-        ALTER TABLE onchain_rounds ADD COLUMN transition_generation INTEGER NOT NULL DEFAULT 0;
-        PRAGMA user_version = 12;
-        COMMIT;
-      `);
-      version = 12;
-    }
-    if (version === 12) {
-      this.db.exec(`
-        BEGIN IMMEDIATE;
-        DELETE FROM events WHERE type = 'pending_offense_withdrawn';
-        UPDATE events SET title =
-          upper(substr(title, length('Node-local ') + 1, 1)) ||
-          substr(title, length('Node-local ') + 2)
-        WHERE title LIKE 'Node-local %';
-        PRAGMA user_version = 13;
-        COMMIT;
-      `);
-    }
+      CREATE TABLE events (
+        id TEXT PRIMARY KEY,
+        network TEXT NOT NULL,
+        source TEXT NOT NULL,
+        type TEXT NOT NULL,
+        severity TEXT NOT NULL CHECK (severity IN ('info', 'warning', 'critical')),
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        data_json TEXT NOT NULL DEFAULT '{}',
+        observed_at INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        last_replayed_at INTEGER
+      );
+      CREATE INDEX events_network_cursor_idx ON events(network, observed_at DESC, id DESC);
+      CREATE TABLE event_targets (
+        event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+        sequencer TEXT NOT NULL,
+        PRIMARY KEY(event_id, sequencer)
+      );
+      CREATE INDEX event_targets_sequencer_idx ON event_targets(sequencer, event_id);
+
+      CREATE TABLE watchlists (
+        id TEXT PRIMARY KEY,
+        management_token_hash TEXT NOT NULL,
+        network TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        last_test_at INTEGER,
+        unconnected_since INTEGER
+      );
+      CREATE INDEX watchlists_created_idx ON watchlists(created_at);
+      CREATE TABLE watchlist_addresses (
+        watchlist_id TEXT NOT NULL REFERENCES watchlists(id) ON DELETE CASCADE,
+        sequencer TEXT NOT NULL,
+        PRIMARY KEY(watchlist_id, sequencer)
+      );
+      CREATE INDEX watchlist_addresses_match_idx ON watchlist_addresses(sequencer, watchlist_id);
+
+      CREATE TABLE delivery_endpoints (
+        id TEXT PRIMARY KEY,
+        watchlist_id TEXT NOT NULL REFERENCES watchlists(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK (kind IN ('web_push', 'telegram')),
+        destination TEXT NOT NULL,
+        config_json TEXT,
+        enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+        last_error TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        verified_at INTEGER,
+        last_catchup_at INTEGER,
+        UNIQUE(kind, destination)
+      );
+      CREATE INDEX delivery_endpoints_watchlist_idx ON delivery_endpoints(watchlist_id, kind);
+      CREATE INDEX delivery_endpoints_verification_idx ON delivery_endpoints(verified_at, created_at);
+
+      CREATE TABLE deliveries (
+        id TEXT PRIMARY KEY,
+        event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+        endpoint_id TEXT NOT NULL REFERENCES delivery_endpoints(id) ON DELETE CASCADE,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'sending', 'retry', 'sent', 'failed')),
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at INTEGER NOT NULL,
+        lease_expires_at INTEGER,
+        last_attempt_at INTEGER,
+        sent_at INTEGER,
+        provider_message_id TEXT,
+        last_error TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE(event_id, endpoint_id)
+      );
+      CREATE INDEX deliveries_due_idx ON deliveries(status, next_attempt_at, created_at);
+      CREATE INDEX deliveries_endpoint_status_idx ON deliveries(endpoint_id, status);
+      CREATE INDEX deliveries_status_lease_idx ON deliveries(status, lease_expires_at);
+      CREATE INDEX deliveries_status_updated_idx ON deliveries(status, updated_at);
+
+      CREATE TABLE telegram_link_tokens (
+        token_hash TEXT PRIMARY KEY,
+        watchlist_id TEXT NOT NULL REFERENCES watchlists(id) ON DELETE CASCADE,
+        expires_at INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        consumed_at INTEGER,
+        consumed_chat_id TEXT
+      );
+      CREATE INDEX telegram_link_expiry_idx ON telegram_link_tokens(expires_at);
+      CREATE TABLE telegram_state (
+        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+        update_offset INTEGER
+      );
+      INSERT INTO telegram_state(singleton) VALUES (1);
+
+      CREATE TABLE onchain_rounds (
+        id TEXT PRIMARY KEY,
+        network TEXT NOT NULL,
+        chain_id INTEGER NOT NULL,
+        block_number TEXT NOT NULL,
+        block_hash TEXT NOT NULL,
+        stack_role TEXT NOT NULL,
+        slasher_address TEXT NOT NULL,
+        proposer_address TEXT NOT NULL,
+        round TEXT NOT NULL,
+        status TEXT NOT NULL,
+        ballot_count TEXT NOT NULL,
+        is_executed INTEGER NOT NULL CHECK (is_executed IN (0, 1)),
+        is_vetoed INTEGER NOT NULL CHECK (is_vetoed IN (0, 1)),
+        payload_address TEXT,
+        actions_json TEXT NOT NULL,
+        committees_json TEXT NOT NULL,
+        early_targets_json TEXT NOT NULL DEFAULT '[]',
+        details_json TEXT NOT NULL,
+        transition_generation INTEGER NOT NULL DEFAULT 0,
+        first_seen_at INTEGER NOT NULL,
+        last_seen_at INTEGER NOT NULL,
+        UNIQUE(network, proposer_address, round)
+      );
+      CREATE INDEX onchain_rounds_network_status_idx ON onchain_rounds(network, status, last_seen_at DESC);
+
+      CREATE TABLE l1_slash_logs (
+        id TEXT PRIMARY KEY,
+        event_id TEXT NOT NULL UNIQUE REFERENCES events(id) ON DELETE CASCADE,
+        network TEXT NOT NULL,
+        chain_id INTEGER NOT NULL,
+        rollup_address TEXT NOT NULL,
+        block_number INTEGER NOT NULL,
+        block_hash TEXT NOT NULL,
+        transaction_hash TEXT NOT NULL,
+        log_index INTEGER NOT NULL,
+        sequencer TEXT NOT NULL,
+        amount TEXT NOT NULL,
+        canonical INTEGER NOT NULL DEFAULT 1 CHECK (canonical IN (0, 1)),
+        reconfirmation_count INTEGER NOT NULL DEFAULT 0,
+        first_seen_at INTEGER NOT NULL,
+        last_seen_at INTEGER NOT NULL,
+        UNIQUE(chain_id, block_hash, transaction_hash, log_index)
+      );
+      CREATE INDEX l1_slash_logs_target_idx
+        ON l1_slash_logs(network, sequencer, canonical, block_number DESC);
+      CREATE INDEX l1_slash_logs_canonical_block_idx
+        ON l1_slash_logs(network, canonical, block_number);
+
+      PRAGMA user_version = 1;
+      COMMIT;
+    `);
   }
 
   prepareStatements() {
@@ -671,8 +578,7 @@ export class OffenseRepository {
     if (directEndpointIds) {
       endpointRows = directEndpointIds.length === 0 ? [] : this.db.prepare(`
         SELECT endpoint.id FROM delivery_endpoints endpoint
-        JOIN watchlists watchlist ON watchlist.id = endpoint.watchlist_id
-        WHERE endpoint.enabled = 1 AND watchlist.enabled = 1
+        WHERE endpoint.enabled = 1
           AND endpoint.id IN (${directEndpointIds.map(() => '?').join(',')})
       `).all(...directEndpointIds);
     } else if (normalizedTargets.length > 0) {
@@ -681,7 +587,7 @@ export class OffenseRepository {
         FROM delivery_endpoints endpoint
         JOIN watchlists watchlist ON watchlist.id = endpoint.watchlist_id
         JOIN watchlist_addresses address ON address.watchlist_id = watchlist.id
-        WHERE endpoint.enabled = 1 AND watchlist.enabled = 1 AND watchlist.network = ?
+        WHERE endpoint.enabled = 1 AND watchlist.network = ?
           AND address.sequencer IN (${normalizedTargets.map(() => '?').join(',')})
       `).all(event.network, ...normalizedTargets);
     } else {
@@ -819,8 +725,8 @@ export class OffenseRepository {
       if (unconnected >= this.capacity.maxUnconnectedWatchlists) return null;
       this.db.prepare(`
         INSERT INTO watchlists(
-          id, management_token_hash, network, enabled, created_at, updated_at, unconnected_since
-        ) VALUES (?, ?, ?, 1, ?, ?, ?)
+          id, management_token_hash, network, created_at, updated_at, unconnected_since
+        ) VALUES (?, ?, ?, ?, ?, ?)
       `).run(id, managementTokenHash, network, now, now, now);
       this.replaceWatchlistAddresses(id, addresses);
       return this.getWatchlist(id);
@@ -829,7 +735,7 @@ export class OffenseRepository {
 
   getWatchlist(id) {
     const row = this.db.prepare(`
-      SELECT id, management_token_hash AS managementTokenHash, network, enabled,
+      SELECT id, management_token_hash AS managementTokenHash, network,
         created_at AS createdAt, updated_at AS updatedAt FROM watchlists WHERE id = ?
     `).get(id);
     if (!row) return undefined;
@@ -845,10 +751,10 @@ export class OffenseRepository {
       enabled: Boolean(endpoint.enabled),
       verified: endpoint.verifiedAt !== null,
     }));
-    return { ...row, enabled: Boolean(row.enabled), addresses, endpoints };
+    return { ...row, addresses, endpoints };
   }
 
-  updateWatchlist(id, { addresses, enabled, now = Date.now() } = {}) {
+  updateWatchlist(id, { addresses, now = Date.now() } = {}) {
     return this.transaction(() => {
       const previous = this.getWatchlist(id);
       if (!previous) return undefined;
@@ -859,22 +765,17 @@ export class OffenseRepository {
         nextAddresses.length !== previous.addresses.length ||
         nextAddresses.some((value, index) => value !== previous.addresses[index])
       );
-      const enabledChanged = enabled !== undefined && Boolean(enabled) !== previous.enabled;
       const addedAddresses = addressesChanged
         ? nextAddresses.filter((value) => !previous.addresses.includes(value))
         : [];
 
-      if (enabledChanged) {
-        this.db.prepare('UPDATE watchlists SET enabled = ?, updated_at = ? WHERE id = ?')
-          .run(enabled ? 1 : 0, now, id);
-      } else if (addressesChanged) {
+      if (addressesChanged) {
         this.db.prepare('UPDATE watchlists SET updated_at = ? WHERE id = ?').run(now, id);
       }
       if (addressesChanged) {
         this.replaceWatchlistAddresses(id, nextAddresses);
         this.discardUnmatchedDeliveries(id);
       }
-      if (enabledChanged && enabled === false) this.discardQueuedDeliveriesForWatchlist(id);
       // A real scope expansion must not be swallowed by the endpoint-wide scan
       // cooldown: query only the newly added addresses, which keeps random edit
       // churn from replaying incidents for the stable part of the watch list.
@@ -884,7 +785,6 @@ export class OffenseRepository {
           bypassScanCooldown: true,
         });
       }
-      if (enabledChanged && enabled === true) this.enqueueCatchupForWatchlist(id, now);
       return this.getWatchlist(id);
     });
   }
@@ -912,16 +812,6 @@ export class OffenseRepository {
           WHERE target.event_id = deliveries.event_id AND address.watchlist_id = ?
         )
     `).run(watchlistId, watchlistId);
-  }
-
-  discardQueuedDeliveriesForWatchlist(watchlistId) {
-    this.db.prepare(`
-      DELETE FROM deliveries
-      WHERE status IN ('pending', 'sending', 'retry')
-        AND endpoint_id IN (
-          SELECT id FROM delivery_endpoints WHERE watchlist_id = ?
-        )
-    `).run(watchlistId);
   }
 
   deleteWatchlist(id) {
@@ -984,7 +874,7 @@ export class OffenseRepository {
     }
     // The API models one endpoint per channel kind for each watchlist. Browser
     // push services rotate destinations. Create the replacement first so live
-    // outbox work can be migrated before the stale endpoint is deleted.
+    // Transfer live outbox work before deleting the stale endpoint.
     this.db.prepare(`
       INSERT INTO delivery_endpoints (
         id, watchlist_id, kind, destination, config_json, enabled, last_error,
@@ -1010,8 +900,8 @@ export class OffenseRepository {
     // follows an active destination too; for a disabled destination, rebuild
     // only the still-current catch-up below so stale and current summaries do
     // not both fire.
-    this.migrateEndpointDeliveries(staleEndpointIds, id, now, 'non-catchup');
-    this.migrateEndpointDeliveries(activeStaleEndpointIds, id, now, 'catchup');
+    this.transferEndpointDeliveries(staleEndpointIds, id, now, 'non-catchup');
+    this.transferEndpointDeliveries(activeStaleEndpointIds, id, now, 'catchup');
     const reconnectEndpoints = staleEndpoints.length > 0
       ? staleEndpoints.filter((endpoint) => !Boolean(endpoint.enabled) && endpoint.lastError)
       : existing?.watchlistId === watchlistId && !Boolean(existing.enabled) && existing.lastError
@@ -1049,7 +939,7 @@ export class OffenseRepository {
     };
   }
 
-  migrateEndpointDeliveries(endpointIds, replacementId, now, sourceMode = 'all') {
+  transferEndpointDeliveries(endpointIds, replacementId, now, sourceMode = 'all') {
     if (endpointIds.length === 0) return 0;
     const placeholders = endpointIds.map(() => '?').join(',');
     const sourceClause = sourceMode === 'catchup'
@@ -1074,11 +964,11 @@ export class OffenseRepository {
         lease_expires_at, last_attempt_at, last_error, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
     `);
-    let migrated = 0;
+    let transferred = 0;
     for (const row of rows) {
       const status = row.status === 'sending' ? 'retry' : row.status;
       const nextAttemptAt = row.status === 'sending' ? now : row.nextAttemptAt;
-      migrated += Number(insert.run(
+      transferred += Number(insert.run(
         stableId('delivery', row.eventId, replacementId),
         row.eventId,
         replacementId,
@@ -1091,7 +981,7 @@ export class OffenseRepository {
         now,
       ).changes);
     }
-    return migrated;
+    return transferred;
   }
 
   recoverFailedUrgentDeliveries(endpoints, replacementId, now) {
@@ -1210,9 +1100,8 @@ export class OffenseRepository {
     const endpoints = this.db.prepare(`
       SELECT endpoint.id, endpoint.watchlist_id AS watchlistId
       FROM delivery_endpoints endpoint
-      JOIN watchlists watchlist ON watchlist.id = endpoint.watchlist_id
       WHERE endpoint.kind = 'web_push' AND endpoint.enabled = 1
-        AND endpoint.verified_at IS NULL AND watchlist.enabled = 1
+        AND endpoint.verified_at IS NULL
         AND NOT EXISTS (
           SELECT 1 FROM deliveries delivery
           JOIN events event ON event.id = delivery.event_id
@@ -1259,7 +1148,7 @@ export class OffenseRepository {
     `).get(endpointId, watchlistId);
     if (!endpoint || endpoint.verifiedAt === null) return 0;
     const watchlist = this.getWatchlist(watchlistId);
-    if (!watchlist || !watchlist.enabled || watchlist.addresses.length === 0) return 0;
+    if (!watchlist || watchlist.addresses.length === 0) return 0;
     const scopedAddresses = addresses === undefined
       ? watchlist.addresses
       : [...new Set(addresses.map((value) => value.toLowerCase()))]
@@ -1481,8 +1370,7 @@ export class OffenseRepository {
     return this.transaction(() => {
       const endpoints = this.db.prepare(`
         SELECT endpoint.id FROM delivery_endpoints endpoint
-        JOIN watchlists watchlist ON watchlist.id = endpoint.watchlist_id
-        WHERE endpoint.watchlist_id = ? AND endpoint.enabled = 1 AND watchlist.enabled = 1
+        WHERE endpoint.watchlist_id = ? AND endpoint.enabled = 1
       `).all(watchlistId).map((row) => row.id);
       if (endpoints.length === 0) return 0;
 
@@ -1491,12 +1379,12 @@ export class OffenseRepository {
       // cooldown and amplify one subscription into an unbounded journal.
       const claimed = this.db.prepare(`
         UPDATE watchlists SET last_test_at = ?
-        WHERE id = ? AND enabled = 1
+        WHERE id = ?
           AND (last_test_at IS NULL OR last_test_at <= ?)
       `).run(now, watchlistId, now - cooldownMs);
       if (Number(claimed.changes) === 0) {
         const watchlist = this.db.prepare(`
-          SELECT last_test_at AS lastTestAt FROM watchlists WHERE id = ? AND enabled = 1
+          SELECT last_test_at AS lastTestAt FROM watchlists WHERE id = ?
         `).get(watchlistId);
         if (watchlist?.lastTestAt !== null && watchlist?.lastTestAt !== undefined) {
           throw new NotificationTestCooldownError(watchlist.lastTestAt + cooldownMs - now);
@@ -1542,10 +1430,9 @@ export class OffenseRepository {
             END AS severity_priority
           FROM deliveries delivery
           JOIN delivery_endpoints endpoint ON endpoint.id = delivery.endpoint_id
-          JOIN watchlists watchlist ON watchlist.id = endpoint.watchlist_id
           JOIN events event ON event.id = delivery.event_id
           WHERE delivery.status IN ('pending', 'retry') AND delivery.next_attempt_at <= ?
-            AND endpoint.enabled = 1 AND watchlist.enabled = 1
+            AND endpoint.enabled = 1
             AND (endpoint.verified_at IS NOT NULL OR event.source = 'test')
             AND NOT EXISTS (
               SELECT 1 FROM deliveries in_flight
@@ -1610,10 +1497,9 @@ export class OffenseRepository {
       SELECT 1
       FROM deliveries delivery
       JOIN delivery_endpoints endpoint ON endpoint.id = delivery.endpoint_id
-      JOIN watchlists watchlist ON watchlist.id = endpoint.watchlist_id
       JOIN events event ON event.id = delivery.event_id
       WHERE delivery.id = ? AND delivery.status = 'sending'
-        AND endpoint.enabled = 1 AND watchlist.enabled = 1
+        AND endpoint.enabled = 1
         AND (endpoint.verified_at IS NOT NULL OR event.source = 'test')
     `).get(id));
   }
@@ -1724,8 +1610,7 @@ export class OffenseRepository {
   } = {}) {
     const common = `
       JOIN delivery_endpoints endpoint ON endpoint.id = delivery.endpoint_id
-      JOIN watchlists watchlist ON watchlist.id = endpoint.watchlist_id
-      WHERE endpoint.enabled = 1 AND endpoint.verified_at IS NOT NULL AND watchlist.enabled = 1
+      WHERE endpoint.enabled = 1 AND endpoint.verified_at IS NOT NULL
     `;
     const overdue = this.db.prepare(`
       SELECT 1 FROM deliveries delivery ${common}
@@ -1745,62 +1630,6 @@ export class OffenseRepository {
       LIMIT 1
     `).get(now - failureWindowMs);
     return { status: recentFailure ? 'degraded' : 'healthy' };
-  }
-
-  getDeliveryHealth({
-    now = Date.now(),
-    overdueAfterMs = DELIVERY_OVERDUE_AFTER_MS,
-    failureWindowMs = DELIVERY_FAILURE_HEALTH_WINDOW_MS,
-  } = {}) {
-    const row = this.db.prepare(`
-      SELECT
-        COALESCE(SUM(CASE
-          WHEN endpoint.enabled = 1 AND endpoint.verified_at IS NOT NULL AND watchlist.enabled = 1
-            AND delivery.status IN ('pending', 'retry') AND delivery.next_attempt_at <= ?
-          THEN 1 ELSE 0 END), 0) AS overdue_deliveries,
-        COALESCE(SUM(CASE
-          WHEN endpoint.enabled = 1 AND endpoint.verified_at IS NOT NULL AND watchlist.enabled = 1
-            AND delivery.status = 'sending' AND delivery.lease_expires_at <= ?
-          THEN 1 ELSE 0 END), 0) AS expired_leases,
-        MIN(CASE
-          WHEN endpoint.enabled = 1 AND endpoint.verified_at IS NOT NULL AND watchlist.enabled = 1
-            AND delivery.status IN ('pending', 'retry') AND delivery.next_attempt_at <= ?
-          THEN delivery.next_attempt_at END) AS oldest_overdue_at,
-        COALESCE(SUM(CASE
-          WHEN endpoint.enabled = 1 AND endpoint.verified_at IS NOT NULL AND watchlist.enabled = 1
-            AND delivery.status = 'failed' AND delivery.updated_at >= ?
-          THEN 1 ELSE 0 END), 0) AS recent_terminal_failures,
-        MAX(CASE
-          WHEN endpoint.enabled = 1 AND endpoint.verified_at IS NOT NULL AND watchlist.enabled = 1
-            AND delivery.status = 'failed' AND delivery.updated_at >= ?
-          THEN delivery.updated_at END) AS last_terminal_failure_at
-      FROM deliveries delivery
-      JOIN delivery_endpoints endpoint ON endpoint.id = delivery.endpoint_id
-      JOIN watchlists watchlist ON watchlist.id = endpoint.watchlist_id
-    `).get(
-      now - overdueAfterMs,
-      now,
-      now - overdueAfterMs,
-      now - failureWindowMs,
-      now - failureWindowMs,
-    );
-    const overdueDeliveries = Number(row.overdue_deliveries);
-    const expiredLeases = Number(row.expired_leases);
-    const recentTerminalFailures = Number(row.recent_terminal_failures);
-    return {
-      status: overdueDeliveries > 0 || expiredLeases > 0 || recentTerminalFailures > 0
-        ? 'degraded'
-        : 'healthy',
-      overdueDeliveries,
-      expiredLeases,
-      recentTerminalFailures,
-      oldestOverdueAt: row.oldest_overdue_at === null ? null : Number(row.oldest_overdue_at),
-      lastTerminalFailureAt: row.last_terminal_failure_at === null
-        ? null
-        : Number(row.last_terminal_failure_at),
-      overdueAfterMs,
-      failureWindowMs,
-    };
   }
 
   pruneNotificationData({
@@ -2868,9 +2697,6 @@ function normalizeHexAddress(value, label) {
 }
 
 function canAdvanceAbsence(offense, evidence) {
-  // Undefined preserves the v1 repository API for migrations and direct tests.
-  // The v2 collector always supplies cursor-scoped evidence.
-  if (evidence === undefined) return true;
   const cursor = evidence?.[offense.timeUnit];
   if (!cursor?.advanced || typeof cursor.value !== 'string') return false;
   try {
@@ -2881,7 +2707,7 @@ function canAdvanceAbsence(offense, evidence) {
 }
 
 function hasAdvancingAbsenceEvidence(evidence) {
-  return evidence === undefined || Boolean(evidence?.slot?.advanced || evidence?.epoch?.advanced);
+  return Boolean(evidence?.slot?.advanced || evidence?.epoch?.advanced);
 }
 
 function parseJson(value, fallback) {

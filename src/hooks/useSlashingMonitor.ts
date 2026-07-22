@@ -8,6 +8,7 @@ import { useSlashingStore } from '@/store/slashingStore';
 import type { CurrentChainState, DetectedSlashing, MonitorAudit, MonitorConfigInput, MonitorIssue, MonitorSnapshot, SlashingStats } from '@/types/slashing';
 
 class StaleMonitorRunError extends Error {}
+const POLL_INTERVAL_MS = 180_000;
 
 export function useSlashingMonitor(config: MonitorConfigInput) {
     const {
@@ -112,9 +113,6 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
             applySnapshot(snapshot);
             completed = audit.status !== 'stale' && audit.status !== 'fatal';
 
-            if (Math.random() < config.consoleLogProbability) {
-                console.log(`Poll complete: ${detectedSlashings.length} rounds, audit=${audit.status}`);
-            }
         }
         catch (error) {
             if (error instanceof StaleMonitorRunError) {
@@ -131,7 +129,7 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
 
             isPollingRef.current = false;
         }
-    }, [applySnapshot, config.consoleLogProbability, initializeMonitor, setIsScanning, setMonitorFailure]);
+    }, [applySnapshot, initializeMonitor, setIsScanning, setMonitorFailure]);
 
     useEffect(() => {
         let cancelled = false;
@@ -153,7 +151,7 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
                 if (isActiveRef.current && generation === runGenerationRef.current) {
                     scheduleNextPoll();
                 }
-            }, config.pollInterval);
+            }, POLL_INTERVAL_MS);
         }
 
         const start = async () => {
@@ -178,7 +176,7 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
                 setMonitorFailure(message, true);
                 setIsScanning(false);
                 if (!cancelled) {
-                    timeoutRef.current = setTimeout(start, config.pollInterval);
+                    timeoutRef.current = setTimeout(start, POLL_INTERVAL_MS);
                 }
             }
         };
@@ -197,7 +195,7 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
                 timeoutRef.current = null;
             }
         };
-    }, [config.pollInterval, initializeMonitor, poll, setInitializationError, setIsScanning, setMonitorFailure]);
+    }, [initializeMonitor, poll, setInitializationError, setIsScanning, setMonitorFailure]);
 }
 
 function buildSnapshot(

@@ -21,24 +21,14 @@ export function formatEther(wei: bigint, decimals = 4): string {
     const ether = Number(wei) / 1e18;
     return ether.toFixed(decimals);
 }
-/**
- * Formats time duration in seconds to a human-readable string.
- * @param seconds - Duration in seconds
- * @param options - Optional configuration for formatting
- * @returns Formatted time string
- */
 export function formatTimeRemaining(
     seconds: number,
     options?: {
-        /** If true, uses approximate notation (~) and omits seconds */
         approximate?: boolean;
-        /** Hours threshold for showing days instead of just hours (e.g., 24 for 24-hour day) */
-        hoursThresholdForDayDisplay?: number;
-        /** String to return when seconds <= 0 */
         zeroLabel?: string;
     }
 ): string {
-    const { approximate = false, hoursThresholdForDayDisplay, zeroLabel = 'Expired' } = options ?? {};
+    const { approximate = false, zeroLabel = 'Expired' } = options ?? {};
 
     if (seconds <= 0) {
         return approximate ? 'Now' : zeroLabel;
@@ -49,25 +39,7 @@ export function formatTimeRemaining(
     const minutes = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
 
-    const prefix = approximate ? '~' : '';
-
-    // Use hoursThresholdForDayDisplay if provided
-    if (hoursThresholdForDayDisplay !== undefined) {
-        const totalHours = Math.floor(seconds / 3600);
-        if (totalHours > hoursThresholdForDayDisplay) {
-            const days = Math.floor(totalHours / hoursThresholdForDayDisplay);
-            const remainingHours = totalHours % hoursThresholdForDayDisplay;
-            return `${prefix}${days}d ${remainingHours}h`;
-        }
-        if (totalHours > 0) {
-            return `${prefix}${totalHours}h ${minutes}m`;
-        }
-        return `${prefix}${minutes}m`;
-    }
-
-    // Standard formatting
     if (approximate) {
-        // Approximate mode: omit seconds for cleaner display
         if (days > 0) {
             return `${days}d ${hours}h ${minutes}m`;
         }

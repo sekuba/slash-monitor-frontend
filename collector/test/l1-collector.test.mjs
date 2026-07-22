@@ -116,7 +116,6 @@ test('log backfill yields at its time budget so the next fresh snapshot is not s
 
 function snapshot(block) {
   return {
-    schemaVersion: 1,
     chainId: 1,
     blockNumber: String(block),
     blockHash: hash(block),
@@ -135,7 +134,6 @@ function snapshot(block) {
 
 function slashChunk({ from, to, confirmed, logs, hasMore, initial = false, initialBackfill = false }) {
   return {
-    schemaVersion: 1,
     chainId: 1,
     fromBlock: String(from),
     toBlock: String(to),

@@ -5,7 +5,7 @@ describe('query-based application navigation', () => {
     it('parses supported views and defaults unknown values to the mainnet monitor', () => {
         expect(parseAppSearch('')).toEqual({ view: 'monitor', network: 'mainnet', selectedEventId: null });
         expect(parseAppSearch('?view=pingme&network=testnet&event=event_1')).toEqual({ view: 'pingme', network: 'testnet', selectedEventId: 'event_1' });
-        expect(parseAppSearch('?view=debug&network=unknown&event=not%20valid')).toEqual({ view: 'debug', network: 'mainnet', selectedEventId: null });
+        expect(parseAppSearch('?view=unknown&network=unknown&event=not%20valid')).toEqual({ view: 'monitor', network: 'mainnet', selectedEventId: null });
         expect(parseAppSearch('?view=admin')).toEqual({ view: 'monitor', network: 'mainnet', selectedEventId: null });
     });
 
@@ -22,7 +22,6 @@ describe('query-based application navigation', () => {
 
     it('removes a notification event whenever navigation leaves PINGME', () => {
         const current = 'https://slashmon.example/?view=pingme&network=testnet&event=event-1';
-        expect(urlForView(current, 'debug').searchParams.has('event')).toBe(false);
         expect(urlForView(current, 'monitor').searchParams.has('event')).toBe(false);
         expect(urlForView(current, 'pingme').searchParams.get('event')).toBe('event-1');
     });

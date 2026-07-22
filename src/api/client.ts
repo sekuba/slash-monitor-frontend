@@ -15,9 +15,9 @@ import type {
     MonitorEvent,
     MonitorNetwork,
     TelegramLink,
-    V2PublicConfig,
-    V2Status,
-} from '@/types/v2Api';
+    BackendConfig,
+    BackendStatus,
+} from '@/types/backendApi';
 
 const REQUEST_TIMEOUT_MS = 12_000;
 const API_ROOT = '/api/v2';
@@ -40,24 +40,12 @@ export class SlashmonApiClient {
         this.baseUrl = baseUrl.replace(/\/$/, '');
     }
 
-    async getConfig(signal?: AbortSignal): Promise<V2PublicConfig> {
+    async getConfig(signal?: AbortSignal): Promise<BackendConfig> {
         return decodePublicConfig(await this.request('/config', { signal }));
     }
 
-    async getStatus(network: MonitorNetwork, signal?: AbortSignal): Promise<V2Status> {
+    async getStatus(network: MonitorNetwork, signal?: AbortSignal): Promise<BackendStatus> {
         return decodeStatus(await this.request(`/status?network=${network}`, { signal }), network);
-    }
-
-    async getSubscriptionStatus(
-        id: string,
-        token: string,
-        network: MonitorNetwork,
-        signal?: AbortSignal,
-    ): Promise<V2Status> {
-        return decodeStatus(await this.request(
-            `/subscriptions/${encodeURIComponent(id)}/status`,
-            { token, signal },
-        ), network);
     }
 
     async getEvents(network: MonitorNetwork, signal?: AbortSignal, cursor?: string): Promise<EventPage> {

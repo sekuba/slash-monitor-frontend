@@ -1,45 +1,32 @@
-# Slashmon v2
+# Slashmon
 
-Slashmon is an early-warning watchtower for Aztec sequencers, built by and for
-the [Slash Veto Council](https://github.com/aztec-slash-veto/council/) and the
-wider Aztec community.
+Slashmon watches Aztec slashing and has two deliberately separate parts:
 
-It watches two things that should never be confused:
+- **Monitor** is a browser-only view of public Ethereum state. It resolves the
+  canonical Aztec contracts and checks slashing rounds directly through public
+  L1 RPCs.
+- **PINGME** is the alerting UI for the backend. The backend journals early
+  offenses from one Aztec node, verifies L1 slashing state, and sends matched
+  alerts through Telegram or Web Push.
 
-- **pending, node-local offenses** from a private Aztec node admin API; and
-- **L1-verified slashing payloads** resolved from Aztec's canonical Registry on
-  Ethereum.
+Node-local offenses are early warnings, not consensus. Slashmon labels them
+`pending`. Ethereum observations are labelled `confirmed`. The backend never
+turns one node's opinion into L1 truth.
 
-The first can warn you earlier. The second is the public chain state. Slashmon
-labels both, keeps their history in SQLite, matches events to watched sequencer
-addresses, and delivers alerts through Telegram or PWA Web Push.
+## Repository
 
-The PWA is enough for browser push; there are no native mobile apps to install
-or maintain. Signal is not a supported v2 delivery channel. The dashboard needs
-a live network connection and never dresses cached data up as fresh consensus.
+- `src/` — React/Vite PWA containing Monitor and PINGME
+- `collector/` — Node backend, SQLite journal, and notification delivery
+- [`docs/architecture.md`](docs/architecture.md) — data flow and trust boundaries
+- [`docs/runbook.md`](docs/runbook.md) — production deployment and operations
+- [`docs/privacy.md`](docs/privacy.md) — stored data and provider exposure
 
-Notification watches carry an origin-wide bearer capability in browser
-storage. Give production Slashmon its own domain or subdomain. A project path
-on `name.github.io` is fine for the public L1 monitor, but the UI deliberately
-refuses to create private watches there because sibling Pages projects share
-the same browser origin.
+The ignored `apiReference.md` and `onchainSources.md` files are research
+material. Runtime behavior must live in committed code, ABIs, and tests.
 
-## Repository map
+## Development
 
-- `src/` — React/Vite PWA and independent public L1 view.
-- `collector/` — the Slashmon v2 backend: Aztec/L1 sources, SQLite journal,
-  subscriptions, Telegram long polling, and Web Push delivery.
-- `docs/architecture.md` — trust boundaries and the event/outbox design.
-- `docs/privacy.md` — what notification delivery reveals and to whom.
-- `docs/runbook.md` — single-host deployment, migration, backup, and recovery.
-
-The ignored `apiReference.md` and `onchainSources.md` files are research inputs,
-not runtime dependencies. Anything the application needs from them must be
-committed as a small ABI, fixture, or test.
-
-## Local development
-
-Use Node 24 and the pnpm version pinned in `package.json`:
+Use Node 24 and the pinned pnpm release:
 
 ```bash
 corepack enable
@@ -48,38 +35,31 @@ cp .env.example .env
 cp collector/.env.example collector/.env
 ```
 
-Run the frontend and backend in separate terminals:
+Run the two processes in separate terminals:
 
 ```bash
 pnpm dev
 pnpm dev:backend
 ```
 
-The browser API defaults to the same origin. For two local processes, set
-`VITE_API_BASE_URL=http://127.0.0.1:8790` and set the backend CORS origin to
-`http://localhost:5173`. To test against a production backend without weakening
-its exact CORS policy, leave `VITE_API_BASE_URL` empty and set the development-
-only `SLASHMON_DEV_API_PROXY_TARGET=https://api.slashveto.me`; Vite will proxy
-`/api` server-side while the browser remains same-origin with localhost.
+For local cross-origin development, set
+`VITE_API_BASE_URL=http://127.0.0.1:8790`; the backend example already allows
+`http://localhost:5173`. Alternatively leave `VITE_API_BASE_URL` empty and set
+`SLASHMON_DEV_API_PROXY_TARGET` for Vite's same-origin development proxy.
 
-Run the whole gate before committing:
+Run the complete quality gate with:
 
 ```bash
 pnpm check
 ```
 
-That lints, runs frontend and backend tests, syntax-checks every backend module,
-and builds the PWA.
+All `VITE_*` values are public browser configuration. Backend RPC credentials,
+Telegram tokens, and VAPID private keys belong only in `collector/.env` or the
+production environment file.
 
-## A small but important trust note
+Notification watches use a bearer capability stored by browser origin. Host a
+production PINGME installation on a dedicated origin and do not add third-party
+scripts. A shared GitHub Pages origin is suitable only for the public Monitor.
 
-The Aztec admin endpoint describes what one node currently believes is
-slashable. It is public in Slashmon's node-local feed, but it is not consensus
-and is always labelled pending. L1 payloads are read at a pinned Ethereum block
-and can be independently checked by anyone. Notification providers are
-best-effort transports, so serious operators should keep the dashboard and
-source-health checks in their routine instead of treating one push message as
-an oracle.
-
-Production setup lives in [the runbook](docs/runbook.md). Keep secrets out of
-`VITE_*`: those values are shipped to every browser.
+The destructive one-time backend switch is documented in the runbook and runs
+as `scripts/switch-backend.sh --fresh`.

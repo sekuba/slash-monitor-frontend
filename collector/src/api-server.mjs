@@ -26,9 +26,7 @@ export class CollectorApiServer {
     corsOrigin,
     staleAfterMs,
     l1StaleAfterMs = staleAfterMs,
-    publicConfig = {},
     network = 'mainnet',
-    publicUrl = 'http://localhost:5173/',
     vapidPublicKey,
     telegramBotUsername,
     isTelegramReady,
@@ -57,9 +55,7 @@ export class CollectorApiServer {
     this.corsOrigin = corsOrigin;
     this.staleAfterMs = staleAfterMs;
     this.l1StaleAfterMs = l1StaleAfterMs;
-    this.publicConfig = publicConfig;
     this.network = network;
-    this.publicUrl = publicUrl;
     this.vapidPublicKey = vapidPublicKey ?? null;
     this.telegramBotUsername = telegramBotUsername ?? null;
     this.isTelegramReady = isTelegramReady ?? (() => Boolean(this.telegramBotUsername));
@@ -83,7 +79,7 @@ export class CollectorApiServer {
     this.logger = logger;
     this.now = now;
     this.shutdownTimeoutMs = shutdownTimeoutMs;
-    this.publicStatusCache = null;
+    this.statusCache = null;
     this.server = http.createServer((request, response) => void this.handle(request, response));
     this.server.requestTimeout = requestTimeoutMs;
     this.server.headersTimeout = headersTimeoutMs;
@@ -188,7 +184,7 @@ export class CollectorApiServer {
     }
     if (method === 'GET' && url.pathname === '/api/v2/status') {
       normalizeNetwork(url.searchParams.get('network') ?? this.network, this.network);
-      return writeJson(response, 200, this.buildPublicV2Status());
+      return writeJson(response, 200, this.buildPublicStatus());
     }
     if (method === 'GET' && url.pathname === '/api/v2/events') {
       const query = parseEventQuery(url.searchParams, this.network);
@@ -227,6 +223,7 @@ export class CollectorApiServer {
         'Too many watch lists created from this client; try again later',
       );
       const body = await readJsonBody(request, this.maxRequestBodyBytes);
+      assertBodyFields(body, ['network', 'addresses']);
       const network = normalizeNetwork(body.network ?? this.network, this.network);
       const addresses = normalizeAddresses(body.addresses, this.maxSequencers);
       // Malformed traffic pays the per-client parsing quota, but it must not
@@ -268,10 +265,6 @@ export class CollectorApiServer {
     if (suffix === '' && method === 'GET') {
       return writeJson(response, 200, { schemaVersion: 2, data: toPublicWatchlist(watchlist) });
     }
-    if (suffix === '/status' && method === 'GET') {
-      normalizeNetwork(url.searchParams.get('network') ?? watchlist.network, watchlist.network);
-      return writeJson(response, 200, this.buildV2Status(watchlist));
-    }
     if (suffix === '/events' && method === 'GET') {
       const query = parseEventQuery(url.searchParams, watchlist.network);
       const page = this.repository.listEvents({ ...query, addresses: watchlist.addresses });
@@ -302,20 +295,13 @@ export class CollectorApiServer {
     }
     if (suffix === '' && method === 'PATCH') {
       const body = await readJsonBody(request, this.maxRequestBodyBytes);
-      const hasAddresses = Object.hasOwn(body, 'addresses');
-      const hasEnabled = Object.hasOwn(body, 'enabled');
-      if (!hasAddresses && !hasEnabled) {
-        throw new HttpError(400, 'empty_patch', 'PATCH must include addresses or enabled');
+      assertBodyFields(body, ['addresses']);
+      if (!Object.hasOwn(body, 'addresses')) {
+        throw new HttpError(400, 'empty_patch', 'PATCH must include addresses');
       }
-      if (hasEnabled && typeof body.enabled !== 'boolean') {
-        throw new HttpError(400, 'invalid_enabled', 'enabled must be a boolean');
-      }
-      const addresses = hasAddresses
-        ? normalizeAddresses(body.addresses, this.maxSequencers)
-        : undefined;
+      const addresses = normalizeAddresses(body.addresses, this.maxSequencers);
       const updated = this.repository.updateWatchlist(id, {
         addresses,
-        enabled: hasEnabled ? body.enabled : undefined,
         now: this.now(),
       });
       return writeJson(response, 200, { schemaVersion: 2, data: toPublicWatchlist(updated) });
@@ -329,6 +315,7 @@ export class CollectorApiServer {
     if (suffix === '/channels/web-push' && method === 'PUT') {
       if (!this.vapidPublicKey) throw new HttpError(503, 'web_push_unavailable', 'Web Push is not configured');
       const body = await readJsonBody(request, this.maxRequestBodyBytes);
+      assertBodyFields(body, ['subscription']);
       const subscription = parsePushSubscription(body.subscription);
       const result = this.repository.upsertEndpoint({
         watchlistId: id,
@@ -425,7 +412,7 @@ export class CollectorApiServer {
     }
   }
 
-  buildBaseV2Status() {
+  buildBaseStatus() {
     const now = this.now();
     const aztec = sourceHealthFromOffenseSync(this.repository.getSyncState(), this.staleAfterMs, now);
     const l1SnapshotState = this.repository.getSourceState('l1');
@@ -469,42 +456,33 @@ export class CollectorApiServer {
     };
   }
 
-  buildV2Status(watchlist) {
-    const status = this.buildPublicV2Status();
-    if (!watchlist) return status;
+  buildPublicStatus() {
+    const status = this.buildStatus();
     return {
-      ...status,
-      pendingOffenses: this.repository.listOffenses({
-        status: 'active',
-        sequencers: watchlist.addresses,
-        limit: Math.min(1_000, watchlist.addresses.length * 100),
-        offset: 0,
-      }),
+      schemaVersion: status.schemaVersion,
+      status: status.status,
+      generatedAt: status.generatedAt,
+      network: status.network,
+      sources: {
+        l1: { status: status.sources.l1.status },
+        aztec: { status: status.sources.aztec.status },
+      },
+      delivery: { status: status.delivery.status },
     };
   }
 
-  buildPublicV2Status() {
+  buildStatus() {
     const now = this.now();
-    // Public status and health probes are intentionally small and briefly
-    // cached. They should never serialize full committee/action snapshots or
-    // turn an unauthenticated read flood into work that delays collection.
-    if (this.publicStatusCache && this.publicStatusCache.expiresAt > now) {
-      return this.publicStatusCache.value;
+    if (this.statusCache && this.statusCache.expiresAt > now) {
+      return this.statusCache.value;
     }
-    const value = {
-      ...this.buildBaseV2Status(),
-      pendingOffenses: this.repository.listOffenses({
-        status: 'active',
-        limit: 1_000,
-        offset: 0,
-      }),
-    };
-    this.publicStatusCache = { value, expiresAt: now + 1_000 };
+    const value = this.buildBaseStatus();
+    this.statusCache = { value, expiresAt: now + 1_000 };
     return value;
   }
 
   buildHealth() {
-    const status = this.buildPublicV2Status();
+    const status = this.buildStatus();
     return {
       httpStatus: status.status === 'stale' ? 503 : 200,
       body: {
@@ -571,6 +549,13 @@ async function readJsonBody(request, maxBytes) {
     throw new HttpError(400, 'invalid_body', 'Request body must be a JSON object');
   }
   return body;
+}
+
+function assertBodyFields(body, allowed) {
+  const unexpected = Object.keys(body).find((field) => !allowed.includes(field));
+  if (unexpected) {
+    throw new HttpError(400, 'unknown_field', `Unknown request field: ${unexpected}`);
+  }
 }
 
 function setCommonHeaders(response, request, corsOrigin) {
@@ -689,13 +674,10 @@ function toPublicWatchlist(watchlist) {
     id: watchlist.id,
     network: watchlist.network,
     addresses: watchlist.addresses,
-    enabled: watchlist.enabled,
     channels: {
       webPush: channelSummary(endpoints, 'web_push'),
       telegram: channelSummary(endpoints, 'telegram'),
     },
-    createdAt: normalizeTime(watchlist.createdAt),
-    updatedAt: normalizeTime(watchlist.updatedAt),
   };
 }
 
@@ -706,11 +688,6 @@ function channelSummary(endpoints, kind) {
     enabled: matching.some((endpoint) => endpoint.enabled !== false),
     verified: matching.some((endpoint) => endpoint.enabled !== false && endpoint.verified === true),
   };
-}
-
-function normalizeTime(value) {
-  if (typeof value === 'string') return value;
-  return toIso(value);
 }
 
 function toIso(value) {

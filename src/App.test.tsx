@@ -24,32 +24,25 @@ describe('top-level view isolation', () => {
         const markup = renderToStaticMarkup(<App />);
 
         expect(scannerSpy).not.toHaveBeenCalled();
-        expect(markup).toContain('Connecting To Warning Network');
+        expect(markup).toContain('Connecting To Pingme');
         expect(markup).toContain('Watch My Sequencers');
-        expect(markup.indexOf('Connecting To Warning Network')).toBeLessThan(markup.indexOf('Watch My Sequencers'));
+        expect(markup.indexOf('Connecting To Pingme')).toBeLessThan(markup.indexOf('Watch My Sequencers'));
         expect(markup).toContain('Monitor');
         expect(markup).toContain('>PINGME</button>');
-        expect(markup).toContain('Debug');
+        expect(markup).not.toContain('Debug');
         expect(markup).not.toContain('Client scanner network');
         expect(markup).toContain('brutal-button--nav-selected');
     });
 
-    it('renders Debug controls before scanner configuration or a snapshot exists', () => {
-        installBrowser('https://slashmon.example/?view=debug&network=testnet');
+    it('treats removed and unknown views as the Monitor', () => {
+        installBrowser('https://slashmon.example/?view=unknown&network=testnet');
 
         const markup = renderToStaticMarkup(<App />);
 
         expect(scannerSpy).toHaveBeenCalledOnce();
-        expect(markup).toContain('Backend / Server-Side');
-        expect(markup).toContain('Backend Alert Service: Connecting');
-        expect(markup).toContain('Client / This Browser');
+        expect(markup).not.toContain('Debug');
         expect(markup).toContain('Client scanner network');
-        expect(markup).toContain('RPC Configuration');
-        expect(markup).toContain('Not initialized');
-        expect(markup).toContain('Update RPC');
-        expect(markup).not.toContain('Contract Debug View');
-        expect(markup).not.toContain('Audit Status');
-        expect(markup).not.toContain('Collector freshness');
+        expect(markup).toContain('INITIALIZING CLIENTSIDE L1 MONITOR');
     });
 
 });

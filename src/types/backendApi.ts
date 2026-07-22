@@ -5,14 +5,9 @@ export type BackendHealthStatus = 'healthy' | 'degraded' | 'stale' | 'unavailabl
 
 export interface SourceHealth {
     status: BackendHealthStatus;
-    dataFresh: boolean;
-    dataAgeMs: number | null;
-    lastAttemptAt: string | null;
-    lastSuccessAt: string | null;
-    lastError: string | null;
 }
 
-export interface V2PublicConfig {
+export interface BackendConfig {
     network: MonitorNetwork;
     webPush: {
         enabled: boolean;
@@ -27,23 +22,7 @@ export interface V2PublicConfig {
     };
 }
 
-export interface PendingOffense {
-    id: string;
-    network: MonitorNetwork;
-    sequencer: Address;
-    amount: string | null;
-    offenseType: number | null;
-    offenseTypeName: string;
-    epochOrSlot: string | null;
-    timeUnit: string | null;
-    status: 'active' | 'withdrawn';
-    firstSeenAt: string;
-    lastSeenAt: string;
-    withdrawnAt: string | null;
-    observationCount: number | null;
-}
-
-export interface V2Status {
+export interface BackendStatus {
     status: BackendHealthStatus;
     generatedAt: string;
     sources: {
@@ -52,11 +31,7 @@ export interface V2Status {
     };
     delivery: {
         status: BackendHealthStatus;
-        overdueDeliveries: number;
-        expiredLeases: number;
-        recentTerminalFailures: number;
     };
-    pendingOffenses: PendingOffense[];
 }
 
 export interface MonitorEvent {
@@ -90,7 +65,6 @@ export interface NotificationChannelState {
     connected: boolean;
     enabled: boolean;
     verified: boolean;
-    label: string | null;
 }
 
 export interface ManagedSubscription {
@@ -101,8 +75,6 @@ export interface ManagedSubscription {
         webPush: NotificationChannelState;
         telegram: NotificationChannelState;
     };
-    createdAt: string | null;
-    updatedAt: string | null;
 }
 
 export interface CreatedSubscription {

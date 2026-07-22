@@ -7,7 +7,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "start": "node src/main.mjs",
+    "start": "node --env-file-if-exists=.env src/main.mjs",
     "test": "node --test test/*.test.mjs",
     "check": "for file in src/*.mjs test/*.mjs; do node --check \"$file\" || exit 1; done"
   },

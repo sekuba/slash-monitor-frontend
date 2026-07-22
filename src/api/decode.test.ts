@@ -12,7 +12,7 @@ import {
 
 const address = '0x00000000000000000000000000000000000000aa';
 
-describe('Slashmon v2 API decoders', () => {
+describe('Slashmon API decoders', () => {
     it('decodes public channel configuration without accepting secrets', () => {
         expect(decodePublicConfig({
             schemaVersion: 2,
@@ -28,7 +28,7 @@ describe('Slashmon v2 API decoders', () => {
         });
     });
 
-    it('decodes source health and pending offenses', () => {
+    it('decodes the compact backend health summary', () => {
         const source = {
             status: 'healthy',
             dataFresh: true,
@@ -44,31 +44,10 @@ describe('Slashmon v2 API decoders', () => {
             generatedAt: '2026-07-21T10:00:01.000Z',
             sources: { l1: source, aztec: source },
             delivery: { status: 'degraded' },
-            pendingOffenses: [{
-                id: 'offense-1',
-                sequencer: address,
-                amount: '1000000000000000000',
-                offenseType: 3,
-                offenseTypeName: 'inactivity',
-                epochOrSlot: '42',
-                timeUnit: 'epoch',
-                status: 'active',
-                firstSeenAt: '2026-07-21T09:59:00.000Z',
-                lastSeenAt: '2026-07-21T10:00:00.000Z',
-                withdrawnAt: null,
-                observationCount: 4,
-            }],
         }, 'mainnet');
 
         expect(status.sources.l1.status).toBe('healthy');
-        expect(status.delivery).toEqual({
-            status: 'degraded',
-            overdueDeliveries: 0,
-            expiredLeases: 0,
-            recentTerminalFailures: 0,
-        });
-        expect(status.pendingOffenses[0].network).toBe('mainnet');
-        expect(status.pendingOffenses[0].amount).toBe('1000000000000000000');
+        expect(status.delivery).toEqual({ status: 'degraded' });
     });
 
     it('decodes a journal page and infers pending certainty from its source', () => {
@@ -142,8 +121,6 @@ describe('Slashmon v2 API decoders', () => {
                     webPush: { connected: false, enabled: false, verified: false },
                     telegram: { connected: false, enabled: false, verified: false },
                 },
-                createdAt: null,
-                updatedAt: null,
             },
         })).toThrow(ApiContractError);
     });
@@ -159,8 +136,6 @@ describe('Slashmon v2 API decoders', () => {
                     webPush: { connected: true, enabled: false, verified: false },
                     telegram: { connected: false, enabled: false, verified: false },
                 },
-                createdAt: null,
-                updatedAt: null,
             },
         });
 
@@ -168,7 +143,6 @@ describe('Slashmon v2 API decoders', () => {
             connected: true,
             enabled: false,
             verified: false,
-            label: null,
         });
     });
 

@@ -3,26 +3,18 @@ import { useSlashingStore } from '@/store/slashingStore';
 import { RoundCard } from './RoundCard';
 import { StatsPanel } from './StatsPanel';
 import { SlashingTimeline } from './SlashingTimeline';
-import { DebugView } from './DebugView';
 import { SlashingHelpModal } from './SlashingHelpModal';
-import { BackendOverview } from './BackendOverview';
 import { collectTargetedSequencers, deriveRoundPresentation } from '@/lib/utils';
-import type { MonitorConfigInput } from '@/types/slashing';
 
 interface DashboardProps {
-    configInput: MonitorConfigInput;
     network: 'mainnet' | 'testnet';
-    page: 'monitor' | 'debug';
-    onResetRpc: () => void;
     onToggleNetwork: () => void;
-    onUpdateRpc: (url: string) => void;
 }
 
-export function Dashboard({ configInput, network, page, onResetRpc, onToggleNetwork, onUpdateRpc }: DashboardProps) {
+export function Dashboard({ network, onToggleNetwork }: DashboardProps) {
     const { detectedSlashings, isInitialized, initializationError, isScanning, currentRound, config, isSlashingEnabled, pauseStartedAtSlot, pauseEndsAtSlot, audit } = useSlashingStore();
     const [showSlashingHelpModal, setShowSlashingHelpModal] = useState(false);
 
-    // Memoize sorted slashings to avoid re-sorting on every render
     const slashings = useMemo(() => Array.from(detectedSlashings.values()).sort((a, b) => Number(b.round - a.round)), [detectedSlashings]);
     const slashingStates = useMemo(() => slashings.map((slashing) => {
         return {
@@ -58,31 +50,6 @@ export function Dashboard({ configInput, network, page, onResetRpc, onToggleNetw
         .filter(({ display, slashing }) => display.isActionable && slashing.slashActions && slashing.slashActions.length > 0)
         .map(({ slashing }) => slashing)), [slashingStates]);
 
-    if (page === 'debug') {
-        return (
-            <main className="max-w-7xl mx-auto px-4 py-8">
-              <section className="mb-12" aria-labelledby="backend-diagnostics-title">
-                <div className="mb-4">
-                  <h2 id="backend-diagnostics-title" className="inline-flex border-3 border-chartreuse bg-brand-black px-3 py-1 text-xs font-black uppercase text-chartreuse shadow-brutal-chartreuse">
-                    Backend / Server-Side
-                  </h2>
-                </div>
-                <BackendOverview network={network} view="debug" />
-              </section>
-
-              <section aria-labelledby="client-diagnostics-title">
-                <div className="mb-6 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-                  <h2 id="client-diagnostics-title" className="inline-flex self-start border-3 border-chartreuse bg-brand-black px-3 py-1 text-xs font-black uppercase text-chartreuse shadow-brutal-chartreuse">
-                    Client / This Browser
-                  </h2>
-                  <ClientNetworkControl network={network} onToggleNetwork={onToggleNetwork} embedded />
-                </div>
-                <DebugView configInput={configInput} onResetRpc={onResetRpc} onUpdateRpc={onUpdateRpc} />
-              </section>
-            </main>
-        );
-    }
-
     if (!isInitialized) {
         if (initializationError) {
             return (
@@ -91,14 +58,7 @@ export function Dashboard({ configInput, network, page, onResetRpc, onToggleNetw
           <div className="max-w-2xl mx-auto bg-oxblood border-5 border-vermillion p-8 shadow-brutal-vermillion">
           <h1 className="text-vermillion text-2xl font-black uppercase mb-4">Monitor unavailable</h1>
           <p className="text-whisper-white font-bold break-words">{initializationError}</p>
-          <p className="text-whisper-white/70 text-sm font-bold mt-4">The independent browser verifier will retry automatically. Backend warning coverage is reported in the debug view.</p>
-          <button
-            type="button"
-            onClick={onResetRpc}
-            className="brutal-button brutal-button--danger brutal-button--lg mt-6"
-          >
-            Reset custom RPC
-          </button>
+          <p className="text-whisper-white/70 text-sm font-bold mt-4">The browser will retry automatically. Check that its configured public RPC is reachable.</p>
           </div>
         </main>);
         }
@@ -140,10 +100,6 @@ export function Dashboard({ configInput, network, page, onResetRpc, onToggleNetw
         )}
 
         <StatsPanel />
-
-        
-        
-
         <SlashingTimeline onOpenHelp={() => setShowSlashingHelpModal(true)} />
 
         {isScanning && (<div className="mb-6 bg-lapis border-5 border-aqua p-5 shadow-brutal-aqua">
@@ -157,8 +113,6 @@ export function Dashboard({ configInput, network, page, onResetRpc, onToggleNetw
               </div>
             </div>
           </div>)}
-
-        
         <div className="mb-8">
           <h2 className="text-3xl font-black text-whisper-white mb-6 flex items-center gap-4">
             <span className="inline-flex items-center justify-center w-12 h-12 bg-vermillion border-5 border-brand-black text-brand-black font-black shadow-brutal">
@@ -182,8 +136,6 @@ export function Dashboard({ configInput, network, page, onResetRpc, onToggleNetw
               {activeSlashings.map((slashing) => (<RoundCard key={slashing.round.toString()} slashing={slashing} sequencerOccurrences={sequencerOccurrences}/>))}
             </div>)}
         </div>
-
-        
         {inactiveSlashings.length > 0 && (<div>
             <h2 className="text-3xl font-black text-whisper-white mb-6 uppercase">Other Rounds</h2>
             <div className="grid gap-6">
@@ -199,18 +151,13 @@ export function Dashboard({ configInput, network, page, onResetRpc, onToggleNetw
     </>);
 }
 
-function ClientNetworkControl({
-    network,
-    onToggleNetwork,
-    embedded = false,
-}: {
+function ClientNetworkControl({ network, onToggleNetwork }: {
     network: 'mainnet' | 'testnet';
     onToggleNetwork: () => void;
-    embedded?: boolean;
 }) {
     const isMainnet = network === 'mainnet';
     return (
-        <div className={`${embedded ? '' : 'mb-8'} flex flex-wrap items-center gap-3`}>
+        <div className="mb-8 flex flex-wrap items-center gap-3">
             <span className="text-xs font-black uppercase tracking-wider text-whisper-white/60">
                 Client scanner network
             </span>

@@ -70,7 +70,6 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
 
     const timeAgo = formatTimeRemaining(secondsAgo, {
         approximate: true,
-        hoursThresholdForDayDisplay: config.hoursThresholdForDayDisplay,
     });
 
     return (<div className="mb-8">
@@ -128,7 +127,7 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
           <div className="text-right shrink-0">
             <div className="bg-brand-black border-3 border-aqua px-4 py-2">
               <div className="opacity-75 mb-1 text-xs font-black uppercase text-aqua">Ends In</div>
-              <div className="text-2xl font-black text-whisper-white">{formatTimeRemaining(secondsRemaining, { approximate: true, hoursThresholdForDayDisplay: config.hoursThresholdForDayDisplay })}</div>
+              <div className="text-2xl font-black text-whisper-white">{formatTimeRemaining(secondsRemaining, { approximate: true })}</div>
             </div>
           </div>
         </div>
@@ -184,7 +183,7 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
               </svg>
               <div>
                 <div className="text-vermillion font-black text-sm uppercase">
-                  Executable in {formatTimeRemaining(secondsUntilExecutable, { approximate: true, hoursThresholdForDayDisplay: config.hoursThresholdForDayDisplay })}
+                  Executable in {formatTimeRemaining(secondsUntilExecutable, { approximate: true })}
                 </div>
                 <div className="text-whisper-white/70 text-xs font-bold mt-1">
                   Slashing payload can be executed at slot {executableAtSlot.toString()} unless vetoed
@@ -209,7 +208,7 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
           <div className="mt-2 text-whisper-white/70 text-xs font-bold">
             For voting rounds that reach quorum, a {formatTimeRemaining(
               config.executionDelayInRounds * config.slashingRoundSize * config.slotDuration,
-              { approximate: true, hoursThresholdForDayDisplay: config.hoursThresholdForDayDisplay }
+              { approximate: true }
             )} execution delay applies before they can be executed, if not vetoed.
           </div>
         </div>
@@ -293,7 +292,7 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
               <div className="bg-brand-black border-3 border-chartreuse p-4">
                 <div className="text-chartreuse text-xs font-black uppercase mb-1">Time Remaining</div>
                 <div className="text-whisper-white text-lg font-black">
-                  {secondsUntilPauseEnds > 0 ? formatTimeRemaining(secondsUntilPauseEnds, { hoursThresholdForDayDisplay: config.hoursThresholdForDayDisplay }) : 'Ending Soon'}
+                  {secondsUntilPauseEnds > 0 ? formatTimeRemaining(secondsUntilPauseEnds) : 'Ending Soon'}
                 </div>
                 <div className="text-whisper-white/70 text-xs font-bold mt-1">
                   {slotsUntilPauseEnds} slots remaining

@@ -1,6 +1,6 @@
-import type { MonitorNetwork } from '@/types/v2Api';
+import type { MonitorNetwork } from '@/types/backendApi';
 
-export type AppView = 'monitor' | 'pingme' | 'debug';
+export type AppView = 'monitor' | 'pingme';
 
 export interface AppLocation {
     view: AppView;
@@ -11,7 +11,7 @@ export interface AppLocation {
 export function parseAppSearch(search: string): AppLocation {
     const params = new URLSearchParams(search);
     const requestedView = params.get('view');
-    const view = requestedView === 'pingme' || requestedView === 'debug' ? requestedView : 'monitor';
+    const view = requestedView === 'pingme' ? requestedView : 'monitor';
 
     return {
         view,

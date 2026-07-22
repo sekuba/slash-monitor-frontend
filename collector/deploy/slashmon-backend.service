@@ -1,5 +1,5 @@
 [Unit]
-Description=Slashmon v2 backend
+Description=Slashmon backend
 Documentation=file:/opt/slashmon/current/collector/README.md
 Wants=network-online.target
 After=network-online.target
@@ -10,14 +10,12 @@ StartLimitBurst=10
 Type=simple
 DynamicUser=yes
 
-# Keep the v1 state directory: the schema is migrated in place and alerts keep
-# their continuity across the service rename.
-StateDirectory=slashmon-offense-collector
+StateDirectory=slashmon
 StateDirectoryMode=0700
 WorkingDirectory=/opt/slashmon/current/collector
 EnvironmentFile=/etc/slashmon-backend.env
 Environment=NODE_ENV=production
-Environment=COLLECTOR_DATABASE_PATH=/var/lib/slashmon-offense-collector/offenses.sqlite
+Environment=BACKEND_DATABASE_PATH=/var/lib/slashmon/slashmon.sqlite
 ExecStart=/usr/local/bin/node src/main.mjs
 
 Restart=always

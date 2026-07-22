@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SlashmonApiError } from '@/api/client';
 import { createBackendReadRequests, selectedEventFailureMessage } from './useBackendMonitor';
-import type { EventPage, MonitorEvent, V2Status } from '@/types/v2Api';
+import type { BackendStatus, EventPage, MonitorEvent } from '@/types/backendApi';
 
-const status = {} as V2Status;
+const status = {} as BackendStatus;
 const page = { data: [], nextCursor: null } satisfies EventPage;
 const event = {} as MonitorEvent;
 
@@ -12,7 +12,6 @@ function fakeApi() {
         getStatus: vi.fn(async () => status),
         getEvents: vi.fn(async () => page),
         getEvent: vi.fn(async () => event),
-        getSubscriptionStatus: vi.fn(async () => status),
         getSubscriptionEvents: vi.fn(async () => page),
         getSubscriptionEvent: vi.fn(async () => event),
     };
@@ -28,7 +27,6 @@ describe('backend read capability selection', () => {
         expect(api.getStatus).toHaveBeenCalledWith('mainnet', undefined);
         expect(api.getEvents).toHaveBeenCalledWith('mainnet', undefined);
         expect(api.getEvent).toHaveBeenCalledWith('event-1', 'mainnet', undefined);
-        expect(api.getSubscriptionStatus).not.toHaveBeenCalled();
         expect(api.getSubscriptionEvents).not.toHaveBeenCalled();
         expect(api.getSubscriptionEvent).not.toHaveBeenCalled();
     });
@@ -40,12 +38,7 @@ describe('backend read capability selection', () => {
 
         await Promise.all([requests.status, requests.events, requests.selectedEvent]);
 
-        expect(api.getSubscriptionStatus).toHaveBeenCalledWith(
-            'watch-1',
-            'secret-capability',
-            'testnet',
-            undefined,
-        );
+        expect(api.getStatus).toHaveBeenCalledWith('testnet', undefined);
         expect(api.getSubscriptionEvents).toHaveBeenCalledWith(
             'watch-1',
             'secret-capability',
@@ -59,7 +52,6 @@ describe('backend read capability selection', () => {
             'testnet',
             undefined,
         );
-        expect(api.getStatus).not.toHaveBeenCalled();
         expect(api.getEvents).not.toHaveBeenCalled();
         expect(api.getEvent).not.toHaveBeenCalled();
     });

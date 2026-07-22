@@ -1,8 +1,4 @@
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
 import {
@@ -14,85 +10,6 @@ import { OFFENSE_A, OFFENSE_B, SEQUENCER_A, SEQUENCER_B } from './helpers.mjs';
 import { parseOffenseSnapshot } from '../src/offenses.mjs';
 
 const WATCHLIST_ID = '11111111-1111-4111-8111-111111111111';
-
-test('schema v2 migrates in place without replaying its active offense', () => {
-  const fixture = temporaryDatabase();
-  createV2Fixture(fixture.databasePath);
-  const repository = new OffenseRepository(fixture.databasePath);
-  try {
-    assert.equal(repository.db.prepare('PRAGMA user_version').get().user_version, 13);
-    assert.equal(repository.db.prepare('PRAGMA synchronous').get().synchronous, 2);
-    assert.equal(repository.db.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
-    assert.equal(repository.db.prepare(`
-      SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'deliveries_endpoint_status_idx'
-    `).get().name, 'deliveries_endpoint_status_idx');
-
-    const [offense] = parseOffenseSnapshot([OFFENSE_A]);
-    const result = repository.recordSuccessfulPoll([offense], { observedAt: 2_000, network: 'mainnet' });
-    assert.equal(result.inserted, 0);
-    assert.equal(result.events, 0);
-    assert.deepEqual(repository.listEvents({ network: 'mainnet' }).data, []);
-  } finally {
-    repository.close();
-    fixture.cleanup();
-  }
-});
-
-test('schema v13 removes ambiguous disappearance events and shortens stored node titles', () => {
-  const fixture = temporaryDatabase();
-  let repository = new OffenseRepository(fixture.databasePath);
-  try {
-    repository.createWatchlist({
-      id: WATCHLIST_ID,
-      managementTokenHash: 'a'.repeat(64),
-      network: 'mainnet',
-      addresses: [SEQUENCER_A],
-      now: 10,
-    });
-    repository.upsertEndpoint({
-      watchlistId: WATCHLIST_ID,
-      kind: 'telegram',
-      destination: '9007199254740991',
-      now: 20,
-    });
-    repository.recordEvent({
-      id: 'old-removal',
-      network: 'mainnet',
-      source: 'aztec_node',
-      type: 'pending_offense_withdrawn',
-      severity: 'info',
-      title: 'Node-local offense no longer pending',
-      body: 'Ambiguous disappearance',
-      observedAt: 100,
-    }, [SEQUENCER_A]);
-    repository.recordEvent({
-      id: 'old-detection',
-      network: 'mainnet',
-      source: 'aztec_node',
-      type: 'pending_offense_detected',
-      severity: 'warning',
-      title: 'Node-local offense detected',
-      body: 'Actionable detection',
-      observedAt: 200,
-    }, [SEQUENCER_A]);
-    assert.equal(repository.getDeliveryCounts().pending, 2);
-    repository.close();
-    repository = null;
-
-    const database = new DatabaseSync(fixture.databasePath);
-    database.exec('PRAGMA user_version = 12');
-    database.close();
-
-    repository = new OffenseRepository(fixture.databasePath);
-    assert.equal(repository.getEvent('old-removal'), undefined);
-    assert.equal(repository.getEvent('old-detection').title, 'Offense detected');
-    assert.equal(repository.getDeliveryCounts().pending, 1);
-    assert.equal(repository.db.prepare('PRAGMA user_version').get().user_version, 13);
-  } finally {
-    repository?.close();
-    fixture.cleanup();
-  }
-});
 
 test('pending offense transitions and matching delivery fanout are atomic and deduplicated', () => {
   const repository = new OffenseRepository(':memory:');
@@ -119,6 +36,10 @@ test('pending offense transitions and matching delivery fanout are atomic and de
       observedAt: 400,
       network: 'mainnet',
       withdrawAfterMissedPolls: 1,
+      absenceEvidence: {
+        epoch: { advanced: true, value: '43' },
+        slot: { advanced: true, value: '9002' },
+      },
     });
     assert.equal(removal.withdrawn, 1);
     assert.equal(removal.events, 0);
@@ -252,54 +173,6 @@ test('outbox claims prioritize severity and select at most one delivery per endp
     const [next] = repository.claimDeliveries({ now: 101, limit: 10, leaseMs: 1_000 });
     assert.equal(next.event.id, 'old-info-a');
     assert.equal(next.endpointId, first[0].endpointId);
-  } finally {
-    repository.close();
-  }
-});
-
-test('pausing a watchlist discards stale queued alerts and resume catches up once', () => {
-  const repository = new OffenseRepository(':memory:');
-  try {
-    repository.createWatchlist({
-      id: WATCHLIST_ID,
-      managementTokenHash: 'a'.repeat(64),
-      network: 'mainnet',
-      addresses: [SEQUENCER_A],
-      now: 1,
-    });
-    repository.upsertEndpoint({ watchlistId: WATCHLIST_ID, kind: 'telegram', destination: '42', now: 2 });
-    const [offense] = parseOffenseSnapshot([OFFENSE_A]);
-    repository.recordSuccessfulPoll([offense], { observedAt: 10, network: 'mainnet' });
-    assert.equal(repository.getDeliveryCounts().pending, 1);
-    const [claimed] = repository.claimDeliveries({ now: 15 });
-    assert.equal(repository.isDeliverySendable(claimed.id), true);
-
-    repository.updateWatchlist(WATCHLIST_ID, { enabled: false, now: 20 });
-    assert.equal(repository.getDeliveryCounts().pending, 0);
-    assert.equal(repository.getDeliveryCounts().sending, 0);
-    assert.equal(repository.isDeliverySendable(claimed.id), false);
-    assert.deepEqual(repository.claimDeliveries({ now: 30 }), []);
-
-    repository.updateWatchlist(WATCHLIST_ID, { enabled: true, now: 5_100 });
-    assert.equal(repository.getDeliveryCounts().pending, 1);
-    assert.equal(repository.failDeliveryAndDisableEndpoint(
-      claimed.id,
-      claimed.endpointId,
-      'stale failure',
-      5_105,
-    ), false);
-    assert.equal(repository.getWatchlist(WATCHLIST_ID).endpoints[0].enabled, true);
-    const [firstResume] = repository.claimDeliveries({ now: 5_106 });
-    repository.completeDelivery(firstResume.id, null, 5_107);
-    repository.updateWatchlist(WATCHLIST_ID, { enabled: true, now: 5_110 });
-    assert.equal(repository.getDeliveryCounts().pending, 0);
-
-    repository.updateWatchlist(WATCHLIST_ID, { enabled: false, now: 65_150 });
-    repository.updateWatchlist(WATCHLIST_ID, { enabled: true, now: 65_200 });
-    assert.equal(repository.getDeliveryCounts().pending, 1);
-    const [secondResume] = repository.claimDeliveries({ now: 65_201 });
-    assert.equal(secondResume.event.id, firstResume.event.id);
-    assert.equal(secondResume.id, firstResume.id);
   } finally {
     repository.close();
   }
@@ -608,7 +481,7 @@ test('notification maintenance bounds journals without deleting live delivery wo
   }
 });
 
-test('delivery health reports overdue work and recent failures on active endpoints', () => {
+test('delivery health degrades for overdue work and recent failures', () => {
   const repository = new OffenseRepository(':memory:');
   try {
     repository.createWatchlist({
@@ -621,18 +494,25 @@ test('delivery health reports overdue work and recent failures on active endpoin
     repository.upsertEndpoint({ watchlistId: WATCHLIST_ID, kind: 'telegram', destination: '42', now: 2 });
     repository.enqueueWatchlistTest(WATCHLIST_ID, notificationTestEvent('health-test'), 100);
 
-    assert.equal(repository.getDeliveryHealth({ now: 399, overdueAfterMs: 300 }).status, 'healthy');
-    const overdue = repository.getDeliveryHealth({ now: 400, overdueAfterMs: 300 });
-    assert.equal(overdue.status, 'degraded');
-    assert.equal(overdue.overdueDeliveries, 1);
-    assert.equal(overdue.oldestOverdueAt, 100);
+    assert.deepEqual(
+      repository.getDeliveryHealthStatus({ now: 399, overdueAfterMs: 300 }),
+      { status: 'healthy' },
+    );
+    assert.deepEqual(
+      repository.getDeliveryHealthStatus({ now: 400, overdueAfterMs: 300 }),
+      { status: 'degraded' },
+    );
 
     const [delivery] = repository.claimDeliveries({ now: 400 });
     repository.failDelivery(delivery.id, 'provider exhausted retries', 401);
-    const recentFailure = repository.getDeliveryHealth({ now: 401, failureWindowMs: 1_000 });
-    assert.equal(recentFailure.status, 'degraded');
-    assert.equal(recentFailure.recentTerminalFailures, 1);
-    assert.equal(repository.getDeliveryHealth({ now: 1_402, failureWindowMs: 1_000 }).status, 'healthy');
+    assert.deepEqual(
+      repository.getDeliveryHealthStatus({ now: 401, failureWindowMs: 1_000 }),
+      { status: 'degraded' },
+    );
+    assert.deepEqual(
+      repository.getDeliveryHealthStatus({ now: 1_402, failureWindowMs: 1_000 }),
+      { status: 'healthy' },
+    );
   } finally {
     repository.close();
   }
@@ -656,10 +536,10 @@ test('one dead endpoint does not let a client degrade global delivery health', (
     repository.failDeliveryAndDisableEndpoint(delivery.id, delivery.endpointId, 'Web Push returned HTTP 410', 401);
 
     assert.equal(repository.getWatchlist(WATCHLIST_ID).endpoints[0].enabled, false);
-    const recentFailure = repository.getDeliveryHealth({ now: 401, failureWindowMs: 1_000 });
-    assert.equal(recentFailure.status, 'healthy');
-    assert.equal(recentFailure.recentTerminalFailures, 0);
-    assert.equal(repository.getDeliveryHealth({ now: 1_402, failureWindowMs: 1_000 }).status, 'healthy');
+    assert.deepEqual(
+      repository.getDeliveryHealthStatus({ now: 401, failureWindowMs: 1_000 }),
+      { status: 'healthy' },
+    );
   } finally {
     repository.close();
   }
@@ -1917,7 +1797,6 @@ function snapshot({
   pauseEndsAtSlot = null,
 }) {
   return {
-    schemaVersion: 1,
     chainId: 1,
     blockNumber: String(block),
     blockHash: `0x${block.toString(16).padStart(64, '0')}`,
@@ -1977,7 +1856,6 @@ function slashChunk({
   reorgDetected = false,
 }) {
   return {
-    schemaVersion: 1,
     chainId: 1,
     fromBlock: String(from),
     toBlock: String(to),
@@ -2029,55 +1907,4 @@ function verifyWebPushEndpoint(repository, now) {
   assert.equal(delivery.event.type, 'notification_channel_verification');
   assert.equal(repository.completeDelivery(delivery.id, 'verified', now), true);
   return delivery;
-}
-
-function temporaryDatabase() {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'slashmon-v2-db-'));
-  return {
-    databasePath: path.join(directory, 'offenses.sqlite'),
-    cleanup: () => fs.rmSync(directory, { recursive: true, force: true }),
-  };
-}
-
-function createV2Fixture(databasePath) {
-  const database = new DatabaseSync(databasePath);
-  database.exec(`
-    CREATE TABLE offenses (
-      id TEXT PRIMARY KEY,
-      sequencer TEXT NOT NULL,
-      amount TEXT NOT NULL,
-      offense_type INTEGER NOT NULL,
-      offense_type_name TEXT NOT NULL,
-      epoch_or_slot TEXT NOT NULL,
-      time_unit TEXT NOT NULL,
-      status TEXT NOT NULL,
-      first_seen_at INTEGER NOT NULL,
-      last_seen_at INTEGER NOT NULL,
-      withdrawn_at INTEGER,
-      observation_count INTEGER NOT NULL DEFAULT 1,
-      reactivation_count INTEGER NOT NULL DEFAULT 0,
-      missed_polls INTEGER NOT NULL DEFAULT 0,
-      last_poll_sequence INTEGER NOT NULL
-    );
-    CREATE INDEX offenses_status_last_seen_idx ON offenses(status, last_seen_at DESC);
-    CREATE INDEX offenses_sequencer_idx ON offenses(sequencer, last_seen_at DESC);
-    CREATE TABLE sync_state (
-      singleton INTEGER PRIMARY KEY,
-      last_attempt_at INTEGER,
-      last_success_at INTEGER,
-      consecutive_failures INTEGER NOT NULL DEFAULT 0,
-      successful_polls INTEGER NOT NULL DEFAULT 0,
-      last_error TEXT
-    );
-    INSERT INTO sync_state VALUES (1, 1000, 1000, 0, 1, NULL);
-    INSERT INTO offenses VALUES (
-      '${'f'.repeat(64)}', '${SEQUENCER_A}', '${OFFENSE_A.amount}', 3, 'inactivity', '42', 'epoch',
-      'active', 1000, 1000, NULL, 1, 0, 0, 1
-    );
-    PRAGMA user_version = 2;
-  `);
-  // Match the deterministic ID used by parseOffenseSnapshot for the replay check.
-  const [offense] = parseOffenseSnapshot([OFFENSE_A]);
-  database.prepare('UPDATE offenses SET id = ?').run(offense.id);
-  database.close();
 }

@@ -5,13 +5,13 @@ import {
     subscribeToSubscriptionScope,
     type StoredSubscriptionCredentials,
 } from '@/lib/subscriptionStorage';
-import type { EventPage, MonitorEvent, MonitorNetwork, V2PublicConfig, V2Status } from '@/types/v2Api';
+import type { BackendConfig, BackendStatus, EventPage, MonitorEvent, MonitorNetwork } from '@/types/backendApi';
 
 const POLL_INTERVAL_MS = 15_000;
 
 interface BackendMonitorState {
-    config: V2PublicConfig | null;
-    status: V2Status | null;
+    config: BackendConfig | null;
+    status: BackendStatus | null;
     events: EventPage | null;
     scopeKey: string | null;
     isLoading: boolean;
@@ -169,13 +169,12 @@ type BackendReadClient = Pick<
     | 'getStatus'
     | 'getEvents'
     | 'getEvent'
-    | 'getSubscriptionStatus'
     | 'getSubscriptionEvents'
     | 'getSubscriptionEvent'
 >;
 
 interface BackendReadRequests {
-    status: Promise<V2Status>;
+    status: Promise<BackendStatus>;
     events: Promise<EventPage>;
     selectedEvent: Promise<MonitorEvent | null>;
 }
@@ -189,12 +188,7 @@ export function createBackendReadRequests(
 ): BackendReadRequests {
     if (credentials) {
         return {
-            status: api.getSubscriptionStatus(
-                credentials.id,
-                credentials.managementToken,
-                network,
-                signal,
-            ),
+            status: api.getStatus(network, signal),
             events: api.getSubscriptionEvents(
                 credentials.id,
                 credentials.managementToken,

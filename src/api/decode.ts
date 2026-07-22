@@ -7,12 +7,11 @@ import type {
     MonitorEvent,
     MonitorNetwork,
     NotificationChannelState,
-    PendingOffense,
     SourceHealth,
     TelegramLink,
-    V2PublicConfig,
-    V2Status,
-} from '@/types/v2Api';
+    BackendConfig,
+    BackendStatus,
+} from '@/types/backendApi';
 
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const HEALTH_STATUSES = new Set<BackendHealthStatus>(['healthy', 'degraded', 'stale', 'unavailable']);
@@ -24,8 +23,8 @@ export class ApiContractError extends Error {
     }
 }
 
-export function decodePublicConfig(input: unknown): V2PublicConfig {
-    const root = expectV2Envelope(input, 'config');
+export function decodePublicConfig(input: unknown): BackendConfig {
+    const root = expectApiEnvelope(input, 'config');
     const publicKey = optionalString(root.vapidPublicKey);
     const telegramBotUsername = optionalString(root.telegramBotUsername);
 
@@ -50,14 +49,13 @@ export function decodePublicConfig(input: unknown): V2PublicConfig {
     };
 }
 
-export function decodeStatus(input: unknown, expectedNetwork: MonitorNetwork): V2Status {
-    const root = expectV2Envelope(input, 'status');
+export function decodeStatus(input: unknown, expectedNetwork: MonitorNetwork): BackendStatus {
+    const root = expectApiEnvelope(input, 'status');
     const responseNetwork = networkValue(root.network, 'status.network');
     if (responseNetwork !== expectedNetwork) {
         throw new ApiContractError(`status network is ${responseNetwork}, expected ${expectedNetwork}`);
     }
     const sources = expectObject(root.sources, 'status.sources');
-    const offenses = expectArray(root.pendingOffenses, 'status.pendingOffenses');
     const delivery = expectObject(root.delivery, 'status.delivery');
 
     return {
@@ -69,20 +67,12 @@ export function decodeStatus(input: unknown, expectedNetwork: MonitorNetwork): V
         },
         delivery: {
             status: healthStatus(delivery.status, 'status.delivery.status'),
-            overdueDeliveries: 0,
-            expiredLeases: 0,
-            recentTerminalFailures: 0,
         },
-        pendingOffenses: offenses.map((offense, index) => decodePendingOffense(
-            offense,
-            responseNetwork,
-            `status.pendingOffenses[${index}]`,
-        )),
     };
 }
 
 export function decodeEventPage(input: unknown, expectedNetwork: MonitorNetwork): EventPage {
-    const root = expectV2Envelope(input, 'events');
+    const root = expectApiEnvelope(input, 'events');
     const dataValue = root.data;
     const data = expectArray(dataValue, 'events.data').map((event, index) => decodeEvent(
         event,
@@ -98,17 +88,17 @@ export function decodeEventPage(input: unknown, expectedNetwork: MonitorNetwork)
 }
 
 export function decodeEventDetail(input: unknown, expectedNetwork: MonitorNetwork): MonitorEvent {
-    const envelope = expectV2Envelope(input, 'event');
+    const envelope = expectApiEnvelope(input, 'event');
     return decodeEvent(expectObject(envelope.data, 'event.data'), expectedNetwork, 'event.data');
 }
 
 export function decodeSubscription(input: unknown): ManagedSubscription {
-    const envelope = expectV2Envelope(input, 'subscription');
+    const envelope = expectApiEnvelope(input, 'subscription');
     return decodeSubscriptionObject(expectObject(envelope.data, 'subscription.data'), 'subscription.data');
 }
 
 export function decodeCreatedSubscription(input: unknown): CreatedSubscription {
-    const envelope = expectV2Envelope(input, 'created subscription');
+    const envelope = expectApiEnvelope(input, 'created subscription');
     const root = expectObject(envelope.data, 'created subscription.data');
     const managementToken = optionalString(root.managementToken);
     if (!managementToken) {
@@ -122,7 +112,7 @@ export function decodeCreatedSubscription(input: unknown): CreatedSubscription {
 }
 
 export function decodeTelegramLink(input: unknown): TelegramLink {
-    const root = expectV2Envelope(input, 'Telegram link');
+    const root = expectApiEnvelope(input, 'Telegram link');
     const url = expectString(root.url, 'Telegram link.url');
     let parsed: URL;
     try {
@@ -144,38 +134,7 @@ export function decodeTelegramLink(input: unknown): TelegramLink {
 function decodeSourceHealth(input: unknown, path: string): SourceHealth {
     const value = expectObject(input, path);
     const status = healthStatus(value.status, `${path}.status`);
-    return {
-        status,
-        dataFresh: expectBoolean(value.dataFresh, `${path}.dataFresh`),
-        dataAgeMs: nullableNonNegativeNumber(value.dataAgeMs, `${path}.dataAgeMs`),
-        lastAttemptAt: nullableIsoString(value.lastAttemptAt, `${path}.lastAttemptAt`),
-        lastSuccessAt: nullableIsoString(value.lastSuccessAt, `${path}.lastSuccessAt`),
-        lastError: optionalString(value.lastError) ?? null,
-    };
-}
-
-function decodePendingOffense(input: unknown, network: MonitorNetwork, path: string): PendingOffense {
-    const value = expectObject(input, path);
-    const status = expectString(value.status, `${path}.status`);
-    if (status !== 'active' && status !== 'withdrawn') {
-        throw new ApiContractError(`${path}.status must be active or withdrawn`);
-    }
-
-    return {
-        id: expectString(value.id, `${path}.id`),
-        network,
-        sequencer: address(value.sequencer, `${path}.sequencer`),
-        amount: optionalDecimalString(value.amount, `${path}.amount`),
-        offenseType: nullableInteger(value.offenseType, `${path}.offenseType`),
-        offenseTypeName: expectString(value.offenseTypeName, `${path}.offenseTypeName`),
-        epochOrSlot: optionalDecimalString(value.epochOrSlot, `${path}.epochOrSlot`),
-        timeUnit: optionalString(value.timeUnit) ?? null,
-        status,
-        firstSeenAt: isoString(value.firstSeenAt, `${path}.firstSeenAt`),
-        lastSeenAt: isoString(value.lastSeenAt, `${path}.lastSeenAt`),
-        withdrawnAt: nullableIsoString(value.withdrawnAt, `${path}.withdrawnAt`),
-        observationCount: nullableInteger(value.observationCount, `${path}.observationCount`),
-    };
+    return { status };
 }
 
 function decodeEvent(input: unknown, expectedNetwork: MonitorNetwork, path: string): MonitorEvent {
@@ -243,8 +202,6 @@ function decodeSubscriptionObject(value: Record<string, unknown>, path: string):
             webPush: decodeChannel(channels.webPush, `${path}.channels.webPush`),
             telegram: decodeChannel(channels.telegram, `${path}.channels.telegram`),
         },
-        createdAt: nullableIsoString(value.createdAt, `${path}.createdAt`),
-        updatedAt: nullableIsoString(value.updatedAt, `${path}.updatedAt`),
     };
 }
 
@@ -254,11 +211,10 @@ function decodeChannel(input: unknown, path: string): NotificationChannelState {
         connected: expectBoolean(value.connected, `${path}.connected`),
         enabled: expectBoolean(value.enabled, `${path}.enabled`),
         verified: expectBoolean(value.verified, `${path}.verified`),
-        label: null,
     };
 }
 
-function expectV2Envelope(input: unknown, path: string): Record<string, unknown> {
+function expectApiEnvelope(input: unknown, path: string): Record<string, unknown> {
     const envelope = expectObject(input, `${path} response`);
     if (envelope.schemaVersion !== 2) {
         throw new ApiContractError(`${path}.schemaVersion must be 2`);
@@ -372,16 +328,6 @@ function nullableInteger(value: unknown, path: string): number | null {
         throw new ApiContractError(`${path} must be an integer or null`);
     }
     return value as number;
-}
-
-function nullableNonNegativeNumber(value: unknown, path: string): number | null {
-    if (value === null || value === undefined) {
-        return null;
-    }
-    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
-        throw new ApiContractError(`${path} must be a non-negative number or null`);
-    }
-    return value;
 }
 
 function boundedInteger(

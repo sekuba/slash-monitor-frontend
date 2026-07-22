@@ -18,11 +18,11 @@ import {
     subscribeToSubscriptionScope,
     type StoredSubscriptionCredentials,
 } from '@/lib/subscriptionStorage';
-import type { ManagedSubscription, MonitorNetwork, TelegramLink, V2PublicConfig } from '@/types/v2Api';
+import type { BackendConfig, ManagedSubscription, MonitorNetwork, TelegramLink } from '@/types/backendApi';
 
 const CHANNEL_RECONCILIATION_INTERVAL_MS = 60_000;
 
-export function useNotificationSubscription(network: MonitorNetwork, config: V2PublicConfig | null) {
+export function useNotificationSubscription(network: MonitorNetwork, config: BackendConfig | null) {
     const capabilityOriginSafe = isCapabilityStorageSafeOrigin();
     const [credentials, setCredentials] = useState<StoredSubscriptionCredentials | null>(() => (
         loadSubscriptionCredentials(network)

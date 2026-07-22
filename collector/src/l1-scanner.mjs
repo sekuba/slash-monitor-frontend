@@ -23,7 +23,7 @@ export class L1Scanner {
     maxHeadStallMs = 2 * 60_000,
     maxFutureSkewMs = 2 * 60_000,
     slashLogLookbackBlocks = 50_000,
-    slashLogChunkSize = 2_000,
+    slashLogChunkSize = 1_000,
     slashLogOverlapBlocks = 12,
     slashLogReorgRewindBlocks = 128,
     slashLogProviderTimeoutMs = 5_000,
@@ -259,7 +259,6 @@ export class L1Scanner {
     }
 
     return {
-      schemaVersion: 1,
       chainId: this.chainId,
       fromBlock: fromBlock.toString(),
       toBlock: toBlock.toString(),
@@ -402,7 +401,6 @@ export class L1Scanner {
     }
 
     return {
-      schemaVersion: 1,
       chainId: this.chainId,
       blockNumber: blockNumber.toString(),
       blockHash: block.hash,

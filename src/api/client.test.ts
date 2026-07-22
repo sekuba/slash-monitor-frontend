@@ -23,7 +23,7 @@ describe('Slashmon capability-scoped API reads', () => {
         vi.unstubAllGlobals();
     });
 
-    it('keeps the capability in Authorization across status, history, and event detail reads', async () => {
+    it('keeps the capability in Authorization across history and event detail reads', async () => {
         const fetchMock = vi.fn(async (input: string | URL | Request, _init?: RequestInit) => {
             const url = String(input);
             const payload = url.endsWith('/status')
@@ -34,7 +34,6 @@ describe('Slashmon capability-scoped API reads', () => {
                     generatedAt: '2026-07-21T10:00:01.000Z',
                     sources: { l1: source, aztec: source },
                     delivery: { status: 'healthy' },
-                    pendingOffenses: [],
                 }
                 : url.includes('/events/pending-event-1')
                     ? {
@@ -54,7 +53,6 @@ describe('Slashmon capability-scoped API reads', () => {
         vi.stubGlobal('fetch', fetchMock);
         const client = new SlashmonApiClient('https://api.slashmon.invalid');
 
-        await client.getSubscriptionStatus('watch/1', 'bearer-secret', 'mainnet');
         await client.getSubscriptionEvents('watch/1', 'bearer-secret', 'mainnet');
         const detail = await client.getSubscriptionEvent(
             'watch/1',
@@ -65,7 +63,6 @@ describe('Slashmon capability-scoped API reads', () => {
 
         expect(detail.certainty).toBe('pending');
         expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
-            'https://api.slashmon.invalid/api/v2/subscriptions/watch%2F1/status',
             'https://api.slashmon.invalid/api/v2/subscriptions/watch%2F1/events?limit=40',
             'https://api.slashmon.invalid/api/v2/subscriptions/watch%2F1/events/pending-event-1',
         ]);

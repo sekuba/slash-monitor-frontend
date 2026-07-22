@@ -3,6 +3,7 @@ import { createECDH } from 'node:crypto';
 
 const DEFAULT_ADMIN_POLL_INTERVAL_MS = 15_000;
 const DEFAULT_L1_POLL_INTERVAL_MS = 30_000;
+const DEFAULT_DATABASE_PATH = './data/slashmon.sqlite';
 const NETWORK_DEFAULTS = {
   mainnet: {
     chainId: 1,
@@ -17,95 +18,16 @@ const NETWORK_DEFAULTS = {
 export function loadConfig(env = process.env, cwd = process.cwd()) {
   const network = readNetwork(env.SLASHMON_NETWORK);
   const networkDefaults = NETWORK_DEFAULTS[network];
-  const pollIntervalMs = readInteger(
-    env,
-    'COLLECTOR_POLL_INTERVAL_MS',
-    DEFAULT_ADMIN_POLL_INTERVAL_MS,
-    1_000,
-    3_600_000,
-  );
-  const l1PollIntervalMs = readInteger(
-    env,
-    'L1_POLL_INTERVAL_MS',
-    DEFAULT_L1_POLL_INTERVAL_MS,
-    1_000,
-    3_600_000,
-  );
-  const defaultStaleAfterMs = Math.max(pollIntervalMs * 3, 60_000);
-  const defaultL1StaleAfterMs = Math.max(l1PollIntervalMs * 3, 120_000);
   const adminUrl = readHttpUrl(env.AZTEC_ADMIN_URL ?? 'http://127.0.0.1:8880', 'AZTEC_ADMIN_URL');
   const nodeUrl = readHttpUrl(env.AZTEC_NODE_URL ?? 'http://127.0.0.1:8080', 'AZTEC_NODE_URL');
   const publicUrl = readPublicUrl(env.SLASHMON_PUBLIC_URL ?? 'http://localhost:5173', 'SLASHMON_PUBLIC_URL');
-  const corsOrigin = readOrigin(env.COLLECTOR_CORS_ORIGIN ?? 'http://localhost:5173', 'COLLECTOR_CORS_ORIGIN');
+  const corsOrigin = readOrigin(env.BACKEND_CORS_ORIGIN ?? 'http://localhost:5173', 'BACKEND_CORS_ORIGIN');
   if (new URL(publicUrl).origin !== corsOrigin) {
-    throw new Error('SLASHMON_PUBLIC_URL and COLLECTOR_CORS_ORIGIN must use the same browser origin');
+    throw new Error('SLASHMON_PUBLIC_URL and BACKEND_CORS_ORIGIN must use the same browser origin');
   }
   const l1RpcUrls = readUrlList(env.L1_RPC_URL ?? 'http://127.0.0.1:8545', 'L1_RPC_URL');
   const vapid = readVapid(env);
   const telegram = readTelegram(env);
-  const deliveryPollIntervalMs = readInteger(env, 'DELIVERY_POLL_INTERVAL_MS', 1_000, 100, 60_000);
-  const deliveryLeaseMs = readInteger(env, 'DELIVERY_LEASE_MS', 120_000, 10_000, 3_600_000);
-  const deliveryRequestTimeoutMs = readInteger(
-    env,
-    'DELIVERY_REQUEST_TIMEOUT_MS',
-    15_000,
-    100,
-    20_000,
-  );
-  if (deliveryLeaseMs < deliveryRequestTimeoutMs + deliveryPollIntervalMs) {
-    throw new Error(
-      'DELIVERY_LEASE_MS must cover DELIVERY_REQUEST_TIMEOUT_MS plus DELIVERY_POLL_INTERVAL_MS',
-    );
-  }
-  const l1SlashLogChunkSize = readInteger(env, 'L1_SLASH_LOG_CHUNK_SIZE', 2_000, 2, 100_000);
-  const l1SlashLogOverlapBlocks = readInteger(env, 'L1_SLASH_LOG_OVERLAP_BLOCKS', 12, 1, 99_999);
-  if (l1SlashLogOverlapBlocks >= l1SlashLogChunkSize) {
-    throw new Error('L1_SLASH_LOG_OVERLAP_BLOCKS must be smaller than L1_SLASH_LOG_CHUNK_SIZE');
-  }
-  const l1SlashLogReorgRewindBlocks = readInteger(
-    env,
-    'L1_SLASH_LOG_REORG_REWIND_BLOCKS',
-    512,
-    1,
-    1_000_000,
-  );
-  if (l1SlashLogReorgRewindBlocks < l1SlashLogOverlapBlocks) {
-    throw new Error('L1_SLASH_LOG_REORG_REWIND_BLOCKS must be at least L1_SLASH_LOG_OVERLAP_BLOCKS');
-  }
-  const l1SlashLogMaxRunMs = readInteger(
-    env,
-    'L1_SLASH_LOG_MAX_RUN_MS',
-    20_000,
-    1_000,
-    300_000,
-  );
-  const l1SlashLogProviderTimeoutMs = readInteger(
-    env,
-    'L1_SLASH_LOG_PROVIDER_TIMEOUT_MS',
-    5_000,
-    100,
-    120_000,
-  );
-  if (l1SlashLogProviderTimeoutMs >= l1SlashLogMaxRunMs) {
-    throw new Error('L1_SLASH_LOG_PROVIDER_TIMEOUT_MS must be smaller than L1_SLASH_LOG_MAX_RUN_MS');
-  }
-  const l1MaxHeadAgeMs = readInteger(
-    env,
-    'L1_MAX_HEAD_AGE_MS',
-    15 * 60_000,
-    10_000,
-    86_400_000,
-  );
-  const l1MaxHeadStallMs = readInteger(
-    env,
-    'L1_MAX_HEAD_STALL_MS',
-    2 * 60_000,
-    30_000,
-    86_400_000,
-  );
-  if (l1MaxHeadStallMs > l1MaxHeadAgeMs) {
-    throw new Error('L1_MAX_HEAD_STALL_MS must not exceed L1_MAX_HEAD_AGE_MS');
-  }
 
   return {
     network,
@@ -114,38 +36,32 @@ export function loadConfig(env = process.env, cwd = process.cwd()) {
     adminApiKey: readOptionalSecret(env.AZTEC_ADMIN_API_KEY),
     nodeUrl,
     nodeApiKey: readOptionalSecret(env.AZTEC_NODE_API_KEY),
-    databasePath: path.resolve(cwd, env.COLLECTOR_DATABASE_PATH ?? './data/offenses.sqlite'),
-    pollIntervalMs,
-    maxBackoffMs: Math.max(
-      pollIntervalMs,
-      readInteger(env, 'COLLECTOR_MAX_BACKOFF_MS', 60_000, 1_000, 3_600_000),
-    ),
-    requestTimeoutMs: readInteger(env, 'COLLECTOR_REQUEST_TIMEOUT_MS', 10_000, 100, 300_000),
-    staleAfterMs: readInteger(env, 'COLLECTOR_STALE_AFTER_MS', defaultStaleAfterMs, 1_000, 86_400_000),
-    syncMaxL1AgeMs: readInteger(env, 'AZTEC_SYNC_MAX_L1_AGE_MS', 5 * 60_000, 1_000, 86_400_000),
-    syncMaxL2StallMs: readInteger(env, 'AZTEC_SYNC_MAX_L2_STALL_MS', 5 * 60_000, 1_000, 86_400_000),
-    withdrawAfterMissedPolls: readInteger(env, 'COLLECTOR_WITHDRAW_AFTER_MISSED_POLLS', 3, 1, 100),
-    maxOffensesPerPoll: readInteger(env, 'COLLECTOR_MAX_OFFENSES_PER_POLL', 100_000, 1, 1_000_000),
-    maxResponseBytes: readInteger(env, 'COLLECTOR_MAX_RESPONSE_BYTES', 2 * 1024 * 1024, 1_024, 100 * 1024 * 1024),
+    databasePath: path.resolve(cwd, env.BACKEND_DATABASE_PATH ?? DEFAULT_DATABASE_PATH),
+    pollIntervalMs: DEFAULT_ADMIN_POLL_INTERVAL_MS,
+    maxBackoffMs: 60_000,
+    requestTimeoutMs: 10_000,
+    staleAfterMs: 60_000,
+    syncMaxL1AgeMs: 5 * 60_000,
+    syncMaxL2StallMs: 5 * 60_000,
+    withdrawAfterMissedPolls: 3,
+    maxOffensesPerPoll: 100_000,
+    maxResponseBytes: 2 * 1024 * 1024,
 
     l1RpcUrls,
-    l1ChainId: readExpectedChainId(env, networkDefaults.chainId, network),
+    l1ChainId: networkDefaults.chainId,
     l1RegistryAddress: readAddress(
       env.L1_REGISTRY_ADDRESS ?? networkDefaults.registryAddress,
       'L1_REGISTRY_ADDRESS',
     ),
-    l1Confirmations: readInteger(env, 'L1_CONFIRMATIONS', 2, 0, 1_024),
-    l1PollIntervalMs,
-    l1MaxBackoffMs: Math.max(
-      l1PollIntervalMs,
-      readInteger(env, 'L1_MAX_BACKOFF_MS', 120_000, 1_000, 3_600_000),
-    ),
-    l1RequestTimeoutMs: readInteger(env, 'L1_REQUEST_TIMEOUT_MS', 15_000, 100, 300_000),
-    l1SnapshotTimeoutMs: readInteger(env, 'L1_SNAPSHOT_TIMEOUT_MS', 120_000, 1_000, 900_000),
-    l1StaleAfterMs: readInteger(env, 'L1_STALE_AFTER_MS', defaultL1StaleAfterMs, 1_000, 86_400_000),
-    l1MaxHeadAgeMs,
-    l1MaxHeadStallMs,
-    l1MaxFutureSkewMs: readInteger(env, 'L1_MAX_FUTURE_SKEW_MS', 2 * 60_000, 0, 3_600_000),
+    l1Confirmations: 2,
+    l1PollIntervalMs: DEFAULT_L1_POLL_INTERVAL_MS,
+    l1MaxBackoffMs: 120_000,
+    l1RequestTimeoutMs: 15_000,
+    l1SnapshotTimeoutMs: 120_000,
+    l1StaleAfterMs: 120_000,
+    l1MaxHeadAgeMs: 15 * 60_000,
+    l1MaxHeadStallMs: 2 * 60_000,
+    l1MaxFutureSkewMs: 2 * 60_000,
     l1SlashLogLookbackBlocks: readInteger(
       env,
       'L1_SLASH_LOG_LOOKBACK_BLOCKS',
@@ -153,38 +69,32 @@ export function loadConfig(env = process.env, cwd = process.cwd()) {
       1,
       10_000_000,
     ),
-    l1SlashLogChunkSize,
-    l1SlashLogOverlapBlocks,
-    l1SlashLogReorgRewindBlocks,
-    l1SlashLogMaxChunksPerPoll: readInteger(
-      env,
-      'L1_SLASH_LOG_MAX_CHUNKS_PER_POLL',
-      25,
-      1,
-      1_000,
-    ),
-    l1SlashLogMaxRunMs,
-    l1SlashLogProviderTimeoutMs,
+    l1SlashLogChunkSize: 1_000,
+    l1SlashLogOverlapBlocks: 12,
+    l1SlashLogReorgRewindBlocks: 512,
+    l1SlashLogMaxChunksPerPoll: 25,
+    l1SlashLogMaxRunMs: 20_000,
+    l1SlashLogProviderTimeoutMs: 5_000,
 
-    bindHost: readString(env.COLLECTOR_BIND_HOST, '127.0.0.1'),
-    port: readInteger(env, 'COLLECTOR_PORT', 8_790, 1, 65_535),
+    bindHost: readString(env.BACKEND_BIND_HOST, '127.0.0.1'),
+    port: readInteger(env, 'BACKEND_PORT', 8_790, 1, 65_535),
     corsOrigin,
-    maxRequestBodyBytes: readInteger(env, 'API_MAX_REQUEST_BODY_BYTES', 64 * 1024, 1_024, 2 * 1024 * 1024),
-    rateLimitWindowMs: readInteger(env, 'API_RATE_LIMIT_WINDOW_MS', 60_000, 1_000, 3_600_000),
-    rateLimitMaxMutations: readInteger(env, 'API_RATE_LIMIT_MAX_MUTATIONS', 60, 1, 10_000),
-    trustLoopbackProxy: readBoolean(env.API_TRUST_LOOPBACK_PROXY, false, 'API_TRUST_LOOPBACK_PROXY'),
-    maxSequencersPerWatchlist: readInteger(env, 'MAX_SEQUENCERS_PER_WATCHLIST', 100, 1, 1_000),
+    maxRequestBodyBytes: 64 * 1024,
+    rateLimitWindowMs: 60_000,
+    rateLimitMaxMutations: 60,
+    trustLoopbackProxy: readBoolean(env.BACKEND_TRUST_PROXY, false, 'BACKEND_TRUST_PROXY'),
+    maxSequencersPerWatchlist: 100,
 
-    deliveryPollIntervalMs,
-    deliveryBatchSize: readInteger(env, 'DELIVERY_BATCH_SIZE', 50, 1, 1_000),
-    deliveryConcurrency: readInteger(env, 'DELIVERY_CONCURRENCY', 8, 1, 50),
-    deliveryMaxAttempts: readInteger(env, 'DELIVERY_MAX_ATTEMPTS', 12, 1, 100),
-    deliveryLeaseMs,
-    deliveryRequestTimeoutMs,
-    linkTokenTtlMs: readInteger(env, 'TELEGRAM_LINK_TTL_MS', 10 * 60_000, 60_000, 86_400_000),
+    deliveryPollIntervalMs: 1_000,
+    deliveryBatchSize: 50,
+    deliveryConcurrency: 8,
+    deliveryMaxAttempts: 12,
+    deliveryLeaseMs: 120_000,
+    deliveryRequestTimeoutMs: 15_000,
+    linkTokenTtlMs: 10 * 60_000,
     vapid,
     telegram,
-    logLevel: readLogLevel(env.COLLECTOR_LOG_LEVEL),
+    logLevel: readLogLevel(env.BACKEND_LOG_LEVEL),
   };
 }
 
@@ -269,7 +179,7 @@ function readTelegram(env) {
   return token ? {
     token,
     username,
-    pollTimeoutSeconds: readInteger(env, 'TELEGRAM_POLL_TIMEOUT_SECONDS', 25, 1, 50),
+    pollTimeoutSeconds: 25,
   } : undefined;
 }
 
@@ -331,7 +241,7 @@ function readBoolean(raw, defaultValue, name) {
 function readLogLevel(raw) {
   const level = readString(raw, 'info').toLowerCase();
   if (!['debug', 'info', 'warn', 'error'].includes(level)) {
-    throw new Error('COLLECTOR_LOG_LEVEL must be debug, info, warn, or error');
+    throw new Error('BACKEND_LOG_LEVEL must be debug, info, warn, or error');
   }
   return level;
 }
@@ -340,14 +250,6 @@ function readNetwork(raw) {
   const value = readString(raw, 'mainnet').toLowerCase();
   if (!['mainnet', 'testnet'].includes(value)) {
     throw new Error('SLASHMON_NETWORK must be mainnet or testnet');
-  }
-  return value;
-}
-
-function readExpectedChainId(env, expected, network) {
-  const value = readInteger(env, 'L1_CHAIN_ID', expected, 1, Number.MAX_SAFE_INTEGER);
-  if (value !== expected) {
-    throw new Error(`L1_CHAIN_ID must be ${expected} when SLASHMON_NETWORK=${network}`);
   }
   return value;
 }

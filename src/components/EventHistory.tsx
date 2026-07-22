@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { SequencerAddressLink } from './SequencerAddressLink';
-import type { MonitorEvent } from '@/types/v2Api';
+import type { MonitorEvent } from '@/types/backendApi';
 
 interface EventHistoryProps {
     events: MonitorEvent[];
@@ -32,13 +32,13 @@ export function EventHistory({
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                 <div>
                     <div className="mb-2 inline-flex border-3 border-brand-black bg-aqua px-3 py-1 text-xs font-black uppercase text-brand-black">
-                        Node + L1 Monitor
+                        Pingme Journal
                     </div>
                     <h2 className="text-2xl font-black text-aqua">Slashing Activity</h2>
                     <p className="mt-2 text-sm font-bold text-whisper-white">
                         {hasWatchlistCapability
-                            ? 'Node proposals and L1 events targeting this browser’s saved watch list.'
-                            : 'Public node proposals and L1 history. Pending items come from Slashmon’s single Aztec node.'}
+                            ? 'Node-local warnings and L1 events for this browser’s watch list.'
+                            : 'Public backend history. Pending items are observations from Slashmon’s Aztec node.'}
                     </p>
                 </div>
                 <span className="border-3 border-brand-black bg-aqua px-3 py-2 text-sm font-black uppercase text-brand-black">
