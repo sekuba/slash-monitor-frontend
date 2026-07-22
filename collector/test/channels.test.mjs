@@ -49,7 +49,7 @@ test('WebPushChannel builds a scoped high-urgency payload and returns the provid
   assert.equal(payload.data.url, '?view=pingme&network=mainnet&event=event%2Fwith+spaces');
   assert.equal(captured[2].vapidDetails.privateKey, 'private');
   assert.equal(captured[2].urgency, 'high');
-  assert.equal(captured[2].TTL, 7 * 24 * 60 * 60);
+  assert.equal(captured[2].TTL, 24 * 60 * 60);
   assert.equal(captured[2].timeout, 3210);
   assert.match(captured[2].topic, /^[A-Za-z0-9_-]{32}$/);
 });

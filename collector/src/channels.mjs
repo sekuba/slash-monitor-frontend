@@ -3,6 +3,7 @@ import webpush from 'web-push';
 
 const MIN_RETRY_AFTER_MS = 1_000;
 const MAX_RETRY_AFTER_MS = 24 * 60 * 60_000;
+const WEB_PUSH_TTL_SECONDS = 24 * 60 * 60;
 
 export class DeliveryError extends Error {
   constructor(message, { permanent = false, retryAfterMs, statusCode, scope = 'endpoint' } = {}) {
@@ -50,7 +51,7 @@ export class WebPushChannel {
     try {
       const response = await withAbortSignal(this.sendNotification(subscription, payload, {
         vapidDetails: this.vapid,
-        TTL: event.severity === 'critical' ? 7 * 24 * 60 * 60 : 24 * 60 * 60,
+        TTL: WEB_PUSH_TTL_SECONDS,
         urgency: ['critical', 'warning'].includes(event.severity) ? 'high' : 'normal',
         topic: createHash('sha256').update(event.id).digest('base64url').slice(0, 32),
         timeout: this.timeoutMs,

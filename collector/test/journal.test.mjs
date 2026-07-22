@@ -1165,6 +1165,54 @@ test('L1 snapshots alert on the first address-level vote, quorum, execution wind
   }
 });
 
+test('L1 payload changes alert only sequencers whose own slash amount changed', () => {
+  const repository = new OffenseRepository(':memory:');
+  try {
+    repository.recordSuccessfulL1Snapshot('mainnet', snapshot({
+      block: 100,
+      actions: [
+        { sequencer: SEQUENCER_A, amount: '1000' },
+        { sequencer: SEQUENCER_B, amount: '1000' },
+      ],
+      payloadAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      status: 'quorum-reached',
+    }), { observedAt: 100 });
+    repository.recordSuccessfulL1Snapshot('mainnet', snapshot({
+      block: 101,
+      actions: [
+        { sequencer: SEQUENCER_A, amount: '1000' },
+        { sequencer: SEQUENCER_B, amount: '2000' },
+      ],
+      payloadAddress: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      status: 'quorum-reached',
+    }), { observedAt: 200 });
+
+    const changed = repository.listEvents({ network: 'mainnet' }).data
+      .find((event) => event.type === 'onchain_payload_changed');
+    assert.deepEqual(changed.targets, [SEQUENCER_B]);
+    assert.match(changed.body, new RegExp(`${SEQUENCER_B.slice(0, 6)}.*${SEQUENCER_B.slice(-4)}`, 'i'));
+
+    // Action ordering and changes affecting no address must not create another alert.
+    repository.recordSuccessfulL1Snapshot('mainnet', snapshot({
+      block: 102,
+      actions: [
+        { sequencer: SEQUENCER_B, amount: '2000' },
+        { sequencer: SEQUENCER_A, amount: '1000' },
+      ],
+      payloadAddress: '0xcccccccccccccccccccccccccccccccccccccccc',
+      status: 'quorum-reached',
+    }), { observedAt: 300 });
+
+    assert.equal(
+      repository.listEvents({ network: 'mainnet' }).data
+        .filter((event) => event.type === 'onchain_payload_changed').length,
+      1,
+    );
+  } finally {
+    repository.close();
+  }
+});
+
 test('confirmed Slashed log backfill advances a durable checkpoint and overlap-deduplicates fanout', () => {
   const repository = new OffenseRepository(':memory:');
   try {

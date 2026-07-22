@@ -1822,6 +1822,7 @@ export class OffenseRepository {
               reorgDrivenTransition
                 ? roundTransitionEventId(network, eventType, rowId, transitionGeneration)
                 : undefined,
+              targets,
             ),
             targets,
           );
@@ -2330,7 +2331,13 @@ function l1TransitionTargets(existing, round, type) {
       .filter((target) => target && !oldTargets.has(target));
     return [...new Set(added)];
   }
-  if (existing && ['onchain_payload_changed', 'onchain_reorg_correction'].includes(type)) {
+  if (existing && type === 'onchain_payload_changed') {
+    return changedActionTargets(
+      parseJson(existing.actions_json, []),
+      round.actions ?? [],
+    );
+  }
+  if (existing && type === 'onchain_reorg_correction') {
     return roundTargets(
       [
         ...parseJson(existing.actions_json, []),
@@ -2344,6 +2351,24 @@ function l1TransitionTargets(existing, round, type) {
   }
   const actionAddresses = actionTargets(round.actions ?? []);
   return actionAddresses.length > 0 ? actionAddresses : roundTargets([], round.earlyTargets ?? []);
+}
+
+function changedActionTargets(previousActions, nextActions) {
+  const previousAmounts = actionAmountsByTarget(previousActions);
+  const nextAmounts = actionAmountsByTarget(nextActions);
+  return [...new Set([...previousAmounts.keys(), ...nextAmounts.keys()])]
+    .filter((target) => previousAmounts.get(target) !== nextAmounts.get(target))
+    .sort();
+}
+
+function actionAmountsByTarget(actions) {
+  const amounts = new Map();
+  for (const action of actions ?? []) {
+    const target = String(action.sequencer ?? '').toLowerCase();
+    if (!/^0x[0-9a-f]{40}$/.test(target)) continue;
+    amounts.set(target, String(action.amount));
+  }
+  return amounts;
 }
 
 function l1ClearedExecutionTargets(existing, round) {
@@ -2379,7 +2404,7 @@ function onchainEvent(type, round, network, observedAt, snapshot, explicitId, ex
   const config = {
     onchain_vote_targeted: ['warning', 'Sequencer named in an L1 vote', `${addressText} targeted by at least one onchain vote in ${role} round ${round.round}; quorum has not necessarily been reached.`],
     onchain_targeted: ['warning', 'Sequencer targeted on L1', `${addressText} reached the onchain slashing tally in ${role} round ${round.round}.`],
-    onchain_payload_changed: ['critical', 'Slashing payload changed', `The payload or action set changed for ${role} round ${round.round}; prior veto state does not carry over.`],
+    onchain_payload_changed: ['critical', 'Slashing action changed', `The slash action for ${addressText} changed in ${role} round ${round.round}; prior veto state does not carry over.`],
     onchain_executable: ['critical', 'Slashing is executable', `${addressText} can now be slashed from ${role} round ${round.round}.`],
     onchain_executable_after_pause: ['critical', 'Slashing queued behind global pause', `${addressText} is in an open execution window. The pause blocks execution now, but is scheduled to end before ${role} round ${round.round} expires.`],
     onchain_execution_paused: ['warning', 'Slashing temporarily paused', `Execution of ${role} round ${round.round} is blocked by the global pause, but the round remains live after the scheduled resume.`],
