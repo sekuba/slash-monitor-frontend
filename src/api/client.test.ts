@@ -53,6 +53,7 @@ describe('Slashmon capability-scoped API reads', () => {
         vi.stubGlobal('fetch', fetchMock);
         const client = new SlashmonApiClient('https://api.slashmon.invalid');
 
+        await client.getEvents('mainnet');
         await client.getSubscriptionEvents('watch/1', 'bearer-secret', 'mainnet');
         const detail = await client.getSubscriptionEvent(
             'watch/1',
@@ -63,11 +64,14 @@ describe('Slashmon capability-scoped API reads', () => {
 
         expect(detail.certainty).toBe('pending');
         expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
-            'https://api.slashmon.invalid/api/v2/subscriptions/watch%2F1/events?limit=40',
+            'https://api.slashmon.invalid/api/v2/events?network=mainnet&limit=67',
+            'https://api.slashmon.invalid/api/v2/subscriptions/watch%2F1/events?limit=67',
             'https://api.slashmon.invalid/api/v2/subscriptions/watch%2F1/events/pending-event-1',
         ]);
-        for (const [, init] of fetchMock.mock.calls) {
-            expect((init?.headers as Headers).get('authorization')).toBe('Bearer bearer-secret');
+        for (const [index, [, init]] of fetchMock.mock.calls.entries()) {
+            expect((init?.headers as Headers).get('authorization')).toBe(
+                index === 0 ? null : 'Bearer bearer-secret',
+            );
             expect(init?.cache).toBe('no-store');
         }
     });

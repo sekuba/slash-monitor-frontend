@@ -168,6 +168,7 @@ test('scanWithClient publishes one coherent pinned-block snapshot', async () => 
   assert.equal(snapshot.blockNumber, '100');
   assert.equal(snapshot.blockHash, BLOCK_HASH);
   assert.equal(snapshot.rollupAddress, ROLLUP);
+  assert.equal(snapshot.l1GenesisTime, '100');
   assert.equal(snapshot.degraded, false);
   assert.equal(snapshot.stacks.length, 1);
   assert.equal(snapshot.stacks[0].role, 'active');
@@ -446,6 +447,7 @@ function fakeL1Client({ replacementHash, brokenPendingStack = false, pausedExecu
           getLegacySlasher: [`0x${'00'.repeat(20)}`, 0n],
           getCurrentSlot: pausedExecutableRound ? 70n : 0n,
           getCurrentEpoch: 0n,
+          getGenesisTime: 100n,
           getSlotDuration: 12n,
           getEpochDuration: 32n,
         }[functionName];

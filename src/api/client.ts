@@ -49,7 +49,7 @@ export class SlashmonApiClient {
     }
 
     async getEvents(network: MonitorNetwork, signal?: AbortSignal, cursor?: string): Promise<EventPage> {
-        const query = new URLSearchParams({ network, limit: '40' });
+        const query = new URLSearchParams({ network, limit: '67' });
         if (cursor) {
             query.set('cursor', cursor);
         }
@@ -63,7 +63,7 @@ export class SlashmonApiClient {
         signal?: AbortSignal,
         cursor?: string,
     ): Promise<EventPage> {
-        const query = new URLSearchParams({ limit: '40' });
+        const query = new URLSearchParams({ limit: '67' });
         if (cursor) {
             query.set('cursor', cursor);
         }

@@ -408,8 +408,9 @@ export class OffenseRepository {
           sequence,
         );
         if (eventType) {
+          const timing = pendingOffenseTiming(offense, this.getSourceState('l1')?.metadata);
           const insertion = this.insertEvent(
-            pendingEvent(eventType, offense, network, observedAt),
+            pendingEvent(eventType, offense, network, observedAt, undefined, timing),
             [offense.sequencer],
           );
           result.events += Number(insertion.inserted);
@@ -1169,12 +1170,15 @@ export class OffenseRepository {
         offense_type_name AS offenseTypeName, epoch_or_slot AS epochOrSlot, time_unit AS timeUnit
       FROM offenses WHERE status = 'active' AND sequencer IN (${placeholders})
     `).all(...scopedAddresses);
+    const l1Metadata = this.getSourceState('l1')?.metadata;
     for (const offense of offenses) {
       const event = catchupEvent(pendingEvent(
         'pending_offense_detected',
         offense,
         watchlist.network,
         now,
+        undefined,
+        pendingOffenseTiming(offense, l1Metadata),
       ), watchlistId, endpoint.kind, watchlist.network, 'pending', offense.id, offense.amount);
       const insertion = this.insertEvent(event, [offense.sequencer], [endpointId]);
       queued += insertion.queued;
@@ -1796,6 +1800,11 @@ export class OffenseRepository {
             targetEpochs: item.round.targetEpochs ?? [],
             executableSlot: item.round.executableSlot,
             expirySlot: item.round.expirySlot,
+            l1GenesisTime: snapshot.l1GenesisTime,
+            slotDuration: snapshot.slotDuration,
+            epochDuration: snapshot.epochDuration,
+            currentSlot: snapshot.currentSlot,
+            currentEpoch: snapshot.currentEpoch,
             isSlashingEnabled: Boolean(item.stack.isSlashingEnabled),
             isExecutionPaused: Boolean(item.round.isExecutionPaused),
             isProtected: Boolean(item.round.isProtected),
@@ -1938,6 +1947,9 @@ export class OffenseRepository {
           registryAddress: snapshot.registryAddress,
           rollupAddress: snapshot.rollupAddress,
           rollupVersion: snapshot.rollupVersion,
+          l1GenesisTime: snapshot.l1GenesisTime,
+          slotDuration: snapshot.slotDuration,
+          epochDuration: snapshot.epochDuration,
           currentSlot: snapshot.currentSlot,
           currentEpoch: snapshot.currentEpoch,
           degraded: Boolean(snapshot.degraded),
@@ -1957,6 +1969,7 @@ export class OffenseRepository {
             slashingDisabledUntil: stack.slashingDisabledUntil ?? null,
             pauseStartedAtSlot: stack.pauseStartedAtSlot ?? null,
             pauseEndsAtSlot: stack.pauseEndsAtSlot ?? null,
+            parameters: stack.parameters,
             roundErrors: stack.roundErrors ?? [],
           })),
         }),
@@ -2044,7 +2057,14 @@ export class OffenseRepository {
         }
 
         const eventResult = this.insertEvent(
-          confirmedSlashEvent(eventId, network, slash, observedAt, normalized.initialBackfill),
+          confirmedSlashEvent(
+            eventId,
+            network,
+            slash,
+            observedAt,
+            normalized.initialBackfill,
+            normalized.chainId,
+          ),
           [slash.sequencer],
         );
         this.db.prepare(`
@@ -2209,22 +2229,16 @@ function buildOffenseFilters(status, sequencers) {
   return { where: clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '', parameters };
 }
 
-function pendingEvent(type, offense, network, observedAt, explicitId) {
-  const label = String(offense.offenseTypeName ?? 'unknown offense').replaceAll('_', ' ');
-  const address = shortAddress(offense.sequencer);
-  const config = {
-    pending_offense_detected: ['warning', 'Offense detected', `${address} appeared in the Aztec node's ${label} offense set.`],
-    pending_offense_reactivated: ['warning', 'Offense returned', `${address}'s ${label} offense reappeared after leaving the node's pending set.`],
-    pending_offense_updated: ['warning', 'Offense changed', `${address}'s pending ${label} offense changed. Recheck the node signal.`],
-  }[type];
+function pendingEvent(type, offense, network, observedAt, explicitId, timing = {}) {
+  const copy = pendingEventCopy(type, offense);
   return {
     id: explicitId ?? stableId('event', network, type, offense.id, observedAt, offense.amount),
     network,
     source: 'aztec_node',
     type,
-    severity: config[0],
-    title: config[1],
-    body: config[2],
+    severity: 'warning',
+    title: copy.title,
+    body: copy.body,
     data: {
       offenseId: offense.id,
       sequencer: offense.sequencer,
@@ -2233,10 +2247,106 @@ function pendingEvent(type, offense, network, observedAt, explicitId) {
       offenseTypeName: offense.offenseTypeName,
       epochOrSlot: String(offense.epochOrSlot),
       timeUnit: offense.timeUnit,
+      ...timing,
       certainty: 'pending',
     },
     observedAt,
   };
+}
+
+function pendingEventCopy(type, offense) {
+  const label = String(offense.offenseTypeName ?? 'unknown').replaceAll('_', ' ');
+  const position = offense.timeUnit && offense.epochOrSlot !== undefined
+    ? `${offense.timeUnit} ${offense.epochOrSlot}`
+    : 'an unknown position';
+  const address = shortAddress(offense.sequencer);
+  return {
+    pending_offense_detected: {
+      title: `${capitalize(label)} offense detected`,
+      body: `Aztec node reported ${address} for ${position}; this is not yet an L1 action.`,
+    },
+    pending_offense_reactivated: {
+      title: `${capitalize(label)} offense returned`,
+      body: `Aztec node reported ${address} again for ${position}; this is not yet an L1 action.`,
+    },
+    pending_offense_updated: {
+      title: `${capitalize(label)} offense changed`,
+      body: `Aztec node changed its ${label} signal for ${address} at ${position}.`,
+    },
+  }[type];
+}
+
+function onchainEventCopy(type, round, targets) {
+  const role = round.role ?? round.stackRole ?? 'active';
+  const roundNumber = String(round.round);
+  const targetText = targets.length === 1
+    ? `1 sequencer (${shortAddress(targets[0])})`
+    : `${targets.length} sequencers`;
+  const execution = round.executableSlot === null || round.executableSlot === undefined
+    ? ''
+    : ` Execution window opens at slot ${round.executableSlot}${round.executableAt ? ` (${round.executableAt})` : ''}.`;
+  const config = {
+    onchain_vote_targeted: ['warning', 'L1 slash vote observed', `${targetText} received at least one vote in ${role} round ${roundNumber}; no slash payload is implied.`],
+    onchain_targeted: ['warning', 'Slashing payload proposed', `${targetText} entered the payload for ${role} round ${roundNumber}.${execution}`],
+    onchain_payload_changed: ['critical', 'Slashing payload changed', `The slash action changed for ${targetText} in ${role} round ${roundNumber}; prior veto state does not carry over.${execution}`],
+    onchain_executable: ['critical', 'Slashing is executable', `${targetText} can now be slashed from ${role} round ${roundNumber}.`],
+    onchain_executable_after_pause: ['critical', 'Slashing queued behind global pause', `${targetText} is in round ${roundNumber}'s execution window, but the global pause currently blocks it.`],
+    onchain_execution_paused: ['warning', 'Slashing temporarily paused', `${role} round ${roundNumber} remains live, but the global pause currently blocks execution.`],
+    onchain_pause_protected: ['info', 'Round protected through expiry', `${targetText} is in ${role} round ${roundNumber}, but the scheduled pause lasts through its expiry.`],
+    onchain_vetoed: ['info', 'Slashing payload vetoed', `The current payload for ${role} round ${roundNumber} was vetoed.`],
+    onchain_veto_reverted: ['critical', 'Slashing veto no longer applies', `The current payload for ${role} round ${roundNumber} is not vetoed.`],
+    onchain_executed: ['critical', 'Slashing executed', `${targetText} was included in executed ${role} round ${roundNumber}.`],
+    onchain_execution_target_cleared: ['info', 'Executed tally cleared prior target', `${targetText} was targeted earlier in ${role} round ${roundNumber}, but not in its executed tally.`],
+    onchain_expired: ['info', 'Slashing round expired', `${role} round ${roundNumber} expired without executing.`],
+    onchain_reorg_correction: ['warning', 'L1 slashing view corrected', `An L1 reorg removed or changed prior targeting in ${role} round ${roundNumber}.`],
+    onchain_reorg_restored: ['critical', 'L1 slashing target restored', `${targetText} returned to ${role} round ${roundNumber}'s canonical L1 view.`],
+  }[type];
+  return { severity: config[0], title: config[1], body: config[2] };
+}
+
+function pendingOffenseTiming(offense, l1Metadata) {
+  const activeStack = l1Metadata?.stacks?.find((stack) => stack.role === 'active');
+  const parameters = activeStack?.parameters;
+  if (!['epoch', 'slot'].includes(offense.timeUnit)) return {};
+  try {
+    const epochDuration = BigInt(l1Metadata?.epochDuration);
+    const roundSize = BigInt(parameters?.roundSize);
+    const slashOffset = BigInt(parameters?.slashOffsetInRounds);
+    const epochOrSlot = BigInt(offense.epochOrSlot);
+    if (epochDuration <= 0n || roundSize <= 0n || slashOffset < 0n || epochOrSlot < 0n) return {};
+    const slot = offense.timeUnit === 'epoch' ? epochOrSlot * epochDuration : epochOrSlot;
+    const epoch = offense.timeUnit === 'epoch' ? epochOrSlot : slot / epochDuration;
+    const offenseRound = slot / roundSize;
+    return {
+      epoch: epoch.toString(),
+      slot: slot.toString(),
+      offenseRound: offenseRound.toString(),
+      proposalRound: (offenseRound + slashOffset).toString(),
+    };
+  } catch {
+    return {};
+  }
+}
+
+function slotTimestamp(slot, ...sources) {
+  if (slot === null || slot === undefined) return null;
+  const source = sources.find((candidate) =>
+    candidate?.l1GenesisTime !== null && candidate?.l1GenesisTime !== undefined &&
+    candidate?.slotDuration !== null && candidate?.slotDuration !== undefined
+  );
+  if (!source) return null;
+  try {
+    const seconds = BigInt(source.l1GenesisTime) + BigInt(slot) * BigInt(source.slotDuration);
+    const milliseconds = seconds * 1_000n;
+    if (milliseconds < 0n || milliseconds > 8_640_000_000_000_000n) return null;
+    return new Date(Number(milliseconds)).toISOString();
+  } catch {
+    return null;
+  }
+}
+
+function capitalize(value) {
+  return value ? `${value[0].toUpperCase()}${value.slice(1)}` : value;
 }
 
 function catchupEvent(event, ...identity) {
@@ -2399,37 +2509,40 @@ function onchainEvent(type, round, network, observedAt, snapshot, explicitId, ex
   const targets = explicitTargets ?? (type === 'onchain_executed'
     ? actionTargets(round.actions ?? [])
     : roundTargets(round.actions ?? [], round.earlyTargets ?? []));
-  const addressText = targets.length === 1 ? shortAddress(targets[0]) : `${targets.length} sequencers`;
   const role = round.role ?? round.stackRole ?? 'active';
-  const config = {
-    onchain_vote_targeted: ['warning', 'Sequencer named in an L1 vote', `${addressText} targeted by at least one onchain vote in ${role} round ${round.round}; quorum has not necessarily been reached.`],
-    onchain_targeted: ['warning', 'Sequencer targeted on L1', `${addressText} reached the onchain slashing tally in ${role} round ${round.round}.`],
-    onchain_payload_changed: ['critical', 'Slashing action changed', `The slash action for ${addressText} changed in ${role} round ${round.round}; prior veto state does not carry over.`],
-    onchain_executable: ['critical', 'Slashing is executable', `${addressText} can now be slashed from ${role} round ${round.round}.`],
-    onchain_executable_after_pause: ['critical', 'Slashing queued behind global pause', `${addressText} is in an open execution window. The pause blocks execution now, but is scheduled to end before ${role} round ${round.round} expires.`],
-    onchain_execution_paused: ['warning', 'Slashing temporarily paused', `Execution of ${role} round ${round.round} is blocked by the global pause, but the round remains live after the scheduled resume.`],
-    onchain_pause_protected: ['info', 'Round protected through expiry', `${addressText} targeted in ${role} round ${round.round}, but the current global pause is scheduled to last through its expiry.`],
-    onchain_vetoed: ['info', 'Slashing payload vetoed', `The current payload for ${role} round ${round.round} was vetoed.`],
-    onchain_veto_reverted: ['critical', 'Slashing veto no longer applies', `The current payload for ${role} round ${round.round} is not vetoed.`],
-    onchain_executed: ['critical', 'Slashing executed', `${addressText} was included in executed ${role} round ${round.round}.`],
-    onchain_execution_target_cleared: ['info', 'Executed tally cleared prior target', `${addressText} targeted earlier in ${role} round ${round.round}, but the executed tally contained no slash action for it.`],
-    onchain_expired: ['info', 'Slashing round expired', `${role} round ${round.round} left its execution lifetime without executing.`],
-    onchain_reorg_correction: ['warning', 'L1 slashing view corrected', `A reorg removed or changed the prior targeting state for ${role} round ${round.round}.`],
-    onchain_reorg_restored: ['critical', 'L1 slashing target restored', `${addressText} returned to the canonical L1 slashing view for ${role} round ${round.round} after a reorg correction.`],
-  }[type];
+  const executableSlot = round.executableSlot ?? null;
+  const expirySlot = round.expirySlot ?? null;
+  const executableAt = slotTimestamp(executableSlot, round, snapshot);
+  const expiryAt = slotTimestamp(expirySlot, round, snapshot);
+  const copy = onchainEventCopy(type, {
+    ...round,
+    role,
+    executableSlot,
+    executableAt,
+    expirySlot,
+    expiryAt,
+  }, targets);
   const payload = round.payloadAddress ?? null;
   return {
     id: explicitId ?? stableId('event', network, type, round.proposerAddress ?? '', round.round, payload ?? '', snapshot.blockHash),
     network,
     source: 'ethereum_l1',
     type,
-    severity: config[0],
-    title: config[1],
-    body: config[2],
+    severity: copy.severity,
+    title: copy.title,
+    body: copy.body,
     data: {
       certainty: 'confirmed',
+      chainId: snapshot.chainId ?? round.chainId ?? null,
       role,
       round: String(round.round),
+      targetEpochs: round.targetEpochs ?? [],
+      currentSlot: snapshot.currentSlot ?? round.currentSlot ?? null,
+      currentEpoch: snapshot.currentEpoch ?? round.currentEpoch ?? null,
+      executableSlot,
+      executableAt,
+      expirySlot,
+      expiryAt,
       proposerAddress: round.proposerAddress,
       slasherAddress: round.slasherAddress,
       payloadAddress: payload,
@@ -2451,7 +2564,7 @@ function onchainEvent(type, round, network, observedAt, snapshot, explicitId, ex
   };
 }
 
-function confirmedSlashEvent(id, network, slash, observedAt, backfilled = false) {
+function confirmedSlashEvent(id, network, slash, observedAt, backfilled = false, chainId = null) {
   return {
     id,
     network,
@@ -2464,6 +2577,7 @@ function confirmedSlashEvent(id, network, slash, observedAt, backfilled = false)
       : `${shortAddress(slash.sequencer)} was slashed for ${slash.amount} stake base units in a confirmed L1 block.`,
     data: {
       certainty: 'confirmed',
+      chainId,
       sequencer: slash.sequencer,
       amount: slash.amount,
       rollupAddress: slash.rollupAddress,
@@ -2489,6 +2603,7 @@ function slashReorgCorrectionEvent(slash, network, observedAt, chunk, generation
     body: `The earlier confirmed slash log for ${shortAddress(slash.sequencer)} is no longer on the canonical L1 chain.`,
     data: {
       certainty: 'confirmed',
+      chainId: slash.chain_id,
       correction: true,
       canonical: false,
       forkGeneration: generation,
@@ -2524,6 +2639,7 @@ function slashReconfirmedEvent(slash, network, observedAt, chunk, generation) {
     body: `The slash log for ${shortAddress(slash.sequencer)} returned to the canonical L1 chain after a reorg correction.`,
     data: {
       certainty: 'confirmed',
+      chainId: slash.chain_id,
       restoration: true,
       canonical: true,
       forkGeneration: generation,
@@ -2565,6 +2681,7 @@ function onchainRowToSnapshot(row) {
   return {
     ...parseJson(row.details_json, {}),
     id: row.id,
+    chainId: row.chain_id,
     role: row.stack_role,
     stackRole: row.stack_role,
     slasherAddress: row.slasher_address,

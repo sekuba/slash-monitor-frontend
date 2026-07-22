@@ -33,6 +33,7 @@ export const rollupAbi = [
   fn('getLegacySlasher', [], [out('address', 'slasher'), out('uint256', 'authorizedUntil')]),
   fn('getCurrentSlot', [], [out('uint256')]),
   fn('getCurrentEpoch', [], [out('uint256')]),
+  fn('getGenesisTime', [], [out('uint256')]),
   fn('getSlotAt', [input('uint256', '_timestamp')], [out('uint256')]),
   fn('getEpochDuration', [], [out('uint256')]),
   fn('getSlotDuration', [], [out('uint256')]),

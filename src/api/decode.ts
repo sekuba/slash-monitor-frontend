@@ -14,6 +14,7 @@ import type {
 } from '@/types/backendApi';
 
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
+const HASH_PATTERN = /^0x[0-9a-fA-F]{64}$/;
 const HEALTH_STATUSES = new Set<BackendHealthStatus>(['healthy', 'degraded', 'stale', 'unavailable']);
 
 export class ApiContractError extends Error {
@@ -169,6 +170,7 @@ function decodeEvent(input: unknown, expectedNetwork: MonitorNetwork, path: stri
         title: expectString(value.title, `${path}.title`),
         body: expectText(value.body, `${path}.body`),
         offense: decodeEventOffense(data, `${path}.data`),
+        l1: source === 'ethereum_l1' ? decodeEventL1(data, network, `${path}.data`) : null,
         occurredAt: isoString(value.occurredAt, `${path}.occurredAt`),
     };
 }
@@ -185,6 +187,51 @@ function decodeEventOffense(data: Record<string, unknown> | null, path: string):
         epochOrSlot: optionalDecimalString(data?.epochOrSlot, `${path}.epochOrSlot`),
         timeUnit: optionalString(data?.timeUnit) ?? null,
         amount: optionalDecimalString(data?.amount, `${path}.amount`),
+        epoch: optionalDecimalString(data?.epoch, `${path}.epoch`),
+        slot: optionalDecimalString(data?.slot, `${path}.slot`),
+        offenseRound: optionalDecimalString(data?.offenseRound, `${path}.offenseRound`),
+        proposalRound: optionalDecimalString(data?.proposalRound, `${path}.proposalRound`),
+    };
+}
+
+function decodeEventL1(
+    data: Record<string, unknown>,
+    network: MonitorNetwork,
+    path: string,
+): NonNullable<MonitorEvent['l1']> {
+    const actions = data.actions === undefined
+        ? []
+        : expectArray(data.actions, `${path}.actions`).map((item, index) => {
+            const action = expectObject(item, `${path}.actions[${index}]`);
+            return {
+                sequencer: address(action.sequencer, `${path}.actions[${index}].sequencer`),
+                amount: decimalString(action.amount, `${path}.actions[${index}].amount`),
+            };
+        });
+    const targetEpochs = data.targetEpochs === undefined
+        ? []
+        : expectArray(data.targetEpochs, `${path}.targetEpochs`).map((epoch, index) =>
+            decimalString(epoch, `${path}.targetEpochs[${index}]`));
+
+    return {
+        chainId: data.chainId === undefined || data.chainId === null
+            ? network === 'mainnet' ? 1 : 11_155_111
+            : boundedInteger(data.chainId, `${path}.chainId`, 1, Number.MAX_SAFE_INTEGER),
+        role: optionalString(data.role),
+        round: optionalDecimalString(data.round, `${path}.round`),
+        targetEpochs,
+        currentSlot: optionalDecimalString(data.currentSlot, `${path}.currentSlot`),
+        currentEpoch: optionalDecimalString(data.currentEpoch, `${path}.currentEpoch`),
+        executableSlot: optionalDecimalString(data.executableSlot, `${path}.executableSlot`),
+        executableAt: nullableIsoString(data.executableAt, `${path}.executableAt`),
+        expirySlot: optionalDecimalString(data.expirySlot, `${path}.expirySlot`),
+        expiryAt: nullableIsoString(data.expiryAt, `${path}.expiryAt`),
+        blockNumber: optionalDecimalString(data.blockNumber, `${path}.blockNumber`),
+        blockHash: optionalHash(data.blockHash, `${path}.blockHash`),
+        transactionHash: optionalHash(data.transactionHash, `${path}.transactionHash`),
+        payloadAddress: optionalAddress(data.payloadAddress, `${path}.payloadAddress`),
+        amount: optionalDecimalString(data.amount, `${path}.amount`),
+        actions,
     };
 }
 
@@ -276,6 +323,24 @@ function address(value: unknown, path: string): Address {
     return result as Address;
 }
 
+function optionalAddress(value: unknown, path: string): Address | null {
+    if (value === null || value === undefined) {
+        return null;
+    }
+    return address(value, path);
+}
+
+function optionalHash(value: unknown, path: string): string | null {
+    if (value === null || value === undefined) {
+        return null;
+    }
+    const result = expectString(value, path);
+    if (!HASH_PATTERN.test(result)) {
+        throw new ApiContractError(`${path} must be a 32-byte hash`);
+    }
+    return result;
+}
+
 function optionalNetwork(value: unknown): MonitorNetwork | null {
     return value === 'mainnet' || value === 'testnet' ? value : null;
 }
@@ -318,6 +383,14 @@ function optionalDecimalString(value: unknown, path: string): string | null {
         throw new ApiContractError(`${path} must be an unsigned decimal string`);
     }
     return value;
+}
+
+function decimalString(value: unknown, path: string): string {
+    const result = optionalDecimalString(value, path);
+    if (result === null) {
+        throw new ApiContractError(`${path} must be an unsigned decimal string`);
+    }
+    return result;
 }
 
 function nullableInteger(value: unknown, path: string): number | null {

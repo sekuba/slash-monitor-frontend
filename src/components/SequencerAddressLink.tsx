@@ -4,19 +4,20 @@ import { formatAddress } from '@/lib/utils';
 interface SequencerAddressLinkProps {
     address: Address;
     chars?: number;
+    full?: boolean;
     className?: string;
 }
 
-export function SequencerAddressLink({ address, chars = 9, className = '' }: SequencerAddressLinkProps) {
+export function SequencerAddressLink({ address, chars = 9, full = false, className = '' }: SequencerAddressLinkProps) {
     return (
         <a
             href={`https://dashtec.xyz/sequencers/${address}`}
             target="_blank"
             rel="noreferrer"
-            className={`block max-w-full truncate underline underline-offset-4 transition-colors hover:text-chartreuse ${className}`}
+            className={`block max-w-full ${full ? 'break-all' : 'truncate'} underline underline-offset-4 transition-colors hover:text-chartreuse ${className}`}
             title={`Open ${address} on Dashtec`}
         >
-            {formatAddress(address, chars)}
+            {full ? address : formatAddress(address, chars)}
         </a>
     );
 }

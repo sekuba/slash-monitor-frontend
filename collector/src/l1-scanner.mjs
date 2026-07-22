@@ -325,6 +325,7 @@ export class L1Scanner {
       legacySlasherValue,
       currentSlot,
       currentEpoch,
+      l1GenesisTime,
       slotDuration,
       epochDuration,
     ] = await Promise.all([
@@ -334,6 +335,7 @@ export class L1Scanner {
       read(client, rollupAddress, rollupAbi, 'getLegacySlasher', blockNumber),
       read(client, rollupAddress, rollupAbi, 'getCurrentSlot', blockNumber),
       read(client, rollupAddress, rollupAbi, 'getCurrentEpoch', blockNumber),
+      read(client, rollupAddress, rollupAbi, 'getGenesisTime', blockNumber),
       read(client, rollupAddress, rollupAbi, 'getSlotDuration', blockNumber),
       read(client, rollupAddress, rollupAbi, 'getEpochDuration', blockNumber),
     ]);
@@ -410,6 +412,7 @@ export class L1Scanner {
       registryAddress: this.registryAddress,
       rollupAddress,
       rollupVersion: rollupVersion.toString(),
+      l1GenesisTime: l1GenesisTime.toString(),
       currentSlot: currentSlot.toString(),
       currentEpoch: currentEpoch.toString(),
       slotDuration: slotDuration.toString(),

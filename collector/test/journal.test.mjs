@@ -65,9 +65,9 @@ test('pending offense transitions and matching delivery fanout are atomic and de
       certainty: 'pending',
     });
     assert.deepEqual(events.map((event) => event.title), [
-      'Offense detected',
-      'Offense changed',
-      'Offense returned',
+      'Inactivity offense detected',
+      'Inactivity offense changed',
+      'Inactivity offense returned',
     ]);
     assert.equal(repository.getDeliveryCounts().pending, 3);
     const deliveries = [];
@@ -80,6 +80,57 @@ test('pending offense transitions and matching delivery fanout are atomic and de
     assert.equal(deliveries.length, 3);
     assert.equal(new Set(deliveries.map((delivery) => delivery.event.id)).size, 3);
     assert.equal(deliveries.every((delivery) => delivery.destination === '9007199254740991'), true);
+  } finally {
+    repository.close();
+  }
+});
+
+test('pending offenses connect their epoch or slot to offense and proposal rounds when L1 context is ready', () => {
+  const repository = new OffenseRepository(':memory:');
+  try {
+    repository.recordSourceSuccess('l1', {
+      epochDuration: '32',
+      stacks: [{
+        role: 'active',
+        parameters: {
+          roundSize: '128',
+          slashOffsetInRounds: '2',
+        },
+      }],
+    }, 10);
+    const [epochOffense] = parseOffenseSnapshot([OFFENSE_A]);
+    const [slotOffense] = parseOffenseSnapshot([OFFENSE_B]);
+
+    repository.recordSuccessfulPoll([epochOffense, slotOffense], {
+      observedAt: 20,
+      network: 'mainnet',
+    });
+
+    const events = repository.listEvents({ network: 'mainnet', limit: 10 }).data;
+    const epochEvent = events.find((event) => event.data.offenseId === epochOffense.id);
+    const slotEvent = events.find((event) => event.data.offenseId === slotOffense.id);
+    assert.deepEqual({
+      epoch: epochEvent.data.epoch,
+      slot: epochEvent.data.slot,
+      offenseRound: epochEvent.data.offenseRound,
+      proposalRound: epochEvent.data.proposalRound,
+    }, {
+      epoch: '42',
+      slot: '1344',
+      offenseRound: '10',
+      proposalRound: '12',
+    });
+    assert.deepEqual({
+      epoch: slotEvent.data.epoch,
+      slot: slotEvent.data.slot,
+      offenseRound: slotEvent.data.offenseRound,
+      proposalRound: slotEvent.data.proposalRound,
+    }, {
+      epoch: '281',
+      slot: '9001',
+      offenseRound: '70',
+      proposalRound: '72',
+    });
   } finally {
     repository.close();
   }
@@ -1165,6 +1216,48 @@ test('L1 snapshots alert on the first address-level vote, quorum, execution wind
   }
 });
 
+test('L1 payload events count only tally actions and expose epoch, slot, and UTC execution timing', () => {
+  const repository = new OffenseRepository(':memory:');
+  try {
+    repository.recordSuccessfulL1Snapshot('mainnet', snapshot({
+      block: 100,
+      earlyTargets: [earlyTarget(SEQUENCER_A, 100), earlyTarget(SEQUENCER_B, 1)],
+      actions: [{ sequencer: SEQUENCER_A, amount: '1000' }],
+      payloadAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      status: 'quorum-reached',
+      targetEpochs: ['38', '39'],
+      executableSlot: '1100',
+      expirySlot: '1200',
+    }), { observedAt: 100 });
+
+    const event = repository.listEvents({ network: 'mainnet' }).data
+      .find((candidate) => candidate.type === 'onchain_targeted');
+    assert.ok(event);
+    assert.deepEqual(event.targets, [SEQUENCER_A]);
+    assert.match(event.body, /1 sequencer/i);
+    assert.doesNotMatch(event.body, /2 sequencers/i);
+    assert.deepEqual({
+      targetEpochs: event.data.targetEpochs,
+      currentEpoch: event.data.currentEpoch,
+      currentSlot: event.data.currentSlot,
+      executableSlot: event.data.executableSlot,
+      executableAt: event.data.executableAt,
+      expirySlot: event.data.expirySlot,
+      expiryAt: event.data.expiryAt,
+    }, {
+      targetEpochs: ['38', '39'],
+      currentEpoch: '10',
+      currentSlot: '1000',
+      executableSlot: '1100',
+      executableAt: '1970-01-01T03:41:40.000Z',
+      expirySlot: '1200',
+      expiryAt: '1970-01-01T04:01:40.000Z',
+    });
+  } finally {
+    repository.close();
+  }
+});
+
 test('L1 payload changes alert only sequencers whose own slash amount changed', () => {
   const repository = new OffenseRepository(':memory:');
   try {
@@ -1843,6 +1936,9 @@ function snapshot({
   isProtected = false,
   pauseStartedAtSlot = null,
   pauseEndsAtSlot = null,
+  targetEpochs = [],
+  executableSlot = '900',
+  expirySlot = '1200',
 }) {
   return {
     chainId: 1,
@@ -1852,6 +1948,9 @@ function snapshot({
     registryAddress: '0x0000000000000000000000000000000000000001',
     rollupAddress: '0x0000000000000000000000000000000000000002',
     rollupVersion: '1',
+    l1GenesisTime: '100',
+    slotDuration: '12',
+    epochDuration: '32',
     currentSlot: '1000',
     currentEpoch: '10',
     stackErrors: [],
@@ -1881,9 +1980,9 @@ function snapshot({
         earlyTargets,
         actions,
         committees: [],
-        targetEpochs: [],
-        executableSlot: '900',
-        expirySlot: '1200',
+        targetEpochs,
+        executableSlot,
+        expirySlot,
       }],
     }],
   };

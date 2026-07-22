@@ -69,6 +69,10 @@ describe('Slashmon API decoders', () => {
                     epochOrSlot: '42',
                     timeUnit: 'epoch',
                     amount: '2000000000000000000000',
+                    epoch: '42',
+                    slot: '1344',
+                    offenseRound: '10',
+                    proposalRound: '12',
                 },
                 occurredAt: '2026-07-21T10:00:00.000Z',
             }],
@@ -82,6 +86,10 @@ describe('Slashmon API decoders', () => {
             epochOrSlot: '42',
             timeUnit: 'epoch',
             amount: '2000000000000000000000',
+            epoch: '42',
+            slot: '1344',
+            offenseRound: '10',
+            proposalRound: '12',
         });
         expect(page.nextCursor).toBe('cursor-2');
     });
@@ -99,7 +107,23 @@ describe('Slashmon API decoders', () => {
                 targets: [address],
                 title: 'Slashing is executable',
                 body: 'A watched sequencer is in the payload.',
-                data: {},
+                data: {
+                    chainId: 1,
+                    role: 'active',
+                    round: '195',
+                    targetEpochs: ['772', '773'],
+                    currentSlot: '25000',
+                    currentEpoch: '781',
+                    executableSlot: '28672',
+                    executableAt: '2026-07-23T10:00:00.000Z',
+                    expirySlot: '29440',
+                    expiryAt: '2026-07-23T16:24:00.000Z',
+                    blockNumber: '25587802',
+                    blockHash: `0x${'12'.repeat(32)}`,
+                    transactionHash: `0x${'34'.repeat(32)}`,
+                    payloadAddress: '0x00000000000000000000000000000000000000bb',
+                    actions: [{ sequencer: address, amount: '2000000000000000000000' }],
+                },
                 occurredAt: '2026-07-21T10:00:00.000Z',
             },
         }, 'mainnet');
@@ -108,6 +132,24 @@ describe('Slashmon API decoders', () => {
         expect(event.certainty).toBe('confirmed');
         expect(event.targets).toEqual([address]);
         expect(event.offense).toBeNull();
+        expect(event.l1).toEqual({
+            chainId: 1,
+            role: 'active',
+            round: '195',
+            targetEpochs: ['772', '773'],
+            currentSlot: '25000',
+            currentEpoch: '781',
+            executableSlot: '28672',
+            executableAt: '2026-07-23T10:00:00.000Z',
+            expirySlot: '29440',
+            expiryAt: '2026-07-23T16:24:00.000Z',
+            blockNumber: '25587802',
+            blockHash: `0x${'12'.repeat(32)}`,
+            transactionHash: `0x${'34'.repeat(32)}`,
+            payloadAddress: '0x00000000000000000000000000000000000000bb',
+            amount: null,
+            actions: [{ sequencer: address, amount: '2000000000000000000000' }],
+        });
     });
 
     it('requires the one-time management token on creation', () => {
