@@ -1,5 +1,4 @@
 import { EventHistory } from './EventHistory';
-import { PendingOffenseList } from './PendingOffenseList';
 import { SourceHealthBanner } from './SourceHealthBanner';
 import { SubscriptionPanel } from './SubscriptionPanel';
 import { useBackendMonitor } from '@/hooks/useBackendMonitor';
@@ -58,11 +57,7 @@ export function BackendOverview({ network, view }: { network: MonitorNetwork; vi
             <>
                 {health}
                 <SubscriptionPanel key={network} network={network} config={monitor.config} />
-                <div className="mb-10 grid gap-6 xl:grid-cols-2">
-                    <PendingOffenseList
-                        offenses={monitor.status?.pendingOffenses ?? []}
-                        hasWatchlistCapability={monitor.hasWatchlistCapability}
-                    />
+                <div className="mb-10">
                     <EventHistory
                         events={monitor.events?.data ?? []}
                         hasWatchlistCapability={monitor.hasWatchlistCapability}

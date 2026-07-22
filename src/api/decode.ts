@@ -237,7 +237,23 @@ function decodeEvent(input: unknown, fallbackNetwork: MonitorNetwork, path: stri
         targets,
         title: optionalString(value.title) ?? humanize(expectString(value.type, `${path}.type`)),
         body: optionalString(value.body) ?? '',
+        offense: decodeEventOffense(data, `${path}.data`),
         occurredAt: isoString(value.occurredAt ?? value.observedAt ?? value.createdAt, `${path}.observedAt`),
+    };
+}
+
+function decodeEventOffense(data: Record<string, unknown> | null, path: string): MonitorEvent['offense'] {
+    const reason = optionalString(data?.offenseTypeName);
+    if (!reason) {
+        return null;
+    }
+
+    return {
+        type: nullableInteger(data?.offenseType, `${path}.offenseType`),
+        reason,
+        epochOrSlot: optionalDecimalString(data?.epochOrSlot, `${path}.epochOrSlot`),
+        timeUnit: optionalString(data?.timeUnit) ?? null,
+        amount: optionalDecimalString(data?.amount, `${path}.amount`),
     };
 }
 

@@ -218,7 +218,10 @@ pending node-local proposals from confirmed L1 observations.
 SQLite is the continuity boundary:
 
 - failed source polls retain their last good snapshots;
-- offense withdrawal requires several successful omissions;
+- marking an offense as no longer pending (`withdrawn` internally) requires
+  several successful, advancing omissions;
+- leaving the pending set is retained as internal lifecycle state and does not
+  produce an event because the node API does not report why it disappeared;
 - reappearing offenses reactivate with their history intact;
 - source checkpoints survive process and machine restarts;
 - event creation and delivery fanout are transactional; and

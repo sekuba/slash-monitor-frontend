@@ -15,8 +15,9 @@ Ethereum L1 RPC ───── verified slashing state ──────┘   
 ## Two signals, two confidence levels
 
 An offense returned by `aztecAdmin_getSlashOffenses("all")` is an early warning
-from the particular Aztec node Slashmon is attached to. It may disappear, be
-withdrawn, or disagree with another node. The UI and messages call this
+from the particular Aztec node Slashmon is attached to. It may leave that node's
+pending set after it is voted on or expires, or disagree with another node. The
+UI and messages call this
 **pending / node-local**. It is useful precisely because it arrives early; it is
 not L1 proof.
 
@@ -40,7 +41,7 @@ an eventual consistency check. Once it exists, Slashmon samples the fixed
 with every offense snapshot. A newly reported offense remains useful positive
 evidence even during a sync wobble. Disappearance is held to a higher bar: the
 cursor must be ready, fresh, non-regressing, and newer for the offense's time
-unit. Thus a fast polling loop cannot withdraw an epoch offense three times
+unit. Thus a fast polling loop cannot mark an epoch offense as no longer pending
 while the node is still looking at one epoch, and a rolled-back or stalled node
 cannot erase an earlier warning.
 

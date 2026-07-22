@@ -20,7 +20,7 @@ test('schema v2 migrates in place without replaying its active offense', () => {
   createV2Fixture(fixture.databasePath);
   const repository = new OffenseRepository(fixture.databasePath);
   try {
-    assert.equal(repository.db.prepare('PRAGMA user_version').get().user_version, 12);
+    assert.equal(repository.db.prepare('PRAGMA user_version').get().user_version, 13);
     assert.equal(repository.db.prepare('PRAGMA synchronous').get().synchronous, 2);
     assert.equal(repository.db.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
     assert.equal(repository.db.prepare(`
@@ -34,6 +34,62 @@ test('schema v2 migrates in place without replaying its active offense', () => {
     assert.deepEqual(repository.listEvents({ network: 'mainnet' }).data, []);
   } finally {
     repository.close();
+    fixture.cleanup();
+  }
+});
+
+test('schema v13 removes ambiguous disappearance events and shortens stored node titles', () => {
+  const fixture = temporaryDatabase();
+  let repository = new OffenseRepository(fixture.databasePath);
+  try {
+    repository.createWatchlist({
+      id: WATCHLIST_ID,
+      managementTokenHash: 'a'.repeat(64),
+      network: 'mainnet',
+      addresses: [SEQUENCER_A],
+      now: 10,
+    });
+    repository.upsertEndpoint({
+      watchlistId: WATCHLIST_ID,
+      kind: 'telegram',
+      destination: '9007199254740991',
+      now: 20,
+    });
+    repository.recordEvent({
+      id: 'old-removal',
+      network: 'mainnet',
+      source: 'aztec_node',
+      type: 'pending_offense_withdrawn',
+      severity: 'info',
+      title: 'Node-local offense no longer pending',
+      body: 'Ambiguous disappearance',
+      observedAt: 100,
+    }, [SEQUENCER_A]);
+    repository.recordEvent({
+      id: 'old-detection',
+      network: 'mainnet',
+      source: 'aztec_node',
+      type: 'pending_offense_detected',
+      severity: 'warning',
+      title: 'Node-local offense detected',
+      body: 'Actionable detection',
+      observedAt: 200,
+    }, [SEQUENCER_A]);
+    assert.equal(repository.getDeliveryCounts().pending, 2);
+    repository.close();
+    repository = null;
+
+    const database = new DatabaseSync(fixture.databasePath);
+    database.exec('PRAGMA user_version = 12');
+    database.close();
+
+    repository = new OffenseRepository(fixture.databasePath);
+    assert.equal(repository.getEvent('old-removal'), undefined);
+    assert.equal(repository.getEvent('old-detection').title, 'Offense detected');
+    assert.equal(repository.getDeliveryCounts().pending, 1);
+    assert.equal(repository.db.prepare('PRAGMA user_version').get().user_version, 13);
+  } finally {
+    repository?.close();
     fixture.cleanup();
   }
 });
@@ -59,32 +115,49 @@ test('pending offense transitions and matching delivery fanout are atomic and de
     repository.recordSuccessfulPoll([offense], { observedAt: 100, network: 'mainnet' });
     repository.recordSuccessfulPoll([offense], { observedAt: 200, network: 'mainnet' });
     repository.recordSuccessfulPoll([{ ...offense, amount: '3000' }], { observedAt: 300, network: 'mainnet' });
-    repository.recordSuccessfulPoll([], {
+    const removal = repository.recordSuccessfulPoll([], {
       observedAt: 400,
       network: 'mainnet',
       withdrawAfterMissedPolls: 1,
     });
+    assert.equal(removal.withdrawn, 1);
+    assert.equal(removal.events, 0);
     repository.recordSuccessfulPoll([offense], { observedAt: 500, network: 'mainnet' });
 
+    const events = repository.listEvents({ network: 'mainnet', limit: 20 }).data.reverse();
     assert.deepEqual(
-      repository.listEvents({ network: 'mainnet', limit: 20 }).data.map((event) => event.type).reverse(),
+      events.map((event) => event.type),
       [
         'pending_offense_detected',
         'pending_offense_updated',
-        'pending_offense_withdrawn',
         'pending_offense_reactivated',
       ],
     );
-    assert.equal(repository.getDeliveryCounts().pending, 4);
+    assert.deepEqual(events[0].data, {
+      offenseId: offense.id,
+      sequencer: offense.sequencer,
+      amount: offense.amount,
+      offenseType: 3,
+      offenseTypeName: 'inactivity',
+      epochOrSlot: '42',
+      timeUnit: 'epoch',
+      certainty: 'pending',
+    });
+    assert.deepEqual(events.map((event) => event.title), [
+      'Offense detected',
+      'Offense changed',
+      'Offense returned',
+    ]);
+    assert.equal(repository.getDeliveryCounts().pending, 3);
     const deliveries = [];
-    while (deliveries.length < 4) {
+    while (deliveries.length < 3) {
       const [delivery] = repository.claimDeliveries({ now: 1_000, limit: 20, leaseMs: 100 });
       assert.ok(delivery);
       deliveries.push(delivery);
       repository.completeDelivery(delivery.id, null, 1_000);
     }
-    assert.equal(deliveries.length, 4);
-    assert.equal(new Set(deliveries.map((delivery) => delivery.event.id)).size, 4);
+    assert.equal(deliveries.length, 3);
+    assert.equal(new Set(deliveries.map((delivery) => delivery.event.id)).size, 3);
     assert.equal(deliveries.every((delivery) => delivery.destination === '9007199254740991'), true);
   } finally {
     repository.close();

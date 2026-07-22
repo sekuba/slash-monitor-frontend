@@ -8,7 +8,7 @@ import {
   WARNING_DELIVERY_LIFETIME_MS,
 } from './delivery-policy.mjs';
 
-const SCHEMA_VERSION = 12;
+const SCHEMA_VERSION = 13;
 
 const HOUR_MS = 60 * 60_000;
 const DAY_MS = 24 * HOUR_MS;
@@ -355,6 +355,19 @@ export class OffenseRepository {
         PRAGMA user_version = 12;
         COMMIT;
       `);
+      version = 12;
+    }
+    if (version === 12) {
+      this.db.exec(`
+        BEGIN IMMEDIATE;
+        DELETE FROM events WHERE type = 'pending_offense_withdrawn';
+        UPDATE events SET title =
+          upper(substr(title, length('Node-local ') + 1, 1)) ||
+          substr(title, length('Node-local ') + 2)
+        WHERE title LIKE 'Node-local %';
+        PRAGMA user_version = 13;
+        COMMIT;
+      `);
     }
   }
 
@@ -506,12 +519,7 @@ export class OffenseRepository {
         this.db.prepare(`
           UPDATE offenses SET status = 'withdrawn', withdrawn_at = ? WHERE id = ? AND status = 'active'
         `).run(observedAt, offense.id);
-        const insertion = this.insertEvent(
-          pendingEvent('pending_offense_withdrawn', offense, network, observedAt),
-          [offense.sequencer],
-        );
         result.withdrawn += 1;
-        result.events += Number(insertion.inserted);
       }
       if (syncCursor !== undefined) {
         this.ensureSource('aztec_sync');
@@ -2375,10 +2383,9 @@ function pendingEvent(type, offense, network, observedAt, explicitId) {
   const label = String(offense.offenseTypeName ?? 'unknown offense').replaceAll('_', ' ');
   const address = shortAddress(offense.sequencer);
   const config = {
-    pending_offense_detected: ['warning', 'Node-local offense detected', `${address} appeared in the Aztec node's ${label} offense set.`],
-    pending_offense_reactivated: ['warning', 'Node-local offense returned', `${address}'s ${label} offense reappeared after being withdrawn.`],
-    pending_offense_updated: ['warning', 'Node-local offense changed', `${address}'s pending ${label} offense changed. Recheck the node signal.`],
-    pending_offense_withdrawn: ['info', 'Node-local offense withdrawn', `${address}'s ${label} offense disappeared from several complete node snapshots.`],
+    pending_offense_detected: ['warning', 'Offense detected', `${address} appeared in the Aztec node's ${label} offense set.`],
+    pending_offense_reactivated: ['warning', 'Offense returned', `${address}'s ${label} offense reappeared after leaving the node's pending set.`],
+    pending_offense_updated: ['warning', 'Offense changed', `${address}'s pending ${label} offense changed. Recheck the node signal.`],
   }[type];
   return {
     id: explicitId ?? stableId('event', network, type, offense.id, observedAt, offense.amount),
@@ -2541,17 +2548,17 @@ function onchainEvent(type, round, network, observedAt, snapshot, explicitId, ex
   const addressText = targets.length === 1 ? shortAddress(targets[0]) : `${targets.length} sequencers`;
   const role = round.role ?? round.stackRole ?? 'active';
   const config = {
-    onchain_vote_targeted: ['warning', 'Sequencer named in an L1 vote', `${addressText} was targeted by at least one onchain vote in ${role} round ${round.round}; quorum has not necessarily been reached.`],
+    onchain_vote_targeted: ['warning', 'Sequencer named in an L1 vote', `${addressText} targeted by at least one onchain vote in ${role} round ${round.round}; quorum has not necessarily been reached.`],
     onchain_targeted: ['warning', 'Sequencer targeted on L1', `${addressText} reached the onchain slashing tally in ${role} round ${round.round}.`],
     onchain_payload_changed: ['critical', 'Slashing payload changed', `The payload or action set changed for ${role} round ${round.round}; prior veto state does not carry over.`],
     onchain_executable: ['critical', 'Slashing is executable', `${addressText} can now be slashed from ${role} round ${round.round}.`],
     onchain_executable_after_pause: ['critical', 'Slashing queued behind global pause', `${addressText} is in an open execution window. The pause blocks execution now, but is scheduled to end before ${role} round ${round.round} expires.`],
     onchain_execution_paused: ['warning', 'Slashing temporarily paused', `Execution of ${role} round ${round.round} is blocked by the global pause, but the round remains live after the scheduled resume.`],
-    onchain_pause_protected: ['info', 'Round protected through expiry', `${addressText} is targeted in ${role} round ${round.round}, but the current global pause is scheduled to last through its expiry.`],
+    onchain_pause_protected: ['info', 'Round protected through expiry', `${addressText} targeted in ${role} round ${round.round}, but the current global pause is scheduled to last through its expiry.`],
     onchain_vetoed: ['info', 'Slashing payload vetoed', `The current payload for ${role} round ${round.round} was vetoed.`],
     onchain_veto_reverted: ['critical', 'Slashing veto no longer applies', `The current payload for ${role} round ${round.round} is not vetoed.`],
     onchain_executed: ['critical', 'Slashing executed', `${addressText} was included in executed ${role} round ${round.round}.`],
-    onchain_execution_target_cleared: ['info', 'Executed tally cleared prior target', `${addressText} was targeted earlier in ${role} round ${round.round}, but the executed tally contained no slash action for it.`],
+    onchain_execution_target_cleared: ['info', 'Executed tally cleared prior target', `${addressText} targeted earlier in ${role} round ${round.round}, but the executed tally contained no slash action for it.`],
     onchain_expired: ['info', 'Slashing round expired', `${role} round ${round.round} left its execution lifetime without executing.`],
     onchain_reorg_correction: ['warning', 'L1 slashing view corrected', `A reorg removed or changed the prior targeting state for ${role} round ${round.round}.`],
     onchain_reorg_restored: ['critical', 'L1 slashing target restored', `${addressText} returned to the canonical L1 slashing view for ${role} round ${round.round} after a reorg correction.`],

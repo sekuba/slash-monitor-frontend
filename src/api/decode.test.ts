@@ -91,12 +91,26 @@ describe('Slashmon v2 API decoders', () => {
                 sequencer: address,
                 title: 'Pending offense',
                 body: 'Observed locally',
+                data: {
+                    offenseType: 3,
+                    offenseTypeName: 'inactivity',
+                    epochOrSlot: '42',
+                    timeUnit: 'epoch',
+                    amount: '2000000000000000000000',
+                },
                 observedAt: '2026-07-21T10:00:00.000Z',
             }],
             pagination: { nextCursor: 'cursor-2' },
         }, 'mainnet');
 
         expect(page.data[0].certainty).toBe('pending');
+        expect(page.data[0].offense).toEqual({
+            type: 3,
+            reason: 'inactivity',
+            epochOrSlot: '42',
+            timeUnit: 'epoch',
+            amount: '2000000000000000000000',
+        });
         expect(page.nextCursor).toBe('cursor-2');
     });
 
@@ -117,6 +131,7 @@ describe('Slashmon v2 API decoders', () => {
         expect(event.id).toBe('event-1');
         expect(event.certainty).toBe('confirmed');
         expect(event.targets).toEqual([address]);
+        expect(event.offense).toBeNull();
     });
 
     it('requires the one-time management token on creation', () => {
