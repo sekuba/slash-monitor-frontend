@@ -105,7 +105,7 @@ export function SubscriptionPanel({ network, config }: SubscriptionPanelProps) {
                             type="button"
                             onClick={manager.disableWebPush}
                             disabled={manager.isBusy}
-                            className="brutal-button brutal-button--outline-danger brutal-button--sm"
+                            className="brutal-button brutal-button--danger brutal-button--sm"
                         >
                             {webPushPending ? 'Cancel Web Push' : 'Disable Web Push'}
                         </button>
@@ -132,7 +132,7 @@ export function SubscriptionPanel({ network, config }: SubscriptionPanelProps) {
                             type="button"
                             onClick={manager.refreshSubscription}
                             disabled={manager.isBusy}
-                            className="brutal-button brutal-button--outline-aqua brutal-button--sm"
+                            className="brutal-button brutal-button--aqua brutal-button--sm"
                         >
                             Refresh Channels
                         </button>
@@ -140,7 +140,7 @@ export function SubscriptionPanel({ network, config }: SubscriptionPanelProps) {
                             type="button"
                             onClick={manager.sendTest}
                             disabled={manager.isBusy || !hasChannel}
-                            className="brutal-button brutal-button--outline-chartreuse brutal-button--sm"
+                            className="brutal-button brutal-button--sm"
                         >
                             Send Test
                         </button>
@@ -152,7 +152,7 @@ export function SubscriptionPanel({ network, config }: SubscriptionPanelProps) {
                                 }
                             }}
                             disabled={manager.isBusy}
-                            className="brutal-button brutal-button--outline-danger brutal-button--sm"
+                            className="brutal-button brutal-button--danger brutal-button--sm"
                         >
                             Delete Watch
                         </button>

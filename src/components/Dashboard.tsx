@@ -4,14 +4,19 @@ import { RoundCard } from './RoundCard';
 import { StatsPanel } from './StatsPanel';
 import { SlashingTimeline } from './SlashingTimeline';
 import { SlashingHelpModal } from './SlashingHelpModal';
+import { MonitorDetails } from './MonitorDetails';
 import { collectTargetedSequencers, deriveRoundPresentation } from '@/lib/utils';
+import type { MonitorConfigInput } from '@/types/slashing';
 
 interface DashboardProps {
+    configInput: MonitorConfigInput;
     network: 'mainnet' | 'testnet';
+    onResetRpc: () => void;
     onToggleNetwork: () => void;
+    onUpdateRpc: (url: string) => void;
 }
 
-export function Dashboard({ network, onToggleNetwork }: DashboardProps) {
+export function Dashboard({ configInput, network, onResetRpc, onToggleNetwork, onUpdateRpc }: DashboardProps) {
     const { detectedSlashings, isInitialized, initializationError, isScanning, currentRound, config, isSlashingEnabled, pauseStartedAtSlot, pauseEndsAtSlot, audit } = useSlashingStore();
     const [showSlashingHelpModal, setShowSlashingHelpModal] = useState(false);
 
@@ -49,12 +54,21 @@ export function Dashboard({ network, onToggleNetwork }: DashboardProps) {
     const targetedSequencers = useMemo(() => collectTargetedSequencers(slashingStates
         .filter(({ display, slashing }) => display.isActionable && slashing.slashActions && slashing.slashActions.length > 0)
         .map(({ slashing }) => slashing)), [slashingStates]);
+    const monitorDetails = (
+        <MonitorDetails
+            key={configInput.chainId}
+            configInput={configInput}
+            onResetRpc={onResetRpc}
+            onUpdateRpc={onUpdateRpc}
+        />
+    );
 
     if (!isInitialized) {
         if (initializationError) {
             return (
         <main className="max-w-7xl mx-auto px-4 py-8">
           <ClientNetworkControl network={network} onToggleNetwork={onToggleNetwork} />
+          {monitorDetails}
           <div className="max-w-2xl mx-auto bg-oxblood border-5 border-vermillion p-8 shadow-brutal-vermillion">
           <h1 className="text-vermillion text-2xl font-black uppercase mb-4">Monitor unavailable</h1>
           <p className="text-whisper-white font-bold break-words">{initializationError}</p>
@@ -66,6 +80,7 @@ export function Dashboard({ network, onToggleNetwork }: DashboardProps) {
         return (
         <main className="max-w-7xl mx-auto px-4 py-8">
           <ClientNetworkControl network={network} onToggleNetwork={onToggleNetwork} />
+          {monitorDetails}
           <div className="mx-auto max-w-2xl text-center bg-brand-black border-5 border-chartreuse p-8 shadow-brutal-chartreuse">
           <div className="animate-spin h-16 w-16 border-5 border-chartreuse border-t-transparent mx-auto mb-4"></div>
           <p className="text-chartreuse font-black uppercase tracking-wider">INITIALIZING CLIENTSIDE L1 MONITOR...</p>
@@ -82,6 +97,7 @@ export function Dashboard({ network, onToggleNetwork }: DashboardProps) {
       <main className="max-w-7xl mx-auto px-4 py-8">
 
         <ClientNetworkControl network={network} onToggleNetwork={onToggleNetwork} />
+        {monitorDetails}
 
         {audit.status !== 'ok' && (
           <div className={`${audit.status === 'stale' || audit.status === 'fatal' ? 'bg-oxblood border-vermillion shadow-brutal-vermillion' : 'bg-aubergine border-orchid shadow-brutal-orchid'} border-5 p-5 mb-6`}>
@@ -164,7 +180,7 @@ function ClientNetworkControl({ network, onToggleNetwork }: {
             <button
                 type="button"
                 onClick={onToggleNetwork}
-                className={`brutal-button ${isMainnet ? 'brutal-button--outline-danger' : 'brutal-button--outline-aqua'}`}
+                className={`brutal-button ${isMainnet ? 'brutal-button--danger' : 'brutal-button--aqua'}`}
                 aria-label={`Switch client scanner to ${isMainnet ? 'Testnet' : 'Mainnet'}`}
             >
                 <span className={`h-3 w-3 rounded-full ${isMainnet ? 'bg-vermillion' : 'bg-aqua'}`} aria-hidden="true" />

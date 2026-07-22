@@ -43,6 +43,9 @@ restrictive Content Security Policy without analytics, tag managers, ads, chat
 widgets, or other third-party scripts. Shared GitHub Pages origins are suitable
 only for Monitor.
 
+Monitor can store one custom public Ethereum RPC URL per network in browser
+storage. That RPC sees the browser's IP address and on-chain read requests.
+
 Deleting a watch removes its channels and prevents future delivery. Provider
 errors disable dead endpoints. The backend prunes unverified endpoints,
 one-time tokens, notification tests, and terminal delivery history on bounded

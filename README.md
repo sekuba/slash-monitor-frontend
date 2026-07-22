@@ -4,7 +4,8 @@ Slashmon watches Aztec slashing and has two deliberately separate parts:
 
 - **Monitor** is a browser-only view of public Ethereum state. It resolves the
   canonical Aztec contracts and checks slashing rounds directly through public
-  L1 RPCs.
+  L1 RPCs. Its on-page details panel can select a browser-local RPC and inspect
+  the resolved deployment metadata.
 - **PINGME** is the alerting UI for the backend. The backend journals early
   offenses from one Aztec node, verifies L1 slashing state, and sends matched
   alerts through Telegram or Web Push.

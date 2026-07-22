@@ -91,7 +91,7 @@ form-action 'self'; frame-ancestors 'none'
 ```
 
 Also send HSTS, `X-Content-Type-Options: nosniff`, and a no-referrer policy.
-Add a separate API origin to `connect-src` when needed.
+Add the API and any operator-selectable Monitor RPC origins to `connect-src`.
 
 GitHub Pages cannot host the backend. A project path on a shared
 `name.github.io` origin is Monitor-only because sibling projects share browser

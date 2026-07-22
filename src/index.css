@@ -115,59 +115,27 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .brutal-button--aqua {
-    --button-bg: var(--color-aqua);
-    --button-fg: var(--color-brand-black);
-    --button-edge: var(--color-chartreuse);
-    --button-shadow: var(--color-aqua);
-  }
-
-  .brutal-button--orchid {
-    --button-bg: var(--color-orchid);
-    --button-fg: var(--color-brand-black);
-    --button-edge: var(--color-aqua);
-    --button-shadow: var(--color-orchid);
-  }
-
-  .brutal-button--danger {
-    --button-bg: var(--color-vermillion);
-    --button-fg: var(--color-brand-black);
-    --button-edge: var(--color-chartreuse);
-    --button-shadow: var(--color-vermillion);
-  }
-
-  .brutal-button--neutral {
-    --button-bg: var(--color-whisper-white);
-    --button-fg: var(--color-brand-black);
-    --button-edge: var(--color-aqua);
-    --button-shadow: var(--color-whisper-white);
-  }
-
-  .brutal-button--outline-chartreuse {
-    --button-bg: var(--color-brand-black);
-    --button-fg: var(--color-chartreuse);
-    --button-edge: var(--color-chartreuse);
-    --button-shadow: var(--color-chartreuse);
-  }
-
-  .brutal-button--outline-aqua {
-    --button-bg: var(--color-brand-black);
     --button-fg: var(--color-aqua);
     --button-edge: var(--color-aqua);
     --button-shadow: var(--color-aqua);
   }
 
-  .brutal-button--outline-orchid {
-    --button-bg: var(--color-brand-black);
+  .brutal-button--orchid {
     --button-fg: var(--color-orchid);
     --button-edge: var(--color-orchid);
     --button-shadow: var(--color-orchid);
   }
 
-  .brutal-button--outline-danger {
-    --button-bg: var(--color-brand-black);
+  .brutal-button--danger {
     --button-fg: var(--color-vermillion);
     --button-edge: var(--color-vermillion);
     --button-shadow: var(--color-vermillion);
+  }
+
+  .brutal-button--neutral {
+    --button-fg: var(--color-whisper-white);
+    --button-edge: var(--color-whisper-white);
+    --button-shadow: var(--color-whisper-white);
   }
 
   /* Route navigation stays visually quiet; only the active keyline changes. */

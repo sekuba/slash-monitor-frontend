@@ -6,20 +6,21 @@ import { Header } from './components/Header';
 import { useSlashingMonitor } from './hooks/useSlashingMonitor';
 import { parseAppSearch, urlForNetwork, urlForView, type AppView } from './lib/navigation';
 import { normalizeRpcUrls } from './lib/rpc';
+import { clearRpcOverride, getRpcOverride, setRpcOverride } from './lib/rpcOverride';
 import { useSlashingStore } from './store/slashingStore';
 import type { MonitorConfigInput } from './types/slashing';
 
 const MAINNET_REGISTRY_ADDRESS = '0x35b22e09Ee0390539439E24f06Da43D83f90e298' as Address;
 const TESTNET_REGISTRY_ADDRESS = '0xA0BFb1B494FB49041e5c6e8c2C1BE09cD171c6Ba' as Address;
 
-const createConfig = (isTestnet: boolean): MonitorConfigInput => {
+const createConfig = (isTestnet: boolean, rpcOverride: string | null): MonitorConfigInput => {
     const chainId = isTestnet ? 11155111 : 1;
     const defaultL1RpcUrl = isTestnet
         ? (import.meta.env.VITE_TESTNET_L1_RPC_URL || import.meta.env.VITE_L1_RPC_URL || '')
         : (import.meta.env.VITE_L1_RPC_URL || '');
 
     return {
-        l1RpcUrl: normalizeRpcUrls(defaultL1RpcUrl),
+        l1RpcUrl: normalizeRpcUrls(rpcOverride || defaultL1RpcUrl),
         chainId,
         registryAddress: (
             isTestnet
@@ -31,15 +32,22 @@ const createConfig = (isTestnet: boolean): MonitorConfigInput => {
 
 export function App() {
     const [location, setLocation] = useState(() => parseAppSearch(window.location.search));
+    const [rpcOverrides, setRpcOverrides] = useState(() => ({
+        mainnet: getRpcOverride(1),
+        testnet: getRpcOverride(11_155_111),
+    }));
+    const [scannerGeneration, setScannerGeneration] = useState(0);
     const resetMonitor = useSlashingStore((state) => state.resetMonitor);
     const isTestnet = location.network === 'testnet';
+    const rpcOverride = isTestnet ? rpcOverrides.testnet : rpcOverrides.mainnet;
     const config = useMemo(
-        () => createConfig(isTestnet),
-        [isTestnet],
+        () => createConfig(isTestnet, rpcOverride),
+        [isTestnet, rpcOverride],
     );
 
     const restartScanner = useCallback(() => {
         resetMonitor();
+        setScannerGeneration((generation) => generation + 1);
     }, [resetMonitor]);
 
     const navigateTo = useCallback((view: AppView) => {
@@ -59,6 +67,18 @@ export function App() {
         restartScanner();
         setLocation(parseAppSearch(next.search));
     }, [isTestnet, restartScanner]);
+
+    const updateRpc = useCallback((url: string) => {
+        const savedUrl = setRpcOverride(config.chainId, url);
+        setRpcOverrides((current) => ({ ...current, [location.network]: savedUrl }));
+        restartScanner();
+    }, [config.chainId, location.network, restartScanner]);
+
+    const resetRpc = useCallback(() => {
+        clearRpcOverride(config.chainId);
+        setRpcOverrides((current) => ({ ...current, [location.network]: null }));
+        restartScanner();
+    }, [config.chainId, location.network, restartScanner]);
 
     useEffect(() => {
         const handlePopState = () => {
@@ -87,10 +107,13 @@ export function App() {
                 </main>
             ) : (
                 <>
-                    <ScannerRuntime key={location.network} config={config} />
+                    <ScannerRuntime key={`${location.network}:${scannerGeneration}`} config={config} />
                     <Dashboard
+                        configInput={config}
                         network={location.network}
+                        onResetRpc={resetRpc}
                         onToggleNetwork={toggleNetwork}
+                        onUpdateRpc={updateRpc}
                     />
                 </>
             )}
