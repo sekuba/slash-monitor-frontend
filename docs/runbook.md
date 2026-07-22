@@ -265,6 +265,23 @@ For the simplest reliable backup, stop the service briefly, checkpoint WAL,
 run `quick_check`, copy the database with mode `0600`, and start it again. Move
 encrypted copies off-host according to the threat model.
 
+For routine backend-only upgrades where the PWA is deployed elsewhere, the
+checked-in helper performs the immutable release, database backup, service
+switch, and local liveness check. Run it as the checkout owner on the Ubuntu
+backend host:
+
+```bash
+scripts/update-backend.sh
+```
+
+It fast-forward pulls the checkout by default. Pass `--no-pull` to deploy the
+exact checked-out commit. Dependency installation runs as the checkout owner,
+so a user-level `fnm` Node/pnpm setup works without `sudo pnpm`; only the final
+release installation, backup, and service operations use `sudo`. The systemd
+service still requires Node 24 at `/usr/bin/node`. The helper intentionally
+refuses to replace a release that contains a self-hosted `dist/`; use the full
+build procedure above for that deployment shape.
+
 For upgrades, install a new versioned release, stop the backend, back up before
 any schema migration, switch `/opt/slashmon/current`, and start it. Retain the
 previous release and pre-migration database until the new service has completed
