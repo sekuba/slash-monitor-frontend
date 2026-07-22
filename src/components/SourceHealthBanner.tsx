@@ -41,7 +41,7 @@ export function SourceHealthBanner({
                         <button
                             type="button"
                             onClick={onRefresh}
-                            className="shrink-0 border-3 border-brand-black bg-orchid px-5 py-3 text-sm font-black text-brand-black shadow-brutal"
+                            className="brutal-button brutal-button--orchid brutal-button--lg shrink-0"
                         >
                             Retry
                         </button>
@@ -86,7 +86,7 @@ export function SourceHealthBanner({
                     <button
                         type="button"
                         onClick={onRefresh}
-                        className="border-3 border-brand-black bg-chartreuse px-4 py-2 text-xs font-black text-brand-black shadow-brutal"
+                        className="brutal-button brutal-button--sm"
                     >
                         Refresh
                     </button>

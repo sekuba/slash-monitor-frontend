@@ -77,7 +77,7 @@ export function SubscriptionPanel({ network, config }: SubscriptionPanelProps) {
                         type="button"
                         onClick={manager.createTelegramLink}
                         disabled={!manager.subscription || manager.isBusy || !config?.telegram.enabled}
-                        className="border-3 border-brand-black bg-aqua px-4 py-2 text-xs font-black text-brand-black shadow-brutal disabled:cursor-not-allowed disabled:opacity-40"
+                        className="brutal-button brutal-button--aqua brutal-button--sm"
                     >
                         {manager.subscription?.channels.telegram.enabled ? 'Relink Telegram' : 'Make One-Time Link'}
                     </button>
@@ -86,7 +86,7 @@ export function SubscriptionPanel({ network, config }: SubscriptionPanelProps) {
                             href={manager.telegramLink.url}
                             target="_blank"
                             rel="noreferrer"
-                            className="brutal-action border-3 border-brand-black bg-chartreuse px-4 py-2 text-center text-xs font-black uppercase text-brand-black shadow-brutal"
+                            className="brutal-button brutal-button--sm"
                         >
                             Open Telegram
                         </a>
@@ -105,7 +105,7 @@ export function SubscriptionPanel({ network, config }: SubscriptionPanelProps) {
                             type="button"
                             onClick={manager.disableWebPush}
                             disabled={manager.isBusy}
-                            className="border-3 border-vermillion bg-oxblood px-4 py-2 text-xs font-black text-vermillion disabled:opacity-40"
+                            className="brutal-button brutal-button--outline-danger brutal-button--sm"
                         >
                             {webPushPending ? 'Cancel Web Push' : 'Disable Web Push'}
                         </button>
@@ -114,7 +114,7 @@ export function SubscriptionPanel({ network, config }: SubscriptionPanelProps) {
                             type="button"
                             onClick={manager.enableWebPush}
                             disabled={!manager.subscription || manager.isBusy || !config?.webPush.enabled || manager.pushCapability === 'unsupported' || manager.pushCapability === 'install-required' || manager.pushCapability === 'permission-denied'}
-                            className="border-3 border-brand-black bg-aqua px-4 py-2 text-xs font-black text-brand-black shadow-brutal disabled:cursor-not-allowed disabled:opacity-40"
+                            className="brutal-button brutal-button--aqua brutal-button--sm"
                         >
                             Enable Web Push
                         </button>
@@ -132,7 +132,7 @@ export function SubscriptionPanel({ network, config }: SubscriptionPanelProps) {
                             type="button"
                             onClick={manager.refreshSubscription}
                             disabled={manager.isBusy}
-                            className="border-3 border-aqua px-3 py-2 text-xs font-black text-aqua disabled:opacity-40"
+                            className="brutal-button brutal-button--outline-aqua brutal-button--sm"
                         >
                             Refresh Channels
                         </button>
@@ -140,7 +140,7 @@ export function SubscriptionPanel({ network, config }: SubscriptionPanelProps) {
                             type="button"
                             onClick={manager.sendTest}
                             disabled={manager.isBusy || !hasChannel}
-                            className="border-3 border-chartreuse px-3 py-2 text-xs font-black text-chartreuse disabled:opacity-40"
+                            className="brutal-button brutal-button--outline-chartreuse brutal-button--sm"
                         >
                             Send Test
                         </button>
@@ -152,7 +152,7 @@ export function SubscriptionPanel({ network, config }: SubscriptionPanelProps) {
                                 }
                             }}
                             disabled={manager.isBusy}
-                            className="border-3 border-vermillion px-3 py-2 text-xs font-black text-vermillion disabled:opacity-40"
+                            className="brutal-button brutal-button--outline-danger brutal-button--sm"
                         >
                             Delete Watch
                         </button>
@@ -234,7 +234,7 @@ function AddressForm({
                 <button
                     type="submit"
                     disabled={isBusy}
-                    className="shrink-0 border-3 border-brand-black bg-chartreuse px-5 py-3 text-sm font-black text-brand-black shadow-brutal disabled:cursor-not-allowed disabled:opacity-50"
+                    className="brutal-button brutal-button--lg shrink-0"
                 >
                     {isExisting ? 'Update Watch List' : 'Create Watch List'}
                 </button>

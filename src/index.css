@@ -77,23 +77,163 @@ h1, h2, h3, h4, h5, h6 {
   text-transform: uppercase;
 }
 
-/* Neo-brutalist Button Reset */
-button {
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  box-shadow: var(--shadow-brutal);
-  transition: transform 100ms, box-shadow 100ms;
+/*
+ * Button system
+ *
+ * Every interactive action uses the same 3px keyline, 4px hard shadow and
+ * physical press motion. Colour communicates role; it never changes the
+ * construction of the control.
+ */
+@layer components {
+  .brutal-button {
+    --button-bg: var(--color-brand-black);
+    --button-fg: var(--color-chartreuse);
+    --button-edge: var(--color-chartreuse);
+    --button-shadow: var(--color-chartreuse);
+
+    display: inline-flex;
+    min-height: 2.75rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border: 3px solid var(--button-edge);
+    border-radius: 0;
+    background: var(--button-bg);
+    color: var(--button-fg);
+    padding: 0.625rem 1rem;
+    box-shadow: 4px 4px 0 var(--button-shadow);
+    font-size: 0.75rem;
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: 0.05em;
+    text-align: center;
+    text-decoration: none;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: transform 100ms ease, box-shadow 100ms ease, opacity 100ms ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .brutal-button:hover:not(:disabled) {
+    transform: translate(2px, 2px);
+    box-shadow: 2px 2px 0 var(--button-shadow);
+  }
+
+  .brutal-button:active:not(:disabled) {
+    transform: translate(4px, 4px);
+    box-shadow: 0 0 0 var(--button-shadow);
+  }
+
+  .brutal-button:disabled,
+  .brutal-button[aria-disabled='true'] {
+    opacity: 0.42;
+    cursor: not-allowed;
+    filter: saturate(0.45);
+    box-shadow: 2px 2px 0 var(--button-shadow);
+  }
+
+  .brutal-button--aqua {
+    --button-bg: var(--color-aqua);
+    --button-fg: var(--color-brand-black);
+    --button-edge: var(--color-chartreuse);
+    --button-shadow: var(--color-aqua);
+  }
+
+  .brutal-button--orchid {
+    --button-bg: var(--color-orchid);
+    --button-fg: var(--color-brand-black);
+    --button-edge: var(--color-aqua);
+    --button-shadow: var(--color-orchid);
+  }
+
+  .brutal-button--danger {
+    --button-bg: var(--color-vermillion);
+    --button-fg: var(--color-brand-black);
+    --button-edge: var(--color-chartreuse);
+    --button-shadow: var(--color-vermillion);
+  }
+
+  .brutal-button--neutral {
+    --button-bg: var(--color-whisper-white);
+    --button-fg: var(--color-brand-black);
+    --button-edge: var(--color-aqua);
+    --button-shadow: var(--color-whisper-white);
+  }
+
+  .brutal-button--outline-chartreuse {
+    --button-bg: var(--color-brand-black);
+    --button-fg: var(--color-chartreuse);
+    --button-edge: var(--color-chartreuse);
+    --button-shadow: var(--color-chartreuse);
+  }
+
+  .brutal-button--outline-aqua {
+    --button-bg: var(--color-brand-black);
+    --button-fg: var(--color-aqua);
+    --button-edge: var(--color-aqua);
+    --button-shadow: var(--color-aqua);
+  }
+
+  .brutal-button--outline-orchid {
+    --button-bg: var(--color-brand-black);
+    --button-fg: var(--color-orchid);
+    --button-edge: var(--color-orchid);
+    --button-shadow: var(--color-orchid);
+  }
+
+  .brutal-button--outline-danger {
+    --button-bg: var(--color-brand-black);
+    --button-fg: var(--color-vermillion);
+    --button-edge: var(--color-vermillion);
+    --button-shadow: var(--color-vermillion);
+  }
+
+  .brutal-button--sm {
+    min-height: 2.25rem;
+    padding: 0.45rem 0.75rem;
+    font-size: 0.6875rem;
+  }
+
+  .brutal-button--lg {
+    min-height: 3rem;
+    padding: 0.75rem 1.25rem;
+    font-size: 0.875rem;
+  }
+
+  .brutal-button--icon,
+  .brutal-button--icon-sm {
+    flex: none;
+    padding: 0;
+  }
+
+  .brutal-button--icon {
+    width: 3rem;
+    min-height: 3rem;
+  }
+
+  .brutal-button--icon-sm {
+    width: 2.25rem;
+    min-height: 2.25rem;
+  }
+
+  /* Use the dot's smooth opacity rhythm, but apply it only to the keyline. */
+  .brutal-border-pulse {
+    --pulse-color: var(--color-chartreuse);
+    animation: brutal-border-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
 }
 
-button:not(:disabled):hover,
-.brutal-action:hover {
-  transform: translate(0.25rem, 0.25rem);
-  box-shadow: none;
-}
+@keyframes brutal-border-pulse {
+  0%,
+  100% {
+    border-color: var(--pulse-color);
+    box-shadow: 6px 6px 0 var(--pulse-color);
+  }
 
-.brutal-action {
-  transition: transform 100ms, box-shadow 100ms;
+  50% {
+    border-color: color-mix(in srgb, var(--pulse-color) 35%, transparent);
+    box-shadow: 6px 6px 0 color-mix(in srgb, var(--pulse-color) 35%, transparent);
+  }
 }
 
 button,

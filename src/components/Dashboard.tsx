@@ -90,7 +90,7 @@ export function Dashboard({ network, onToggleNetwork }: DashboardProps) {
               <button
                 type="button"
                 onClick={() => navigateTo('monitor')}
-                className="mb-8 border-5 border-chartreuse bg-brand-black px-5 py-3 text-sm font-black text-chartreuse shadow-brutal-chartreuse"
+                className="brutal-button brutal-button--outline-chartreuse brutal-button--lg mb-8"
               >
                 ← Back to Monitor
               </button>
@@ -108,7 +108,7 @@ export function Dashboard({ network, onToggleNetwork }: DashboardProps) {
               <button
                 type="button"
                 onClick={() => navigateTo('monitor')}
-                className="mb-8 border-5 border-aqua bg-brand-black px-5 py-3 text-sm font-black text-aqua shadow-brutal-aqua"
+                className="brutal-button brutal-button--outline-aqua brutal-button--lg mb-8"
               >
                 ← Back to Monitor
               </button>
@@ -129,11 +129,12 @@ export function Dashboard({ network, onToggleNetwork }: DashboardProps) {
           <p className="text-whisper-white font-bold break-words">{initializationError}</p>
           <p className="text-whisper-white/70 text-sm font-bold mt-4">The independent browser verifier will retry automatically. Backend warning coverage is reported in the debug view.</p>
           <button
+            type="button"
             onClick={() => {
               clearCustomRpcUrl(network === 'testnet' ? 11155111 : 1);
               reloadApp();
             }}
-            className="mt-6 px-5 py-3 bg-vermillion text-brand-black border-3 border-brand-black font-black uppercase shadow-brutal"
+            className="brutal-button brutal-button--danger brutal-button--lg mt-6"
           >
             Reset custom RPC
           </button>
@@ -147,7 +148,7 @@ export function Dashboard({ network, onToggleNetwork }: DashboardProps) {
         <main className="max-w-7xl mx-auto px-4 py-8">
           <div className="mx-auto max-w-2xl text-center bg-brand-black border-5 border-chartreuse p-8 shadow-brutal-chartreuse">
           <div className="animate-spin h-16 w-16 border-5 border-chartreuse border-t-transparent mx-auto mb-4"></div>
-          <p className="text-chartreuse font-black uppercase tracking-wider">Initializing Independent L1 Verifier...</p>
+          <p className="text-chartreuse font-black uppercase tracking-wider">INITIALIZING CLIENTSIDE L1 MONITOR...</p>
           </div>
         </main>
       </div>);
@@ -163,8 +164,9 @@ export function Dashboard({ network, onToggleNetwork }: DashboardProps) {
       {/* Debug View Toggle Button */}
       <div className="fixed bottom-6 right-6 z-50">
         <button
+          type="button"
           onClick={() => navigateTo('debug')}
-          className="relative px-6 py-3 font-black uppercase text-sm shadow-brutal border-5 bg-lapis text-aqua border-aqua"
+          className="brutal-button brutal-button--outline-aqua brutal-button--lg relative"
           title="Show Debug View"
         >
           {audit.status !== 'ok' && (

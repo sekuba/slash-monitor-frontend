@@ -59,14 +59,14 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
             vermillion: 'bg-oxblood',
             default: 'bg-malachite/20',
         },
-        pulse: {
-            aqua: 'bg-aqua',
-            chartreuse: 'bg-chartreuse',
-            vermillion: 'bg-vermillion',
-            default: 'bg-chartreuse',
+        pulseColor: {
+            aqua: '[--pulse-color:var(--color-aqua)]',
+            chartreuse: '[--pulse-color:var(--color-chartreuse)]',
+            vermillion: '[--pulse-color:var(--color-vermillion)]',
+            default: '[--pulse-color:var(--color-chartreuse)]',
         },
     };
-    return (<div className={`${themeStyles.background[colorTheme]} border-5 ${themeStyles.border[colorTheme]} transition-all hover:translate-x-1 hover:translate-y-1 hover:shadow-none relative`}>
+    return (<div className={`${themeStyles.background[colorTheme]} border-5 ${themeStyles.border[colorTheme]} ${isActionable ? `brutal-border-pulse ${themeStyles.pulseColor[colorTheme]}` : ''} transition-all hover:translate-x-1 hover:translate-y-1 hover:shadow-none relative`}>
 
       {/* Hidden search index so full addresses are findable even when collapsed */}
       <div className="sr-only" aria-hidden="true">
@@ -74,9 +74,6 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
         {slashing.slashActions?.map((action, idx) => (<span key={`${action.validator}-${idx}`}> Sequencer {action.validator}</span>))}
       </div>
 
-      {isActionable && (<div className={`absolute top-4 right-4 w-3 h-3 ${themeStyles.pulse[colorTheme]} rounded-full animate-pulse shadow-brutal`}></div>)}
-
-      
       <div className="p-6 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -150,7 +147,7 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
                 </div>)}
 
               {showExecutableTimer && (<div className="flex items-center gap-3 bg-brand-black border-3 border-vermillion p-3">
-                  <svg className="w-6 h-6 text-vermillion stroke-3 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="w-6 h-6 text-vermillion stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
                   </svg>
                   <div>
@@ -167,7 +164,7 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
                   const adjustedSeconds = displayState.secondsUntilExpires ?? 0;
                   const isExpired = displayState.isExpired || adjustedSeconds === 0;
                   return (<div className="flex items-center gap-3 bg-brand-black border-3 border-vermillion p-3">
-                      <svg className={`w-6 h-6 text-vermillion stroke-3 ${!isExpired ? 'animate-pulse' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg className="w-6 h-6 text-vermillion stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
                       </svg>
                       <div className="text-vermillion font-black uppercase text-sm">
@@ -193,7 +190,7 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
               <div className="text-xs text-whisper-white font-black uppercase tracking-wider mb-2">Payload Address</div>
               <div className="font-mono text-sm text-whisper-white bg-brand-black px-4 py-3 border-3 border-chartreuse flex items-center justify-between">
                 <span>{formatAddress(slashing.payloadAddress, 9)}</span>
-                <button onClick={() => navigator.clipboard.writeText(slashing.payloadAddress!)} className="bg-chartreuse border-3 border-brand-black p-2 shadow-brutal" title="Copy address">
+                <button type="button" onClick={() => navigator.clipboard.writeText(slashing.payloadAddress!)} className="brutal-button brutal-button--icon-sm" title="Copy address" aria-label="Copy payload address">
                   <svg className="w-5 h-5 text-brand-black stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
                   </svg>
@@ -232,7 +229,7 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
                             </svg>
                             <span className="font-black">{occurrences}</span>
                           </span>)}
-                        <button onClick={() => navigator.clipboard.writeText(action.validator)} className="shrink-0 bg-whisper-white border-3 border-brand-black p-1 shadow-brutal" title="Copy sequencer address">
+                        <button type="button" onClick={() => navigator.clipboard.writeText(action.validator)} className="brutal-button brutal-button--neutral brutal-button--icon-sm shrink-0" title="Copy sequencer address" aria-label="Copy sequencer address">
                           <svg className="w-4 h-4 text-brand-black stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
                           </svg>

@@ -174,15 +174,17 @@ export const DebugView: React.FC = () => {
                 />
               </div>
               <button
+                type="button"
                 onClick={handleRpcUrlChange}
-                className="bg-orchid hover:bg-orchid/90 text-brand-black border-5 border-brand-black px-6 py-3 shadow-brutal cursor-pointer"
+                className="brutal-button brutal-button--orchid brutal-button--lg"
               >
                 <span className="text-sm font-bold uppercase tracking-wider">Update RPC</span>
               </button>
               {customRpcOverride && (
                 <button
+                  type="button"
                   onClick={handleResetRpcUrl}
-                  className="bg-brand-black border-5 border-orchid px-6 py-3 shadow-brutal-orchid cursor-pointer"
+                  className="brutal-button brutal-button--outline-orchid brutal-button--lg"
                 >
                   <span className="text-sm font-bold uppercase tracking-wider text-orchid">Reset to Default</span>
                 </button>
@@ -202,8 +204,9 @@ export const DebugView: React.FC = () => {
             <h3 className="text-2xl font-black text-vermillion uppercase">App Reload</h3>
           </div>
           <button
+            type="button"
             onClick={reloadApp}
-            className="bg-brand-black border-5 border-vermillion px-6 py-3 shadow-brutal-vermillion cursor-pointer"
+            className="brutal-button brutal-button--outline-danger brutal-button--lg"
             aria-label="Reload app"
           >
             <div className="flex items-center gap-2">
@@ -288,8 +291,9 @@ const ConfigItem: React.FC<ConfigItemProps> = ({ label, value, copyable }) => {
         </div>
         {copyable && (
           <button
+            type="button"
             onClick={handleCopy}
-            className="text-xs px-3 py-1 bg-chartreuse hover:bg-chartreuse/90 text-brand-black border-3 border-brand-black font-black uppercase shrink-0"
+            className="brutal-button brutal-button--sm shrink-0"
           >
             Copy
           </button>
