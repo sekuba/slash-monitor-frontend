@@ -188,6 +188,12 @@ h1, h2, h3, h4, h5, h6 {
     --button-shadow: var(--color-vermillion);
   }
 
+  /* Route navigation stays visually quiet; only the active keyline changes. */
+  .brutal-button--nav-selected {
+    --button-edge: var(--color-vermillion);
+    --button-shadow: var(--color-vermillion);
+  }
+
   .brutal-button--sm {
     min-height: 2.25rem;
     padding: 0.45rem 0.75rem;

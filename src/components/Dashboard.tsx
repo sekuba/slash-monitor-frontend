@@ -14,10 +14,11 @@ interface DashboardProps {
     network: 'mainnet' | 'testnet';
     page: 'monitor' | 'debug';
     onResetRpc: () => void;
+    onToggleNetwork: () => void;
     onUpdateRpc: (url: string) => void;
 }
 
-export function Dashboard({ configInput, network, page, onResetRpc, onUpdateRpc }: DashboardProps) {
+export function Dashboard({ configInput, network, page, onResetRpc, onToggleNetwork, onUpdateRpc }: DashboardProps) {
     const { detectedSlashings, isInitialized, initializationError, isScanning, currentRound, config, isSlashingEnabled, pauseStartedAtSlot, pauseEndsAtSlot, audit } = useSlashingStore();
     const [showSlashingHelpModal, setShowSlashingHelpModal] = useState(false);
 
@@ -60,8 +61,24 @@ export function Dashboard({ configInput, network, page, onResetRpc, onUpdateRpc 
     if (page === 'debug') {
         return (
             <main className="max-w-7xl mx-auto px-4 py-8">
-              <BackendOverview network={network} view="debug" />
-              <DebugView configInput={configInput} onResetRpc={onResetRpc} onUpdateRpc={onUpdateRpc} />
+              <section className="mb-12" aria-labelledby="backend-diagnostics-title">
+                <div className="mb-4">
+                  <h2 id="backend-diagnostics-title" className="inline-flex border-3 border-chartreuse bg-brand-black px-3 py-1 text-xs font-black uppercase text-chartreuse shadow-brutal-chartreuse">
+                    Backend / Server-Side
+                  </h2>
+                </div>
+                <BackendOverview network={network} view="debug" />
+              </section>
+
+              <section aria-labelledby="client-diagnostics-title">
+                <div className="mb-6 flex flex-col gap-5 border-b-5 border-aqua pb-6 lg:flex-row lg:items-end lg:justify-between">
+                  <h2 id="client-diagnostics-title" className="inline-flex self-start border-3 border-aqua bg-brand-black px-3 py-1 text-xs font-black uppercase text-aqua shadow-brutal-aqua">
+                    Client / This Browser
+                  </h2>
+                  <ClientNetworkControl network={network} onToggleNetwork={onToggleNetwork} embedded />
+                </div>
+                <DebugView configInput={configInput} onResetRpc={onResetRpc} onUpdateRpc={onUpdateRpc} />
+              </section>
             </main>
         );
     }
@@ -70,6 +87,7 @@ export function Dashboard({ configInput, network, page, onResetRpc, onUpdateRpc 
         if (initializationError) {
             return (
         <main className="max-w-7xl mx-auto px-4 py-8">
+          <ClientNetworkControl network={network} onToggleNetwork={onToggleNetwork} />
           <div className="max-w-2xl mx-auto bg-oxblood border-5 border-vermillion p-8 shadow-brutal-vermillion">
           <h1 className="text-vermillion text-2xl font-black uppercase mb-4">Monitor unavailable</h1>
           <p className="text-whisper-white font-bold break-words">{initializationError}</p>
@@ -87,6 +105,7 @@ export function Dashboard({ configInput, network, page, onResetRpc, onUpdateRpc 
 
         return (
         <main className="max-w-7xl mx-auto px-4 py-8">
+          <ClientNetworkControl network={network} onToggleNetwork={onToggleNetwork} />
           <div className="mx-auto max-w-2xl text-center bg-brand-black border-5 border-chartreuse p-8 shadow-brutal-chartreuse">
           <div className="animate-spin h-16 w-16 border-5 border-chartreuse border-t-transparent mx-auto mb-4"></div>
           <p className="text-chartreuse font-black uppercase tracking-wider">INITIALIZING CLIENTSIDE L1 MONITOR...</p>
@@ -101,6 +120,8 @@ export function Dashboard({ configInput, network, page, onResetRpc, onUpdateRpc 
       />
 
       <main className="max-w-7xl mx-auto px-4 py-8">
+
+        <ClientNetworkControl network={network} onToggleNetwork={onToggleNetwork} />
 
         {audit.status !== 'ok' && (
           <div className={`${audit.status === 'stale' || audit.status === 'fatal' ? 'bg-oxblood border-vermillion shadow-brutal-vermillion' : 'bg-aubergine border-orchid shadow-brutal-orchid'} border-5 p-5 mb-6`}>
@@ -176,4 +197,32 @@ export function Dashboard({ configInput, network, page, onResetRpc, onUpdateRpc 
           </div>)}
       </main>
     </>);
+}
+
+function ClientNetworkControl({
+    network,
+    onToggleNetwork,
+    embedded = false,
+}: {
+    network: 'mainnet' | 'testnet';
+    onToggleNetwork: () => void;
+    embedded?: boolean;
+}) {
+    const isMainnet = network === 'mainnet';
+    return (
+        <div className={`${embedded ? '' : 'mb-8'} flex flex-wrap items-center gap-3`}>
+            <span className="text-xs font-black uppercase tracking-wider text-whisper-white/60">
+                Client scanner network
+            </span>
+            <button
+                type="button"
+                onClick={onToggleNetwork}
+                className={`brutal-button ${isMainnet ? 'brutal-button--outline-danger' : 'brutal-button--outline-aqua'}`}
+                aria-label={`Switch client scanner to ${isMainnet ? 'Testnet' : 'Mainnet'}`}
+            >
+                <span className={`h-3 w-3 rounded-full ${isMainnet ? 'bg-vermillion' : 'bg-aqua'}`} aria-hidden="true" />
+                {network}
+            </button>
+        </div>
+    );
 }

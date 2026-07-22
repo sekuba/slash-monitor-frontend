@@ -97,9 +97,7 @@ export function App() {
         <div className="min-h-screen bg-brand-black text-white">
             <Header
                 activeView={location.view}
-                network={location.network}
                 onNavigate={navigateTo}
-                onToggleNetwork={toggleNetwork}
             />
             {location.view === 'watch' ? (
                 <main className="mx-auto max-w-7xl px-4 py-8">
@@ -117,6 +115,7 @@ export function App() {
                         network={location.network}
                         page={location.view}
                         onResetRpc={resetRpc}
+                        onToggleNetwork={toggleNetwork}
                         onUpdateRpc={updateRpc}
                     />
                 </>

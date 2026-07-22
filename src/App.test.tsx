@@ -30,6 +30,8 @@ describe('top-level view isolation', () => {
         expect(markup).toContain('Monitor');
         expect(markup).toContain('Watch');
         expect(markup).toContain('Debug');
+        expect(markup).not.toContain('Client scanner network');
+        expect(markup).toContain('brutal-button--nav-selected');
     });
 
     it('renders Debug controls before scanner configuration or a snapshot exists', () => {
@@ -38,9 +40,16 @@ describe('top-level view isolation', () => {
         const markup = renderToStaticMarkup(<App />);
 
         expect(scannerSpy).toHaveBeenCalledOnce();
+        expect(markup).toContain('Backend / Server-Side');
+        expect(markup).toContain('Backend Alert Service: Connecting');
+        expect(markup).toContain('Client / This Browser');
+        expect(markup).toContain('Client scanner network');
         expect(markup).toContain('RPC Configuration');
         expect(markup).toContain('Not initialized');
         expect(markup).toContain('Update RPC');
+        expect(markup).not.toContain('Contract Debug View');
+        expect(markup).not.toContain('Audit Status');
+        expect(markup).not.toContain('Collector freshness');
     });
 
 });

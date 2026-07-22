@@ -8,6 +8,7 @@ interface SourceHealthBannerProps {
     lastReceivedAt: number | null;
     onRefresh: () => void;
     clientScannerMounted?: boolean;
+    compact?: boolean;
 }
 
 export function SourceHealthBanner({
@@ -17,6 +18,7 @@ export function SourceHealthBanner({
     lastReceivedAt,
     onRefresh,
     clientScannerMounted = true,
+    compact = false,
 }: SourceHealthBannerProps) {
     const [clock, setClock] = useState(0);
     useEffect(() => {
@@ -26,20 +28,22 @@ export function SourceHealthBanner({
 
     if (!status) {
         return (
-            <section className="mb-6 border-5 border-orchid bg-aubergine p-5 shadow-brutal-orchid" aria-live="polite">
+            <section className={`${compact ? 'border-3 p-4' : 'mb-6 border-5 p-5 shadow-brutal-orchid'} border-orchid bg-aubergine`} aria-live="polite">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                        <h2 className="text-xl font-black text-orchid">
-                            {isLoading ? 'Connecting To Warning Network' : 'Warning Backend Offline'}
+                        <h2 className={`${compact ? 'text-base uppercase' : 'text-xl'} font-black text-orchid`}>
+                            {compact
+                                ? `Backend Alert Service: ${isLoading ? 'Connecting' : 'Offline'}`
+                                : isLoading ? 'Connecting To Warning Network' : 'Warning Backend Offline'}
                         </h2>
                         <p className="mt-1 text-sm font-bold text-whisper-white">
                             {error ?? 'Fetching durable L1 and Aztec-node observations…'}
                         </p>
-                        <p className="mt-2 text-xs font-bold text-whisper-white/70">
+                        {!compact && <p className="mt-2 text-xs font-bold text-whisper-white/70">
                             {clientScannerMounted
                                 ? 'The direct L1 verifier below remains independent. Closed-tab notifications need this backend.'
                                 : 'This backend powers durable watches and closed-tab notifications; it does not start the browser L1 scanner.'}
-                        </p>
+                        </p>}
                     </div>
                     {!isLoading && (
                         <button
@@ -68,21 +72,24 @@ export function SourceHealthBanner({
         ? 'border-vermillion bg-oxblood shadow-brutal-vermillion'
         : 'border-aqua bg-lapis shadow-brutal-aqua';
     const accent = degraded ? 'text-vermillion' : 'text-aqua';
+    const heading = backendUnreachable
+        ? compact ? 'Backend Alert Service: Unreachable' : 'Warning Backend Unreachable'
+        : degraded
+            ? compact ? 'Backend Alert Service: Degraded' : 'Warning Coverage Degraded'
+            : compact ? 'Backend Alert Service: Online' : 'Warning Network Online';
 
     return (
-        <section className={`mb-6 border-5 p-5 ${palette}`} aria-live="polite">
+        <section className={`${compact ? 'border-3 p-4' : 'mb-6 border-5 p-5'} ${palette}`} aria-live="polite">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                    <h2 className={`text-xl font-black ${accent}`}>
-                        {backendUnreachable
-                            ? 'Warning Backend Unreachable'
-                            : degraded ? 'Warning Coverage Degraded' : 'Warning Network Online'}
+                    <h2 className={`${compact ? 'text-base uppercase' : 'text-xl'} font-black ${accent}`}>
+                        {heading}
                     </h2>
-                    <p className="mt-1 text-sm font-bold text-whisper-white">
+                    {!compact && <p className="mt-1 text-sm font-bold text-whisper-white">
                         {clientScannerMounted
                             ? 'Backend alerts are durable. The browser’s direct L1 scan is a separate verifier.'
                             : 'Backend alerts are durable. This Watch view does not run the browser’s direct L1 scanner.'}
-                    </p>
+                    </p>}
                     {error && <p className="mt-2 text-xs font-bold text-vermillion">Latest refresh: {error}</p>}
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
@@ -98,7 +105,7 @@ export function SourceHealthBanner({
                     </button>
                 </div>
             </div>
-            <p className="mt-3 text-xs font-bold text-whisper-white/60">
+            <p className={`${compact ? 'mt-2' : 'mt-3'} text-xs font-bold text-whisper-white/60`}>
                 Snapshot {formatRelativeTime(status.generatedAt)}
                 {lastReceivedAt ? ` · received ${new Date(lastReceivedAt).toLocaleTimeString()}` : ''}
             </p>

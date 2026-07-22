@@ -19,6 +19,7 @@ export function BackendOverview({ network, view }: { network: MonitorNetwork; vi
             lastReceivedAt={monitor.lastReceivedAt}
             onRefresh={() => void monitor.refresh()}
             clientScannerMounted={view === 'debug'}
+            compact={view === 'debug'}
         />
     );
 
@@ -31,6 +32,7 @@ export function BackendOverview({ network, view }: { network: MonitorNetwork; vi
                     isLoading={false}
                     lastReceivedAt={monitor.lastReceivedAt}
                     onRefresh={() => void monitor.refresh()}
+                    compact
                 />
             );
         }

@@ -13,7 +13,7 @@ interface DebugViewProps {
 export const DebugView: React.FC<DebugViewProps> = ({ configInput, onResetRpc, onUpdateRpc }) => {
   const [customRpcUrl, setCustomRpcUrl] = useState<string>('');
   const [rpcNotice, setRpcNotice] = useState<string | null>(null);
-  const { config, isInitialized, initializationError, l1BlockNumber, l1Timestamp, currentRound, currentSlot, currentEpoch, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, stats, audit } = useSlashingStore();
+  const { config, isInitialized, l1BlockNumber, l1Timestamp, currentRound, currentSlot, currentEpoch, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, stats } = useSlashingStore();
   const customRpcOverride = getCustomRpcUrl(configInput.chainId);
   const notInitialized = 'Not initialized';
 
@@ -34,20 +34,6 @@ export const DebugView: React.FC<DebugViewProps> = ({ configInput, onResetRpc, o
 
   return (
     <div className="space-y-6">
-      <div className="bg-lapis border-5 border-aqua p-6 shadow-brutal-aqua">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <svg className="w-10 h-10 text-aqua stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
-            </svg>
-            <h2 className="text-3xl font-black text-aqua uppercase">Contract Debug View</h2>
-          </div>
-          <div className="text-sm font-bold text-whisper-white uppercase">
-            {new Date().toLocaleTimeString()}
-          </div>
-        </div>
-      </div>
-
       {/* Contract Parameters */}
       <section className="bg-aubergine border-5 border-orchid p-6 shadow-brutal-orchid">
         <h3 className="text-2xl font-black mb-5 text-orchid uppercase flex items-center gap-3">
@@ -96,45 +82,6 @@ export const DebugView: React.FC<DebugViewProps> = ({ configInput, onResetRpc, o
               : notInitialized}
             wide
           />
-        </div>
-      </section>
-
-      <section className="bg-oxblood border-5 border-vermillion p-6 shadow-brutal-vermillion">
-        <h3 className="text-2xl font-black mb-5 text-vermillion uppercase flex items-center gap-3">
-          <svg className="w-7 h-7 stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-          </svg>
-          Audit Status
-        </h3>
-        <div className="space-y-3">
-          <StateCard
-            label="Latest Scan"
-            value={debugScanLabel(isInitialized, initializationError, audit.status)}
-            highlight={isInitialized ? audit.status === 'ok' : undefined}
-            wide
-          />
-          <StateCard
-            label="Last Verified Scan"
-            value={audit.lastSuccessfulAt === null ? 'Never' : new Date(audit.lastSuccessfulAt).toLocaleString()}
-            highlight={audit.lastSuccessfulAt !== null}
-            wide
-          />
-          {audit.issues.length > 0 && (
-            <div className="bg-brand-black border-3 border-vermillion p-4 space-y-2">
-              {audit.issues.map((issue, index) => (
-                <div key={`${issue.scope}-${issue.round?.toString() ?? 'global'}-${index}`} className="text-sm font-bold text-whisper-white">
-                  [{issue.scope}]
-                  {issue.round !== undefined ? ` round ${issue.round.toString()}: ` : ' '}
-                  {issue.message}
-                </div>
-              ))}
-            </div>
-          )}
-          {initializationError && (
-            <div className="bg-brand-black border-3 border-vermillion p-4 text-sm font-bold text-whisper-white" role="alert">
-              {initializationError}
-            </div>
-          )}
         </div>
       </section>
 
@@ -244,22 +191,6 @@ export const DebugView: React.FC<DebugViewProps> = ({ configInput, onResetRpc, o
     </div>
   );
 };
-
-export function debugScanLabel(
-  isInitialized: boolean,
-  initializationError: string | null,
-  auditStatus: 'ok' | 'partial' | 'stale' | 'fatal',
-): string {
-  if (!isInitialized) {
-    return initializationError ? 'INITIALIZATION FAILED' : 'NOT INITIALIZED';
-  }
-  return {
-    ok: 'FULLY VERIFIED',
-    partial: 'PARTIAL COVERAGE',
-    stale: 'STALE',
-    fatal: 'UNAVAILABLE',
-  }[auditStatus];
-}
 
 // Helper Components
 
