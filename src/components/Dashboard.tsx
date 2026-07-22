@@ -71,8 +71,8 @@ export function Dashboard({ configInput, network, page, onResetRpc, onToggleNetw
               </section>
 
               <section aria-labelledby="client-diagnostics-title">
-                <div className="mb-6 flex flex-col gap-5 border-b-5 border-aqua pb-6 lg:flex-row lg:items-end lg:justify-between">
-                  <h2 id="client-diagnostics-title" className="inline-flex self-start border-3 border-aqua bg-brand-black px-3 py-1 text-xs font-black uppercase text-aqua shadow-brutal-aqua">
+                <div className="mb-6 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+                  <h2 id="client-diagnostics-title" className="inline-flex self-start border-3 border-chartreuse bg-brand-black px-3 py-1 text-xs font-black uppercase text-chartreuse shadow-brutal-chartreuse">
                     Client / This Browser
                   </h2>
                   <ClientNetworkControl network={network} onToggleNetwork={onToggleNetwork} embedded />

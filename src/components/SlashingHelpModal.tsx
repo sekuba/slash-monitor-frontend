@@ -185,7 +185,7 @@ export function SlashingHelpModal({ isOpen, onClose, targetedSequencers }: Slash
                                         value={targetedSequencerFilter}
                                         onChange={(event) => setTargetedSequencerFilter(event.target.value)}
                                         placeholder="0x..."
-                                        className="w-full border-3 border-aqua bg-brand-black px-4 py-3 font-mono text-sm font-bold text-whisper-white shadow-brutal-aqua placeholder:text-whisper-white/40 focus:border-chartreuse focus:outline-hidden"
+                                        className="w-full border-3 border-aqua bg-brand-black px-4 py-3 font-mono text-sm font-bold text-whisper-white shadow-brutal-aqua placeholder:text-whisper-white/40 focus:outline-hidden"
                                     />
                                 </div>
 
@@ -204,7 +204,7 @@ export function SlashingHelpModal({ isOpen, onClose, targetedSequencers }: Slash
                                         value={minimumAppearancesFilter}
                                         onChange={(event) => setMinimumAppearancesFilter(event.target.value)}
                                         placeholder="2"
-                                        className="w-full border-3 border-vermillion bg-brand-black px-4 py-3 text-sm font-black text-whisper-white shadow-brutal-vermillion placeholder:text-whisper-white/40 focus:border-chartreuse focus:outline-hidden"
+                                        className="w-full border-3 border-vermillion bg-brand-black px-4 py-3 text-sm font-black text-whisper-white shadow-brutal-vermillion placeholder:text-whisper-white/40 focus:outline-hidden"
                                     />
                                 </div>
                             </div>
