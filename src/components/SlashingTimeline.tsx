@@ -100,7 +100,7 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
           </div>
         <button
           onClick={onOpenHelp}
-          className="shrink-0 bg-chartreuse text-brand-black border-5 border-brand-black px-6 py-3 normal-case tracking-normal text-base font-black shadow-brutal hover:-translate-y-0.5 transition-transform"
+          className="shrink-0 bg-chartreuse text-brand-black border-5 border-brand-black px-6 py-3 normal-case tracking-normal text-base font-black shadow-brutal"
         >
           am i getting slashed?
         </button>
@@ -108,13 +108,14 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
       </div>
 
       {/* Current Voting Round Section */}
-      <div className="bg-lapis border-5 border-aqua p-5 shadow-brutal-aqua animate-pulse">
+      <div className="bg-lapis border-5 border-aqua p-5 shadow-brutal-aqua">
         <div className="flex items-start justify-between gap-4 mb-4">
           <div className="flex-1">
             <div className="flex items-center gap-3 mb-3">
               <h3 className="font-black text-lg uppercase tracking-tight text-aqua">
                 Current Voting Round {currentRound.toString()}
               </h3>
+              <span className="h-3 w-3 shrink-0 bg-chartreuse animate-pulse" aria-hidden="true"></span>
               <span className="inline-flex items-center px-3 py-1 border-3 border-brand-black bg-chartreuse text-xs font-black uppercase text-brand-black">
                 ACTIVE
               </span>

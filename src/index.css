@@ -82,6 +82,18 @@ button {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  box-shadow: var(--shadow-brutal);
+  transition: transform 100ms, box-shadow 100ms;
+}
+
+button:not(:disabled):hover,
+.brutal-action:hover {
+  transform: translate(0.25rem, 0.25rem);
+  box-shadow: none;
+}
+
+.brutal-action {
+  transition: transform 100ms, box-shadow 100ms;
 }
 
 button,

@@ -66,7 +66,7 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
             default: 'bg-chartreuse',
         },
     };
-    return (<div className={`${themeStyles.background[colorTheme]} border-5 ${themeStyles.border[colorTheme]} transition-all hover:-translate-y-1 hover:translate-x-1 relative`}>
+    return (<div className={`${themeStyles.background[colorTheme]} border-5 ${themeStyles.border[colorTheme]} transition-all hover:translate-x-1 hover:translate-y-1 hover:shadow-none relative`}>
 
       {/* Hidden search index so full addresses are findable even when collapsed */}
       <div className="sr-only" aria-hidden="true">
@@ -149,8 +149,8 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
                   <div className="text-aqua font-black uppercase text-sm">PROTECTED BY GLOBAL PAUSE</div>
                 </div>)}
 
-              {showExecutableTimer && (<div className="flex items-center gap-3 bg-brand-black border-3 border-vermillion p-3 animate-pulse">
-                  <svg className="w-6 h-6 text-vermillion stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              {showExecutableTimer && (<div className="flex items-center gap-3 bg-brand-black border-3 border-vermillion p-3">
+                  <svg className="w-6 h-6 text-vermillion stroke-3 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
                   </svg>
                   <div>
@@ -166,8 +166,8 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
               {showExpirationTimer && (() => {
                   const adjustedSeconds = displayState.secondsUntilExpires ?? 0;
                   const isExpired = displayState.isExpired || adjustedSeconds === 0;
-                  return (<div className={`flex items-center gap-3 bg-brand-black border-3 border-vermillion p-3 ${!isExpired ? 'animate-pulse' : ''}`}>
-                      <svg className="w-6 h-6 text-vermillion stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  return (<div className="flex items-center gap-3 bg-brand-black border-3 border-vermillion p-3">
+                      <svg className={`w-6 h-6 text-vermillion stroke-3 ${!isExpired ? 'animate-pulse' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
                       </svg>
                       <div className="text-vermillion font-black uppercase text-sm">
@@ -193,7 +193,7 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
               <div className="text-xs text-whisper-white font-black uppercase tracking-wider mb-2">Payload Address</div>
               <div className="font-mono text-sm text-whisper-white bg-brand-black px-4 py-3 border-3 border-chartreuse flex items-center justify-between">
                 <span>{formatAddress(slashing.payloadAddress, 9)}</span>
-                <button onClick={() => navigator.clipboard.writeText(slashing.payloadAddress!)} className="bg-chartreuse border-3 border-brand-black p-2 hover:translate-x-1 hover:-translate-y-1 transition-transform shadow-brutal" title="Copy address">
+                <button onClick={() => navigator.clipboard.writeText(slashing.payloadAddress!)} className="bg-chartreuse border-3 border-brand-black p-2 shadow-brutal" title="Copy address">
                   <svg className="w-5 h-5 text-brand-black stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
                   </svg>
@@ -232,7 +232,7 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
                             </svg>
                             <span className="font-black">{occurrences}</span>
                           </span>)}
-                        <button onClick={() => navigator.clipboard.writeText(action.validator)} className="shrink-0 bg-whisper-white border-3 border-brand-black p-1 hover:translate-x-1 hover:-translate-y-1 transition-transform shadow-brutal" title="Copy sequencer address">
+                        <button onClick={() => navigator.clipboard.writeText(action.validator)} className="shrink-0 bg-whisper-white border-3 border-brand-black p-1 shadow-brutal" title="Copy sequencer address">
                           <svg className="w-4 h-4 text-brand-black stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
                           </svg>

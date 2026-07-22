@@ -27,7 +27,7 @@ export function EventHistory({ events, hasWatchlistCapability }: EventHistoryPro
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                 <div>
                     <div className="mb-2 inline-flex border-3 border-brand-black bg-aqua px-3 py-1 text-xs font-black uppercase text-brand-black">
-                        Durable Journal
+                        L1 Event Log
                     </div>
                     <h2 className="text-2xl font-black text-aqua">Recent Events</h2>
                     <p className="mt-2 text-sm font-bold text-whisper-white">

@@ -86,7 +86,7 @@ export function SubscriptionPanel({ network, config }: SubscriptionPanelProps) {
                             href={manager.telegramLink.url}
                             target="_blank"
                             rel="noreferrer"
-                            className="border-3 border-brand-black bg-chartreuse px-4 py-2 text-center text-xs font-black uppercase text-brand-black shadow-brutal"
+                            className="brutal-action border-3 border-brand-black bg-chartreuse px-4 py-2 text-center text-xs font-black uppercase text-brand-black shadow-brutal"
                         >
                             Open Telegram
                         </a>

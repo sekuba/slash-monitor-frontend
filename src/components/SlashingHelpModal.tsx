@@ -113,7 +113,7 @@ export function SlashingHelpModal({ isOpen, onClose, targetedSequencers }: Slash
 
                     <button
                         onClick={handleClose}
-                        className="shrink-0 border-5 border-vermillion bg-vermillion p-3 text-brand-black shadow-brutal hover:-translate-y-0.5"
+                        className="shrink-0 border-5 border-vermillion bg-vermillion p-3 text-brand-black shadow-brutal"
                         aria-label="Close help"
                     >
                         <svg className="h-7 w-7 stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -356,7 +356,7 @@ export function SlashingHelpModal({ isOpen, onClose, targetedSequencers }: Slash
                                 href={COUNCIL_ISSUES_URL}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex w-full items-center justify-center border-5 border-brand-black bg-chartreuse px-4 py-3 text-center text-sm font-black text-brand-black shadow-brutal transition-transform hover:-translate-y-0.5"
+                                className="brutal-action inline-flex w-full items-center justify-center border-5 border-brand-black bg-chartreuse px-4 py-3 text-center text-sm font-black text-brand-black shadow-brutal"
                             >
                                 Open council/issues
                             </a>

@@ -175,14 +175,14 @@ export const DebugView: React.FC = () => {
               </div>
               <button
                 onClick={handleRpcUrlChange}
-                className="bg-orchid hover:bg-orchid/90 text-brand-black border-5 border-brand-black px-6 py-3 shadow-brutal hover:-translate-y-1 hover:translate-x-1 hover:shadow-none transition-all duration-100 cursor-pointer"
+                className="bg-orchid hover:bg-orchid/90 text-brand-black border-5 border-brand-black px-6 py-3 shadow-brutal cursor-pointer"
               >
                 <span className="text-sm font-bold uppercase tracking-wider">Update RPC</span>
               </button>
               {customRpcOverride && (
                 <button
                   onClick={handleResetRpcUrl}
-                  className="bg-brand-black border-5 border-orchid px-6 py-3 shadow-brutal-orchid hover:-translate-y-1 hover:translate-x-1 hover:shadow-none transition-all duration-100 cursor-pointer"
+                  className="bg-brand-black border-5 border-orchid px-6 py-3 shadow-brutal-orchid cursor-pointer"
                 >
                   <span className="text-sm font-bold uppercase tracking-wider text-orchid">Reset to Default</span>
                 </button>
@@ -203,7 +203,7 @@ export const DebugView: React.FC = () => {
           </div>
           <button
             onClick={reloadApp}
-            className="bg-brand-black border-5 border-vermillion px-6 py-3 shadow-brutal-vermillion hover:-translate-y-1 hover:translate-x-1 hover:shadow-none transition-all duration-100 cursor-pointer"
+            className="bg-brand-black border-5 border-vermillion px-6 py-3 shadow-brutal-vermillion cursor-pointer"
             aria-label="Reload app"
           >
             <div className="flex items-center gap-2">
