@@ -9,7 +9,7 @@ problem.
 Install a system-wide Node 24 binary and confirm the exact path used by the unit:
 
 ```bash
-/usr/bin/node --version
+/usr/local/bin/node --version
 corepack pnpm --version
 ```
 
@@ -278,9 +278,10 @@ It fast-forward pulls the checkout by default. Pass `--no-pull` to deploy the
 exact checked-out commit. Dependency installation runs as the checkout owner,
 so a user-level `fnm` Node/pnpm setup works without `sudo pnpm`; only the final
 release installation, backup, and service operations use `sudo`. The systemd
-service still requires Node 24 at `/usr/bin/node`. The helper intentionally
-refuses to replace a release that contains a self-hosted `dist/`; use the full
-build procedure above for that deployment shape.
+service still requires Node 24 at `/usr/local/bin/node`. The helper installs
+the checked-in systemd unit and reloads systemd during the update. It
+intentionally refuses to replace a release that contains a self-hosted `dist/`;
+use the full build procedure above for that deployment shape.
 
 For upgrades, install a new versioned release, stop the backend, back up before
 any schema migration, switch `/opt/slashmon/current`, and start it. Retain the

@@ -8,6 +8,7 @@ readonly current_link='/opt/slashmon/current'
 readonly database_path='/var/lib/slashmon-offense-collector/offenses.sqlite'
 readonly backup_root='/var/backups/slashmon'
 readonly local_api='http://127.0.0.1:8790'
+readonly system_node='/usr/local/bin/node'
 
 pull_latest=true
 case "${1:-}" in
@@ -60,14 +61,14 @@ if [[ ! "$install_node_major" =~ ^[0-9]+$ ]] || (( install_node_major < 24 )); t
   exit 1
 fi
 
-if [[ ! -x /usr/bin/node ]]; then
-  echo '/usr/bin/node is missing; the systemd unit requires a system-wide Node 24 installation.' >&2
+if [[ ! -x "$system_node" ]]; then
+  echo "$system_node is missing; the systemd unit requires a system-wide Node 24 installation." >&2
   exit 1
 fi
 
-node_major="$(/usr/bin/node --version | sed -E 's/^v([0-9]+).*/\1/')"
+node_major="$("$system_node" --version | sed -E 's/^v([0-9]+).*/\1/')"
 if [[ ! "$node_major" =~ ^[0-9]+$ ]] || (( node_major < 24 )); then
-  echo "Node 24 or newer is required at /usr/bin/node; found $(/usr/bin/node --version)." >&2
+  echo "Node 24 or newer is required at $system_node; found $("$system_node" --version)." >&2
   exit 1
 fi
 
@@ -162,6 +163,12 @@ sudo cp -a --no-preserve=ownership "$staging_release/." "$release_path/"
 cleanup_staging
 staging_root=''
 trap - EXIT
+
+echo "Installing the systemd unit for $system_node..."
+sudo install -m 0644 \
+  "$release_path/collector/deploy/slashmon-backend.service" \
+  "/etc/systemd/system/$service_name"
+sudo systemctl daemon-reload
 
 service_was_active=false
 service_stopped=false

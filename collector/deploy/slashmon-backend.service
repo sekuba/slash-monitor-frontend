@@ -18,7 +18,7 @@ WorkingDirectory=/opt/slashmon/current/collector
 EnvironmentFile=/etc/slashmon-backend.env
 Environment=NODE_ENV=production
 Environment=COLLECTOR_DATABASE_PATH=/var/lib/slashmon-offense-collector/offenses.sqlite
-ExecStart=/usr/bin/node src/main.mjs
+ExecStart=/usr/local/bin/node src/main.mjs
 
 Restart=always
 RestartSec=5

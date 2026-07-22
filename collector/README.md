@@ -321,9 +321,9 @@ overwrite them and enforce the public abuse limits.
 filesystem/kernel hardening. It binds only to loopback and expects an immutable
 release at `/opt/slashmon/current`.
 
-The unit uses `/usr/bin/node`; make sure that is Node 24 or edit the unit to an
-equally stable system-wide path. Home-directory `nvm`/`fnm` paths are hidden by
-`ProtectHome=yes` and are unsuitable here.
+The unit uses `/usr/local/bin/node`; make sure that is Node 24 or edit the unit
+to an equally stable system-wide path. Home-directory `nvm`/`fnm` paths are
+hidden by `ProtectHome=yes` and are unsuitable here.
 
 ## Development checks
 
