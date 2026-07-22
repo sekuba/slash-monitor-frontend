@@ -74,7 +74,7 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
 
     return (<div className="mb-8">
       <div className="mb-6">
-        <h2 className="text-3xl font-black text-whisper-white mb-4 flex items-center gap-4 uppercase">
+        <h2 className="mb-4 flex items-center gap-3 text-2xl font-black uppercase text-whisper-white sm:gap-4 sm:text-3xl">
           <div className="bg-aqua border-3 border-brand-black p-2">
             <svg className="w-8 h-8 text-brand-black stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
@@ -109,9 +109,9 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
 
       {/* Current Voting Round Section */}
       <div className="brutal-border-pulse bg-lapis border-5 border-aqua p-5 shadow-brutal-aqua [--pulse-color:var(--color-aqua)]">
-        <div className="flex items-start justify-between gap-4 mb-4">
+        <div className="mb-4 flex flex-col items-stretch gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex-1">
-            <div className="flex items-center gap-3 mb-3">
+            <div className="mb-3 flex flex-wrap items-center gap-3">
               <h3 className="font-black text-lg uppercase tracking-tight text-aqua">
                 Current Voting Round {currentRound.toString()}
               </h3>
@@ -124,7 +124,7 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
               <br></br>Each slot proposer submits one ballot that votes separately on every potential offender
             </p>
           </div>
-          <div className="text-right shrink-0">
+          <div className="shrink-0 sm:text-right">
             <div className="bg-brand-black border-3 border-aqua px-4 py-2">
               <div className="opacity-75 mb-1 text-xs font-black uppercase text-aqua">Ends In</div>
               <div className="text-2xl font-black text-whisper-white">{formatTimeRemaining(secondsRemaining, { approximate: true })}</div>

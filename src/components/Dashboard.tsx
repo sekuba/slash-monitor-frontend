@@ -134,7 +134,7 @@ export function Dashboard({ configInput, network, onResetRpc, onToggleNetwork, o
             </div>
           </div>)}
         <div className="mb-8">
-          <h2 className="text-3xl font-black text-whisper-white mb-6 flex items-center gap-4">
+          <h2 className="mb-6 flex flex-wrap items-center gap-3 text-2xl font-black text-whisper-white sm:gap-4 sm:text-3xl">
             <span className="inline-flex items-center justify-center w-12 h-12 bg-vermillion border-5 border-brand-black text-brand-black font-black shadow-brutal">
               {activeSlashings.length}
             </span>

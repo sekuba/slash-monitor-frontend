@@ -74,26 +74,26 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
         {slashing.slashActions?.map((action, idx) => (<span key={`${action.validator}-${idx}`}> Sequencer {action.validator}</span>))}
       </div>
 
-      <div className="p-6 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="bg-brand-black border-3 border-whisper-white px-4 py-2">
+      <div className="cursor-pointer p-4 sm:p-6" onClick={() => setIsExpanded(!isExpanded)}>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+            <div className="bg-brand-black border-3 border-whisper-white px-3 py-2 sm:px-4">
               <div className="text-xs text-chartreuse font-black uppercase tracking-wider">Round</div>
               <div className="text-3xl font-black text-whisper-white">{slashing.round.toString()}</div>
             </div>
 
-            <div className={`px-4 py-2 border-3 text-sm font-black uppercase tracking-wider ${getStatusColor(displayStatus)}`}>
+            <div className={`border-3 px-3 py-2 text-sm font-black uppercase tracking-wider sm:px-4 ${getStatusColor(displayStatus)}`}>
               {getStatusText(displayStatus)}
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            {slashing.affectedValidatorCount !== undefined && (<div className="bg-brand-black border-3 border-vermillion px-4 py-3">
+          <div className="flex flex-wrap items-center gap-3 sm:justify-end sm:gap-4">
+            {slashing.affectedValidatorCount !== undefined && (<div className="bg-brand-black border-3 border-vermillion px-3 py-2 sm:px-4 sm:py-3">
                 <div className="text-xs text-vermillion font-black uppercase tracking-wider">Sequencers</div>
                 <div className="text-2xl font-black text-whisper-white">{slashing.affectedValidatorCount}</div>
               </div>)}
 
-            {slashing.totalSlashAmount !== undefined && (<div className="bg-brand-black border-3 border-vermillion px-4 py-3">
+            {slashing.totalSlashAmount !== undefined && (<div className="bg-brand-black border-3 border-vermillion px-3 py-2 sm:px-4 sm:py-3">
                 <div className="text-xs text-vermillion font-black uppercase tracking-wider">Slash Total</div>
                 <div className="text-2xl font-black text-vermillion">
                   {parseInt(formatEther(slashing.totalSlashAmount), 10)} AZTEC
@@ -184,7 +184,7 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
       </div>
 
       
-      {isExpanded && (<div className="border-t-5 border-brand-black p-6 space-y-4 bg-brand-black/30">
+      {isExpanded && (<div className="border-t-5 border-brand-black p-4 sm:p-6 space-y-4 bg-brand-black/30">
           
           {slashing.payloadAddress && (<div>
               <div className="text-xs text-whisper-white font-black uppercase tracking-wider mb-2">Payload Address</div>
@@ -215,7 +215,7 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
                 {slashing.slashActions.map((action, idx) => {
                     const occurrences = sequencerOccurrences?.get(action.validator.toLowerCase()) ?? 1;
                     const showOccurrences = occurrences > 1;
-                    return (<div key={idx} className="flex items-center justify-between bg-brand-black px-4 py-3 border-3 border-whisper-white gap-3">
+                    return (<div key={idx} className="flex flex-col items-stretch justify-between gap-3 border-3 border-whisper-white bg-brand-black px-4 py-3 sm:flex-row sm:items-center">
                       <div className="flex items-center gap-3 flex-1 min-w-0">
                         <SequencerAddressLink
                           address={action.validator}
@@ -242,7 +242,7 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
             </div>)}
 
           
-          <div className="grid grid-cols-2 gap-4 text-sm pt-4 border-t-3 border-brand-black">
+          <div className="grid grid-cols-1 gap-4 border-t-3 border-brand-black pt-4 text-sm sm:grid-cols-2">
             <div className="bg-aubergine border-3 border-orchid px-4 py-3">
               <div className="text-orchid font-black uppercase text-xs mb-1">Ballots Cast</div>
               <div className="text-whisper-white font-black text-xl">

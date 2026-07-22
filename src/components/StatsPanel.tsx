@@ -91,15 +91,15 @@ export function StatsPanel() {
         </svg>),
         },
     ];
-    return (<div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8">
-      {statCards.map((stat) => (<div key={stat.label} className={`${stat.bgColor} ${stat.borderColor} border-5 ${stat.shadowColor} p-5 transition-all hover:translate-x-1 hover:translate-y-1 hover:shadow-none`}>
+    return (<div className="mb-8 grid grid-cols-2 gap-4 sm:gap-6 md:grid-cols-4">
+      {statCards.map((stat) => (<div key={stat.label} className={`${stat.bgColor} ${stat.borderColor} border-5 ${stat.shadowColor} p-3 transition-all hover:translate-x-1 hover:translate-y-1 hover:shadow-none sm:p-5`}>
           <div className="flex items-center justify-between mb-3">
             <span className={`text-xs font-black uppercase tracking-wider ${stat.textColor}`}>
               {stat.label}
             </span>
             <span className={stat.textColor}>{stat.icon}</span>
           </div>
-          <div className={`text-3xl font-black ${stat.textColor} tracking-tight`}>
+          <div className={`text-2xl font-black sm:text-3xl ${stat.textColor} tracking-tight`}>
             {typeof stat.value === 'number' ? formatNumber(stat.value) : stat.value}
           </div>
         </div>))}
