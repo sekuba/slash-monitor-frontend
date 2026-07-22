@@ -58,14 +58,15 @@ export function Dashboard({ configInput, network, onResetRpc, onToggleNetwork, o
         <MonitorDetails
             key={configInput.chainId}
             configInput={configInput}
+            network={network}
             onResetRpc={onResetRpc}
+            onToggleNetwork={onToggleNetwork}
             onUpdateRpc={onUpdateRpc}
         />
     );
     const monitorControls = (
-        <div className="mb-8 flex items-start gap-3">
+        <div className="mb-8">
             {monitorDetails}
-            <ClientNetworkControl network={network} onToggleNetwork={onToggleNetwork} />
         </div>
     );
 
@@ -168,22 +169,4 @@ export function Dashboard({ configInput, network, onResetRpc, onToggleNetwork, o
           </div>)}
       </main>
     </>);
-}
-
-function ClientNetworkControl({ network, onToggleNetwork }: {
-    network: 'mainnet' | 'testnet';
-    onToggleNetwork: () => void;
-}) {
-    const isMainnet = network === 'mainnet';
-    return (
-        <button
-            type="button"
-            onClick={onToggleNetwork}
-            className={`brutal-button h-[70px] shrink-0 border-5 text-lg ${isMainnet ? 'brutal-button--danger' : 'brutal-button--aqua'}`}
-            aria-label={`Switch client scanner to ${isMainnet ? 'Testnet' : 'Mainnet'}`}
-        >
-            <span className={`h-3 w-3 rounded-full ${isMainnet ? 'bg-vermillion' : 'bg-aqua'}`} aria-hidden="true" />
-            {network}
-        </button>
-    );
 }

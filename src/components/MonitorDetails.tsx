@@ -5,11 +5,13 @@ import type { MonitorConfigInput } from '@/types/slashing';
 
 interface MonitorDetailsProps {
     configInput: MonitorConfigInput;
+    network: 'mainnet' | 'testnet';
     onResetRpc: () => void;
+    onToggleNetwork: () => void;
     onUpdateRpc: (url: string) => void;
 }
 
-export function MonitorDetails({ configInput, onResetRpc, onUpdateRpc }: MonitorDetailsProps) {
+export function MonitorDetails({ configInput, network, onResetRpc, onToggleNetwork, onUpdateRpc }: MonitorDetailsProps) {
     const [rpcUrl, setRpcUrl] = useState('');
     const [notice, setNotice] = useState<string | null>(null);
     const {
@@ -25,6 +27,7 @@ export function MonitorDetails({ configInput, onResetRpc, onUpdateRpc }: Monitor
     } = useSlashingStore();
     const override = getRpcOverride(configInput.chainId);
     const unavailable = 'Not initialized';
+    const isMainnet = network === 'mainnet';
 
     const updateRpc = () => {
         try {
@@ -60,9 +63,20 @@ export function MonitorDetails({ configInput, onResetRpc, onUpdateRpc }: Monitor
 
             <div className="space-y-6 border-t-5 border-orchid p-5">
                 <section aria-labelledby="monitor-rpc-heading">
-                    <h2 id="monitor-rpc-heading" className="mb-3 text-xl font-black uppercase text-orchid">
-                        Monitor RPC
-                    </h2>
+                    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <h2 id="monitor-rpc-heading" className="text-xl font-black uppercase text-orchid">
+                            Monitor RPC
+                        </h2>
+                        <button
+                            type="button"
+                            onClick={onToggleNetwork}
+                            className={`brutal-button brutal-button--lg w-full sm:w-auto ${isMainnet ? 'brutal-button--danger' : 'brutal-button--aqua'}`}
+                            aria-label={`Switch client scanner to ${isMainnet ? 'Testnet' : 'Mainnet'}`}
+                        >
+                            <span className={`h-3 w-3 rounded-full ${isMainnet ? 'bg-vermillion' : 'bg-aqua'}`} aria-hidden="true" />
+                            {network}
+                        </button>
+                    </div>
                     <p className="mb-4 break-all font-mono text-xs text-whisper-white">
                         {formatRpcUrls(configInput.l1RpcUrl)}
                         {override && (
