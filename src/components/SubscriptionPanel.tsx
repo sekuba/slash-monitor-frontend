@@ -35,16 +35,8 @@ export function SubscriptionPanel({ network, config }: SubscriptionPanelProps) {
 
     return (
         <section id="notifications" className="mb-8 border-6 border-chartreuse bg-malachite p-5 shadow-brutal-chartreuse sm:p-7">
-            <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                    <div className="mb-3 inline-flex border-3 border-brand-black bg-chartreuse px-3 py-1 text-xs font-black uppercase text-brand-black">
-                        Address-First Alerts
-                    </div>
-                    <h2 className="text-3xl font-black text-chartreuse">Watch My Sequencers</h2>
-                    <p className="mt-2 max-w-3xl text-sm font-bold text-whisper-white">
-                        Pick the {network} sequencers first, then connect Telegram, Web Push, or both. Alerts are sent by the backend even when this tab is dead.
-                    </p>
-                </div>
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+                <h2 className="text-3xl font-black text-chartreuse">Watch My Sequencers</h2>
                 <span className={`self-start border-3 border-brand-black px-3 py-2 text-xs font-black uppercase text-brand-black ${hasChannel ? 'bg-aqua' : hasPendingChannel ? 'bg-chartreuse' : 'bg-vermillion'}`}>
                     {hasChannel ? 'Alerts Armed' : hasPendingChannel ? 'Channel Checking' : 'No Channel Yet'}
                 </span>
@@ -228,9 +220,6 @@ function AddressForm({
                 aria-describedby="sequencer-address-help"
             />
             <div id="sequencer-address-help" className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs font-bold text-whisper-white/65">
-                    The address list is public chain data. Its association with your browser or Telegram account is sensitive.
-                </p>
                 <button
                     type="submit"
                     disabled={isBusy}

@@ -59,7 +59,7 @@ export function EventHistory({
                         : 'No public node-local or L1 slashing events have been journaled yet.'}
                 </div>
             ) : (
-                <div className="max-h-[34rem] space-y-3 overflow-y-auto pr-1">
+                <div className="space-y-3">
                     {events.map((event) => {
                         const pending = event.certainty === 'pending';
                         const selected = event.id === selectedEventId;
