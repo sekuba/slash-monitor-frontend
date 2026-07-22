@@ -49,7 +49,7 @@ export function MonitorDetails({ configInput, onResetRpc, onUpdateRpc }: Monitor
     };
 
     return (
-        <details className="group mb-8 border-5 border-orchid bg-aubergine shadow-brutal-orchid">
+        <details className="group min-w-0 flex-1 border-5 border-orchid bg-aubergine shadow-brutal-orchid">
             <summary className="cursor-pointer list-none px-5 py-4 text-lg font-black uppercase text-orchid focus:outline-hidden focus-visible:ring-4 focus-visible:ring-aqua">
                 <span className="flex items-center justify-between gap-4">
                     <span>On-chain details &amp; RPC</span>

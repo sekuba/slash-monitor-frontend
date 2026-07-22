@@ -44,7 +44,8 @@ describe('top-level view isolation', () => {
         expect(scannerSpy).toHaveBeenCalledOnce();
         expect(markup).not.toContain('Debug');
         expect(markup).toContain('On-chain details &amp; RPC');
-        expect(markup).toContain('Client scanner network');
+        expect(markup).not.toContain('Client scanner network');
+        expect(markup).toContain('Switch client scanner to Mainnet');
         expect(markup).toContain('INITIALIZING CLIENTSIDE L1 MONITOR');
     });
 
