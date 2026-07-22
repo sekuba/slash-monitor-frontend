@@ -1,14 +1,18 @@
 {
-  "name": "@slashmon/offense-collector",
-  "version": "0.1.0",
+  "name": "@slashmon/backend",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "engines": {
     "node": ">=24"
   },
   "scripts": {
-    "start": "node src/main.mjs",
+    "start": "node --env-file-if-exists=.env src/main.mjs",
     "test": "node --test test/*.test.mjs",
-    "check": "node --check src/main.mjs"
+    "check": "for file in src/*.mjs test/*.mjs; do node --check \"$file\" || exit 1; done"
+  },
+  "dependencies": {
+    "viem": "^2.55.4",
+    "web-push": "^3.6.7"
   }
 }

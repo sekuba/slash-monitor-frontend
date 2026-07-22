@@ -49,28 +49,15 @@ export function SlashingHelpModal({ isOpen, onClose, targetedSequencers }: Slash
         return null;
     }
 
-    const hoursThresholdForDayDisplay = config.hoursThresholdForDayDisplay;
     const roundSeconds = config.slashingRoundSize * config.slotDuration;
     const votingDelaySeconds = config.slashOffsetInRounds * roundSeconds;
     const executionDelaySeconds = config.executionDelayInRounds * roundSeconds;
     const payloadLifetimeSeconds = config.lifetimeInRounds * roundSeconds;
 
-    const roundDuration = formatTimeRemaining(roundSeconds, {
-        approximate: true,
-        hoursThresholdForDayDisplay,
-    });
-    const votingDelay = formatTimeRemaining(votingDelaySeconds, {
-        approximate: true,
-        hoursThresholdForDayDisplay,
-    });
-    const executionDelay = formatTimeRemaining(executionDelaySeconds, {
-        approximate: true,
-        hoursThresholdForDayDisplay,
-    });
-    const payloadLifetime = formatTimeRemaining(payloadLifetimeSeconds, {
-        approximate: true,
-        hoursThresholdForDayDisplay,
-    });
+    const roundDuration = formatTimeRemaining(roundSeconds, { approximate: true });
+    const votingDelay = formatTimeRemaining(votingDelaySeconds, { approximate: true });
+    const executionDelay = formatTimeRemaining(executionDelaySeconds, { approximate: true });
+    const payloadLifetime = formatTimeRemaining(payloadLifetimeSeconds, { approximate: true });
     const normalizedTargetedSequencerFilter = targetedSequencerFilter.trim().toLowerCase();
     const normalizedMinimumAppearancesFilter = minimumAppearancesFilter.trim();
     const minimumAppearances = normalizedMinimumAppearancesFilter === '' ? 0 : Number(normalizedMinimumAppearancesFilter);
@@ -112,8 +99,9 @@ export function SlashingHelpModal({ isOpen, onClose, targetedSequencers }: Slash
                     </div>
 
                     <button
+                        type="button"
                         onClick={handleClose}
-                        className="shrink-0 border-5 border-vermillion bg-vermillion p-3 text-brand-black shadow-brutal hover:-translate-y-0.5"
+                        className="brutal-button brutal-button--danger brutal-button--icon shrink-0"
                         aria-label="Close help"
                     >
                         <svg className="h-7 w-7 stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -184,7 +172,7 @@ export function SlashingHelpModal({ isOpen, onClose, targetedSequencers }: Slash
                                         value={targetedSequencerFilter}
                                         onChange={(event) => setTargetedSequencerFilter(event.target.value)}
                                         placeholder="0x..."
-                                        className="w-full border-3 border-aqua bg-brand-black px-4 py-3 font-mono text-sm font-bold text-whisper-white shadow-brutal-aqua placeholder:text-whisper-white/40 focus:border-chartreuse focus:outline-hidden"
+                                        className="w-full border-3 border-aqua bg-brand-black px-4 py-3 font-mono text-sm font-bold text-whisper-white shadow-brutal-aqua placeholder:text-whisper-white/40 focus:outline-hidden"
                                     />
                                 </div>
 
@@ -203,7 +191,7 @@ export function SlashingHelpModal({ isOpen, onClose, targetedSequencers }: Slash
                                         value={minimumAppearancesFilter}
                                         onChange={(event) => setMinimumAppearancesFilter(event.target.value)}
                                         placeholder="2"
-                                        className="w-full border-3 border-vermillion bg-brand-black px-4 py-3 text-sm font-black text-whisper-white shadow-brutal-vermillion placeholder:text-whisper-white/40 focus:border-chartreuse focus:outline-hidden"
+                                        className="w-full border-3 border-vermillion bg-brand-black px-4 py-3 text-sm font-black text-whisper-white shadow-brutal-vermillion placeholder:text-whisper-white/40 focus:outline-hidden"
                                     />
                                 </div>
                             </div>
@@ -356,7 +344,7 @@ export function SlashingHelpModal({ isOpen, onClose, targetedSequencers }: Slash
                                 href={COUNCIL_ISSUES_URL}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex w-full items-center justify-center border-5 border-brand-black bg-chartreuse px-4 py-3 text-center text-sm font-black text-brand-black shadow-brutal transition-transform hover:-translate-y-0.5"
+                                className="brutal-button brutal-button--lg w-full"
                             >
                                 Open council/issues
                             </a>

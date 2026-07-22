@@ -1,20 +1,14 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { zeroAddress, type Address } from 'viem';
+import { zeroAddress } from 'viem';
 import { resolveDeployment } from '@/lib/deployment';
 import { L1Monitor } from '@/lib/l1Monitor';
-import { notifyGlobalPauseStarted, notifyQuorumReached, notifyRoundExecuted, notifyRoundVetoed } from '@/lib/notifications';
 import { SlashingDetector } from '@/lib/slashingDetector';
 import { deriveRoundPresentation } from '@/lib/utils';
 import { useSlashingStore } from '@/store/slashingStore';
-import type { CurrentChainState, DetectedSlashing, MonitorAudit, MonitorConfigInput, MonitorIssue, MonitorSnapshot, RoundStatus, SlashingStats } from '@/types/slashing';
-
-interface RoundState {
-    status: RoundStatus;
-    isVetoed: boolean;
-    payloadAddress?: Address;
-}
+import type { CurrentChainState, DetectedSlashing, MonitorAudit, MonitorConfigInput, MonitorIssue, MonitorSnapshot, SlashingStats } from '@/types/slashing';
 
 class StaleMonitorRunError extends Error {}
+const POLL_INTERVAL_MS = 180_000;
 
 export function useSlashingMonitor(config: MonitorConfigInput) {
     const {
@@ -27,8 +21,6 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
     const l1MonitorRef = useRef<L1Monitor | null>(null);
     const detectorRef = useRef<SlashingDetector | null>(null);
     const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const previousRoundStatesRef = useRef<Map<string, RoundState>>(new Map());
-    const previousSlashingEnabledRef = useRef<boolean | null>(null);
     const isFirstScanRef = useRef(true);
     const isPollingRef = useRef(false);
     const isActiveRef = useRef(true);
@@ -45,7 +37,6 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
 
         l1MonitorRef.current = l1Monitor;
         detectorRef.current = new SlashingDetector(fullConfig, l1Monitor);
-        previousSlashingEnabledRef.current = currentState.isSlashingEnabled;
         initialize(fullConfig, currentState);
         setInitializationError(null);
         return currentState;
@@ -71,7 +62,6 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
                 try {
                     if (await l1MonitorRef.current.hasDeploymentChanged()) {
                         assertCurrentRun(generation, runGenerationRef.current);
-                        previousRoundStatesRef.current.clear();
                         isFirstScanRef.current = true;
                         setIsScanning(true);
                         currentState = await initializeMonitor(generation);
@@ -119,25 +109,10 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
             const audit = buildAudit(issues, previousStoreState.audit.lastSuccessfulAt);
             assertCurrentRun(generation, runGenerationRef.current);
 
-            if (audit.status !== 'stale' && audit.status !== 'fatal') {
-                emitNotificationsForPoll(detectedSlashings, previousRoundStatesRef.current, isFirstScanRef.current);
-
-                if (previousSlashingEnabledRef.current !== null &&
-                    previousSlashingEnabledRef.current !== currentState.isSlashingEnabled &&
-                    !currentState.isSlashingEnabled) {
-                    notifyGlobalPauseStarted();
-                }
-
-                previousSlashingEnabledRef.current = currentState.isSlashingEnabled;
-            }
-
             const snapshot = buildSnapshot(currentState, detectedSlashings, audit);
             applySnapshot(snapshot);
             completed = audit.status !== 'stale' && audit.status !== 'fatal';
 
-            if (Math.random() < config.consoleLogProbability) {
-                console.log(`Poll complete: ${detectedSlashings.length} rounds, audit=${audit.status}`);
-            }
         }
         catch (error) {
             if (error instanceof StaleMonitorRunError) {
@@ -154,30 +129,30 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
 
             isPollingRef.current = false;
         }
-    }, [applySnapshot, config.consoleLogProbability, initializeMonitor, setIsScanning, setMonitorFailure]);
-
-    const scheduleNextPoll = useCallback((generation: number) => {
-        if (!isActiveRef.current || generation !== runGenerationRef.current) {
-            return;
-        }
-
-        timeoutRef.current = setTimeout(async () => {
-            if (!isActiveRef.current || generation !== runGenerationRef.current) {
-                return;
-            }
-
-            await poll(undefined, generation);
-            if (isActiveRef.current && generation === runGenerationRef.current) {
-                scheduleNextPoll(generation);
-            }
-        }, config.pollInterval);
-    }, [config.pollInterval, poll]);
+    }, [applySnapshot, initializeMonitor, setIsScanning, setMonitorFailure]);
 
     useEffect(() => {
         let cancelled = false;
         const generation = runGenerationRef.current + 1;
         runGenerationRef.current = generation;
         isActiveRef.current = true;
+
+        function scheduleNextPoll() {
+            if (!isActiveRef.current || generation !== runGenerationRef.current) {
+                return;
+            }
+
+            timeoutRef.current = setTimeout(async () => {
+                if (!isActiveRef.current || generation !== runGenerationRef.current) {
+                    return;
+                }
+
+                await poll(undefined, generation);
+                if (isActiveRef.current && generation === runGenerationRef.current) {
+                    scheduleNextPoll();
+                }
+            }, POLL_INTERVAL_MS);
+        }
 
         const start = async () => {
             try {
@@ -188,7 +163,7 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
 
                 await poll(initialState, generation);
                 if (!cancelled && generation === runGenerationRef.current) {
-                    scheduleNextPoll(generation);
+                    scheduleNextPoll();
                 }
             }
             catch (error) {
@@ -201,7 +176,7 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
                 setMonitorFailure(message, true);
                 setIsScanning(false);
                 if (!cancelled) {
-                    timeoutRef.current = setTimeout(start, config.pollInterval);
+                    timeoutRef.current = setTimeout(start, POLL_INTERVAL_MS);
                 }
             }
         };
@@ -220,7 +195,7 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
                 timeoutRef.current = null;
             }
         };
-    }, [config.pollInterval, initializeMonitor, poll, scheduleNextPoll, setInitializationError, setIsScanning, setMonitorFailure]);
+    }, [initializeMonitor, poll, setInitializationError, setIsScanning, setMonitorFailure]);
 }
 
 function buildSnapshot(
@@ -312,51 +287,8 @@ function toErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : 'Unknown error';
 }
 
-function emitNotificationsForPoll(
-    detectedSlashings: DetectedSlashing[],
-    previousRoundStates: Map<string, RoundState>,
-    isFirstScan: boolean
-) {
-    for (const slashing of detectedSlashings) {
-        if (slashing.verificationStatus !== 'verified' || !slashing.slashActions || slashing.slashActions.length === 0) {
-            continue;
-        }
-
-        const roundKey = slashing.round.toString();
-        const previousState = previousRoundStates.get(roundKey);
-        const hasQuorumStatus = isQuorumStatus(slashing.status);
-        const hadQuorumStatus = previousState ? isQuorumStatus(previousState.status) : false;
-        const wasVetoed = previousState?.isVetoed ?? false;
-        const payloadChanged = previousState !== undefined && previousState.payloadAddress !== slashing.payloadAddress;
-
-        if (!isFirstScan) {
-            if (slashing.isVetoed && !wasVetoed) {
-                notifyRoundVetoed(slashing);
-            }
-
-            if (slashing.isExecuted && (!previousState || previousState.status !== 'executed')) {
-                notifyRoundExecuted(slashing);
-            }
-
-            if (hasQuorumStatus && (!hadQuorumStatus || payloadChanged) && !slashing.isVetoed && !slashing.isExecuted) {
-                notifyQuorumReached(slashing);
-            }
-        }
-
-        previousRoundStates.set(roundKey, {
-            status: slashing.status,
-            isVetoed: slashing.isVetoed,
-            payloadAddress: slashing.payloadAddress,
-        });
-    }
-}
-
 function assertCurrentRun(expected: number, actual: number): void {
     if (expected !== actual) {
         throw new StaleMonitorRunError();
     }
-}
-
-function isQuorumStatus(status: RoundStatus) {
-    return status === 'quorum-reached' || status === 'newly-executable' || status === 'executable';
 }

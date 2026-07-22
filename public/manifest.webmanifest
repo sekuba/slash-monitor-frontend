@@ -1,0 +1,19 @@
+{
+  "id": "./",
+  "name": "Aztec Slashing Monitor",
+  "short_name": "Slashmon",
+  "description": "Early warnings and independent verification for Aztec sequencer slashing.",
+  "start_url": "./?source=pwa",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#001f18",
+  "theme_color": "#1a1400",
+  "icons": [
+    {
+      "src": "./favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

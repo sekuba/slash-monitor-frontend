@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import type { CurrentChainState, DetectedSlashing, MonitorAudit, MonitorSnapshot, ResolvedMonitorConfig, SlashingStats } from '@/types/slashing';
-import { updateRpcUrl as updateRpcUrlUtil } from '@/lib/rpcOverride';
 
 interface SlashingMonitorStore extends CurrentChainState {
     config: ResolvedMonitorConfig | null;
@@ -15,7 +14,7 @@ interface SlashingMonitorStore extends CurrentChainState {
     applySnapshot: (snapshot: MonitorSnapshot) => void;
     setInitializationError: (message: string | null) => void;
     setMonitorFailure: (message: string, fatal?: boolean) => void;
-    updateRpcUrl: (url: string) => void;
+    resetMonitor: () => void;
 }
 
 const initialStats: SlashingStats = {
@@ -48,7 +47,7 @@ const initialChainState: CurrentChainState = {
     pauseEndsAtSlot: null,
 };
 
-export const useSlashingStore = create<SlashingMonitorStore>((set, get) => ({
+export const useSlashingStore = create<SlashingMonitorStore>((set) => ({
     ...initialChainState,
     config: null,
     isInitialized: false,
@@ -86,11 +85,14 @@ export const useSlashingStore = create<SlashingMonitorStore>((set, get) => ({
             lastSuccessfulAt: state.audit.lastSuccessfulAt,
         },
     })),
-    updateRpcUrl: (url) => {
-        const chainId = get().config?.chainId;
-        if (chainId === undefined) {
-            throw new Error('Cannot update the RPC before the monitor is initialized');
-        }
-        updateRpcUrlUtil(url, chainId);
-    },
+    resetMonitor: () => set({
+        ...initialChainState,
+        config: null,
+        isInitialized: false,
+        initializationError: null,
+        isScanning: false,
+        detectedSlashings: new Map(),
+        stats: initialStats,
+        audit: initialAudit,
+    }),
 }));

@@ -4,10 +4,6 @@ export interface MonitorConfigInput {
     l1RpcUrl: string | string[];
     chainId: number;
     registryAddress: Address;
-    pollInterval: number;
-    realtimeCountdownInterval: number;
-    hoursThresholdForDayDisplay: number;
-    consoleLogProbability: number;
 }
 
 export interface DeploymentAddresses {

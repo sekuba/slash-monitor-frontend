@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useSlashingStore } from '@/store/slashingStore';
 import { formatTimeRemaining } from '@/lib/utils';
 import { calculateProtectedRoundRange } from '@/lib/pauseProtection';
@@ -9,6 +10,14 @@ interface SlashingTimelineProps {
 
 export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
     const { config, currentRound, currentSlot, currentEpoch, detectedSlashings, isSlashingEnabled, slashingDisabledUntil, slashingDisableDuration, pauseStartedAtSlot, pauseEndsAtSlot } = useSlashingStore();
+    const [nowSeconds, setNowSeconds] = useState(() => Math.floor(Date.now() / 1000));
+
+    useEffect(() => {
+        const interval = window.setInterval(() => {
+            setNowSeconds(Math.floor(Date.now() / 1000));
+        }, 1_000);
+        return () => window.clearInterval(interval);
+    }, []);
 
     if (!config) {
         return null;
@@ -61,7 +70,6 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
 
     const timeAgo = formatTimeRemaining(secondsAgo, {
         approximate: true,
-        hoursThresholdForDayDisplay: config.hoursThresholdForDayDisplay,
     });
 
     return (<div className="mb-8">
@@ -90,8 +98,9 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
             <span className="font-black text-whisper-white text-lg">{currentRound.toString()}</span>
           </div>
         <button
+          type="button"
           onClick={onOpenHelp}
-          className="shrink-0 bg-chartreuse text-brand-black border-5 border-brand-black px-6 py-3 normal-case tracking-normal text-base font-black shadow-brutal hover:-translate-y-0.5 transition-transform"
+          className="brutal-button brutal-button--lg shrink-0 normal-case tracking-normal"
         >
           am i getting slashed?
         </button>
@@ -99,7 +108,7 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
       </div>
 
       {/* Current Voting Round Section */}
-      <div className="bg-lapis border-5 border-aqua p-5 shadow-brutal-aqua animate-pulse">
+      <div className="brutal-border-pulse bg-lapis border-5 border-aqua p-5 shadow-brutal-aqua [--pulse-color:var(--color-aqua)]">
         <div className="flex items-start justify-between gap-4 mb-4">
           <div className="flex-1">
             <div className="flex items-center gap-3 mb-3">
@@ -118,7 +127,7 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
           <div className="text-right shrink-0">
             <div className="bg-brand-black border-3 border-aqua px-4 py-2">
               <div className="opacity-75 mb-1 text-xs font-black uppercase text-aqua">Ends In</div>
-              <div className="text-2xl font-black text-whisper-white">{formatTimeRemaining(secondsRemaining, { approximate: true, hoursThresholdForDayDisplay: config.hoursThresholdForDayDisplay })}</div>
+              <div className="text-2xl font-black text-whisper-white">{formatTimeRemaining(secondsRemaining, { approximate: true })}</div>
             </div>
           </div>
         </div>
@@ -174,7 +183,7 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
               </svg>
               <div>
                 <div className="text-vermillion font-black text-sm uppercase">
-                  Executable in {formatTimeRemaining(secondsUntilExecutable, { approximate: true, hoursThresholdForDayDisplay: config.hoursThresholdForDayDisplay })}
+                  Executable in {formatTimeRemaining(secondsUntilExecutable, { approximate: true })}
                 </div>
                 <div className="text-whisper-white/70 text-xs font-bold mt-1">
                   Slashing payload can be executed at slot {executableAtSlot.toString()} unless vetoed
@@ -199,7 +208,7 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
           <div className="mt-2 text-whisper-white/70 text-xs font-bold">
             For voting rounds that reach quorum, a {formatTimeRemaining(
               config.executionDelayInRounds * config.slashingRoundSize * config.slotDuration,
-              { approximate: true, hoursThresholdForDayDisplay: config.hoursThresholdForDayDisplay }
+              { approximate: true }
             )} execution delay applies before they can be executed, if not vetoed.
           </div>
         </div>
@@ -208,10 +217,9 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
       {/* Global Pause Section */}
       {!isSlashingEnabled && slashingDisabledUntil > 0n && pauseStartedAtSlot !== null && pauseEndsAtSlot !== null && (() => {
             // Timing calculations
-            const now = Math.floor(Date.now() / 1000);
             const pauseEndsAt = Number(slashingDisabledUntil);
             const pauseStartedAt = pauseEndsAt - Number(slashingDisableDuration);
-            const secondsUntilPauseEnds = Math.max(0, pauseEndsAt - now);
+            const secondsUntilPauseEnds = Math.max(0, pauseEndsAt - nowSeconds);
             const slotsUntilPauseEnds = Number(pauseEndsAtSlot > currentSlot ? pauseEndsAtSlot - currentSlot : 0n);
 
             // Calculate protected round range using shared utility
@@ -284,7 +292,7 @@ export function SlashingTimeline({ onOpenHelp }: SlashingTimelineProps) {
               <div className="bg-brand-black border-3 border-chartreuse p-4">
                 <div className="text-chartreuse text-xs font-black uppercase mb-1">Time Remaining</div>
                 <div className="text-whisper-white text-lg font-black">
-                  {secondsUntilPauseEnds > 0 ? formatTimeRemaining(secondsUntilPauseEnds, { hoursThresholdForDayDisplay: config.hoursThresholdForDayDisplay }) : 'Ending Soon'}
+                  {secondsUntilPauseEnds > 0 ? formatTimeRemaining(secondsUntilPauseEnds) : 'Ending Soon'}
                 </div>
                 <div className="text-whisper-white/70 text-xs font-bold mt-1">
                   {slotsUntilPauseEnds} slots remaining
