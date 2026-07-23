@@ -120,8 +120,45 @@ describe('Pingme journal cards', () => {
 
         expect(markup).toContain('Node · pending');
         expect(markup).toContain('Expected vote round 210');
+        expect(markup).toContain('Epoch starts at slot 26688');
         expect(markup).not.toContain('Pending Offense Detected');
         expect(markup).not.toContain('aztec_node');
+    });
+
+    it('labels a precursor duty miss as the first missed slot', () => {
+        vi.stubGlobal('window', { location: new URL('https://slashmon.example/?view=pingme') });
+        const event: MonitorEvent = {
+            id: 'event-precursor',
+            network: 'mainnet',
+            type: 'inactivity_first_miss',
+            source: 'aztec_sentinel',
+            certainty: 'pending',
+            sequencer: targets[0],
+            targets: [targets[0]],
+            title: 'First missed duty observed',
+            body: 'This is precursor evidence, not a registered slash offense.',
+            offense: {
+                type: null,
+                reason: 'inactivity precursor',
+                epochOrSlot: '834',
+                timeUnit: 'epoch',
+                amount: null,
+                epoch: '834',
+                slot: '26690',
+                offenseRound: null,
+                proposalRound: null,
+            },
+            nodeEvidence: [],
+            l1: null,
+            occurredAt: '2026-07-22T13:34:33.502Z',
+        };
+
+        const markup = renderToStaticMarkup(
+            <EventHistory events={[event]} hasWatchlistCapability={false} />,
+        );
+
+        expect(markup).toContain('First missed slot 26690');
+        expect(markup).not.toContain('Epoch starts at slot 26690');
     });
 
     it('falls back to an explicit UTC timestamp when local formatting is unavailable', () => {

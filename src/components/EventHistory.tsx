@@ -202,7 +202,14 @@ function EventFacts({ event }: { event: MonitorEvent }) {
         const offense = event.offense;
         facts.push(`Reason: ${humanize(offense.reason)}${offense.type !== null ? ` (#${offense.type})` : ''}`);
         if (offense.epoch) facts.push(`Epoch ${offense.epoch}`);
-        if (offense.slot) facts.push(`${offense.timeUnit === 'epoch' ? 'Epoch starts at slot' : 'Slot'} ${offense.slot}`);
+        if (offense.slot) {
+            const slotLabel = event.type === 'inactivity_first_miss'
+                ? 'First missed slot'
+                : offense.timeUnit === 'epoch'
+                    ? 'Epoch starts at slot'
+                    : 'Slot';
+            facts.push(`${slotLabel} ${offense.slot}`);
+        }
         if (!offense.epoch && offense.epochOrSlot) {
             facts.push(`${humanize(offense.timeUnit ?? 'position')} ${offense.epochOrSlot}`);
         }
