@@ -296,11 +296,6 @@ export function parseInactivityConfig(value) {
       'Aztec admin slashInactivityConsecutiveEpochThreshold',
       1,
     ),
-    epochEndBufferSlots: parseSafeInteger(
-      value.sentinelEpochEndBufferSlots,
-      'Aztec admin sentinelEpochEndBufferSlots',
-      0,
-    ),
   };
 }
 

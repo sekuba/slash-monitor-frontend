@@ -41,9 +41,14 @@ three-epoch window on first start. It fetches one confirmed L1 committee and
 exact-range stats only for that committee when a new epoch closes; idle polls
 make neither call. `AZTEC_SENTINEL_LOOKBACK_EPOCHS` applies to both the L1
 committee and Aztec history sides of catch-up. The defaults are 3 epochs,
-8 concurrent validator requests, and a 2 MiB per-validator response limit.
+an epoch-end buffer of 2 slots, 8 concurrent validator requests, and a 2 MiB
+per-validator response limit. If the Aztec node overrides
+`SENTINEL_EPOCH_END_BUFFER_SLOTS`, set
+`AZTEC_SENTINEL_EPOCH_END_BUFFER_SLOTS` to the same value; the node does not
+expose this internal Sentinel setting through its admin API.
 Override `AZTEC_SENTINEL_POLL_INTERVAL_MS`,
 `AZTEC_SENTINEL_LOOKBACK_EPOCHS`,
+`AZTEC_SENTINEL_EPOCH_END_BUFFER_SLOTS`,
 `AZTEC_SENTINEL_VALIDATOR_CONCURRENCY`, or
 `AZTEC_SENTINEL_VALIDATOR_MAX_RESPONSE_BYTES` only for an observed node or RPC
 constraint. The fresh-switch script preserves these settings.

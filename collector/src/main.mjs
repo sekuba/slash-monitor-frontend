@@ -76,6 +76,7 @@ async function main() {
     pollIntervalMs: config.sentinelPollIntervalMs,
     maxBackoffMs: config.maxBackoffMs,
     lookbackEpochs: config.sentinelLookbackEpochs,
+    epochEndBufferSlots: config.sentinelEpochEndBufferSlots,
     validatorConcurrency: config.sentinelValidatorConcurrency,
     maxStallMs: config.syncMaxL2StallMs,
     logger,

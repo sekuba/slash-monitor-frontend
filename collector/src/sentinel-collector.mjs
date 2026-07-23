@@ -14,6 +14,7 @@ export class SentinelCollector {
     pollIntervalMs,
     maxBackoffMs,
     lookbackEpochs = 3,
+    epochEndBufferSlots = 2,
     validatorConcurrency = 8,
     maxStallMs = 5 * 60_000,
     logger,
@@ -28,6 +29,10 @@ export class SentinelCollector {
     this.pollIntervalMs = pollIntervalMs;
     this.maxBackoffMs = maxBackoffMs;
     this.lookbackEpochs = requirePositiveSafeInteger(lookbackEpochs, 'sentinel lookback epochs');
+    this.epochEndBufferSlots = requireUnsignedSafeInteger(
+      epochEndBufferSlots,
+      'sentinel epoch-end buffer',
+    );
     this.validatorConcurrency = requirePositiveSafeInteger(
       validatorConcurrency,
       'sentinel validator concurrency',
@@ -63,6 +68,12 @@ export class SentinelCollector {
     const l1State = this.repository.getSourceState('l1');
     const l1Metadata = l1State?.metadata;
     const canonicalRollupAddress = readCanonicalRollupAddress(this.repository);
+    if (!canonicalRollupAddress) {
+      return this.recordPollFailure(
+        'Canonical L1 Rollup is unavailable; validator duties are not trusted yet',
+        attemptedAt,
+      );
+    }
     let l1Checkpoint;
     let epochDuration;
     let confirmedL1Slot;
@@ -85,12 +96,6 @@ export class SentinelCollector {
       };
     } catch (error) {
       return this.recordPollFailure(errorMessage(error), attemptedAt);
-    }
-    if (!canonicalRollupAddress) {
-      return this.recordPollFailure(
-        'Canonical L1 Rollup is unavailable; validator duties are not trusted yet',
-        attemptedAt,
-      );
     }
 
     const controller = new AbortController();
@@ -116,7 +121,7 @@ export class SentinelCollector {
           syncedL2Slot,
           confirmedL1Slot,
           epochDuration,
-          epochEndBufferSlots: config.epochEndBufferSlots,
+          epochEndBufferSlots: this.epochEndBufferSlots,
         });
         if (cursor && ready <= cursor.epoch) {
           return this.recordSuccess({
@@ -149,7 +154,7 @@ export class SentinelCollector {
         syncedL2Slot,
         confirmedL1Slot,
         epochDuration,
-        epochEndBufferSlots: config.epochEndBufferSlots,
+        epochEndBufferSlots: this.epochEndBufferSlots,
       });
       if (ready < 0 || (cursor && ready <= cursor.epoch)) {
         return this.recordSuccess({
@@ -254,7 +259,7 @@ export class SentinelCollector {
         ? input.observedAt
         : input.prior.lastSyncProgressAt,
       nodeReady: Boolean(input.syncStatus.ready),
-      epochEndBufferSlots: input.config.epochEndBufferSlots,
+      epochEndBufferSlots: this.epochEndBufferSlots,
       targetPercentage: input.config.targetPercentage,
       consecutiveEpochThreshold: input.config.consecutiveEpochThreshold,
       epochDuration: String(input.epochDuration),
@@ -388,7 +393,6 @@ async function mapWithConcurrency(values, concurrency, operation) {
 
 function readStoredConfig(metadata) {
   if (
-    metadata.epochEndBufferSlots === undefined ||
     metadata.targetPercentage === undefined ||
     metadata.consecutiveEpochThreshold === undefined
   ) {
@@ -399,10 +403,6 @@ function readStoredConfig(metadata) {
     return undefined;
   }
   return {
-    epochEndBufferSlots: requireUnsignedSafeInteger(
-      metadata.epochEndBufferSlots,
-      'stored sentinel epoch-end buffer',
-    ),
     targetPercentage,
     consecutiveEpochThreshold: requirePositiveSafeInteger(
       metadata.consecutiveEpochThreshold,

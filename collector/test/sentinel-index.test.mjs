@@ -19,6 +19,29 @@ const REGISTRY = '0x0000000000000000000000000000000000000001';
 const ROLLUP = '0x0000000000000000000000000000000000000002';
 const BLOCK_HASH = `0x${'10'.repeat(32)}`;
 
+test('sentinel collector reports an unavailable L1 dependency before parsing its metadata', async () => {
+  const repository = new OffenseRepository(':memory:');
+  try {
+    const collector = new SentinelCollector({
+      client: {},
+      committeeScanner: {},
+      repository,
+      expectedChainId: 1,
+      expectedRegistryAddress: REGISTRY,
+      pollIntervalMs: 60_000,
+      maxBackoffMs: 60_000,
+      logger: silentLogger,
+      now: () => 1_000,
+    });
+
+    const result = await collector.runOnce();
+    assert.equal(result.ok, false);
+    assert.match(result.error, /Canonical L1 Rollup is unavailable/);
+  } finally {
+    repository.close();
+  }
+});
+
 test('sentinel collector indexes only L1 committee members for the shared three-epoch lookback', async () => {
   const repository = new OffenseRepository(':memory:');
   let now = 1_000;
@@ -156,7 +179,6 @@ test('a cursor gap applies the same three epochs to L1 committees and node histo
       coverageGeneration: 0,
       nodeSyncedSlot: '5',
       lastSyncProgressAt: 100,
-      epochEndBufferSlots: 2,
       targetPercentage: 0.7,
       consecutiveEpochThreshold: 2,
     }, 100);
@@ -369,7 +391,6 @@ function config() {
   return {
     targetPercentage: 0.7,
     consecutiveEpochThreshold: 2,
-    epochEndBufferSlots: 2,
   };
 }
 

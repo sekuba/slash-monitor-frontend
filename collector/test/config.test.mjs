@@ -23,6 +23,7 @@ test('loadConfig provides a complete local configuration', () => {
   assert.equal(config.l1SlashLogLookbackBlocks, 50_000);
   assert.equal(config.sentinelPollIntervalMs, 60_000);
   assert.equal(config.sentinelLookbackEpochs, 3);
+  assert.equal(config.sentinelEpochEndBufferSlots, 2);
   assert.equal(config.sentinelValidatorConcurrency, 8);
   assert.equal(config.maxSingleValidatorStatsResponseBytes, 2 * 1024 * 1024);
   assert.equal(config.telegram, undefined);
@@ -70,6 +71,10 @@ test('operator-facing URLs and process settings are validated', () => {
   assert.throws(
     () => loadConfig({ AZTEC_SENTINEL_LOOKBACK_EPOCHS: '0' }),
     /between 1 and 24/,
+  );
+  assert.throws(
+    () => loadConfig({ AZTEC_SENTINEL_EPOCH_END_BUFFER_SLOTS: '-1' }),
+    /between 0 and 10000/,
   );
   assert.throws(
     () => loadConfig({ AZTEC_SENTINEL_VALIDATOR_CONCURRENCY: '0' }),

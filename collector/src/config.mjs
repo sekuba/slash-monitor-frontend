@@ -68,6 +68,13 @@ export function loadConfig(env = process.env, cwd = process.cwd()) {
       1,
       24,
     ),
+    sentinelEpochEndBufferSlots: readInteger(
+      env,
+      'AZTEC_SENTINEL_EPOCH_END_BUFFER_SLOTS',
+      2,
+      0,
+      10_000,
+    ),
     sentinelValidatorConcurrency: readInteger(
       env,
       'AZTEC_SENTINEL_VALIDATOR_CONCURRENCY',

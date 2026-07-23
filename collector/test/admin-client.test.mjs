@@ -203,12 +203,9 @@ test('single-validator stats and inactivity config parsers retain the complete d
   assert.deepEqual(parseInactivityConfig({
     slashInactivityTargetPercentage: 0.7,
     slashInactivityConsecutiveEpochThreshold: 2,
-    sentinelEnabled: true,
-    sentinelEpochEndBufferSlots: 2,
   }), {
     targetPercentage: 0.7,
     consecutiveEpochThreshold: 2,
-    epochEndBufferSlots: 2,
   });
   assert.throws(() => parseSingleValidatorStats({
     validator: {
@@ -222,8 +219,6 @@ test('single-validator stats and inactivity config parsers retain the complete d
   assert.throws(() => parseInactivityConfig({
     slashInactivityTargetPercentage: 1.1,
     slashInactivityConsecutiveEpochThreshold: 2,
-    sentinelEnabled: true,
-    sentinelEpochEndBufferSlots: 2,
   }), /between 0 and 1/);
 });
 
@@ -253,8 +248,6 @@ test('bounded validator stats use the public node while inactivity thresholds us
         : {
           slashInactivityTargetPercentage: 0.7,
           slashInactivityConsecutiveEpochThreshold: 2,
-          sentinelEnabled: true,
-          sentinelEpochEndBufferSlots: 2,
         };
       return new Response(JSON.stringify({ jsonrpc: '2.0', id: body.id, result }), {
         headers: { 'content-type': 'application/json' },
