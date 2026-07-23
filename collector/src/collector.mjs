@@ -182,7 +182,7 @@ export class OffenseCollector {
   }
 }
 
-function validateNodeIdentity(nodeInfo, {
+export function validateNodeIdentity(nodeInfo, {
   expectedChainId,
   expectedRegistryAddress,
   canonicalRollupAddress,
@@ -203,7 +203,7 @@ function validateNodeIdentity(nodeInfo, {
   }
 }
 
-function readCanonicalRollupAddress(repository) {
+export function readCanonicalRollupAddress(repository) {
   const value = repository.getSourceState('l1')?.metadata?.rollupAddress;
   if (value === undefined || value === null || value === '') return undefined;
   return normalizeAddress(value, 'canonical L1 Rollup');

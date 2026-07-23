@@ -170,9 +170,64 @@ function decodeEvent(input: unknown, expectedNetwork: MonitorNetwork, path: stri
         title: expectString(value.title, `${path}.title`),
         body: expectText(value.body, `${path}.body`),
         offense: decodeEventOffense(data, `${path}.data`),
+        nodeEvidence: decodeNodeEvidence(data.nodeEvidence, `${path}.data.nodeEvidence`),
         l1: source === 'ethereum_l1' ? decodeEventL1(data, network, `${path}.data`) : null,
         occurredAt: isoString(value.occurredAt, `${path}.occurredAt`),
     };
+}
+
+function decodeNodeEvidence(input: unknown, path: string): MonitorEvent['nodeEvidence'] {
+    if (input === undefined) return [];
+    return expectArray(input, path).map((item, index) => {
+        const evidencePath = `${path}[${index}]`;
+        const value = expectObject(item, evidencePath);
+        const kind = expectString(value.kind, `${evidencePath}.kind`);
+        if (kind !== 'slash_offense' && kind !== 'inactivity_epoch') {
+            throw new ApiContractError(`${evidencePath}.kind is invalid`);
+        }
+        const timeUnit = expectString(value.timeUnit, `${evidencePath}.timeUnit`);
+        if (timeUnit !== 'epoch' && timeUnit !== 'slot') {
+            throw new ApiContractError(`${evidencePath}.timeUnit must be epoch or slot`);
+        }
+        return {
+            kind,
+            sequencer: address(value.sequencer, `${evidencePath}.sequencer`),
+            epoch: decimalString(value.epoch, `${evidencePath}.epoch`),
+            offenseId: optionalString(value.offenseId) ?? null,
+            offenseType: nullableInteger(value.offenseType, `${evidencePath}.offenseType`),
+            offenseTypeName: expectString(value.offenseTypeName, `${evidencePath}.offenseTypeName`),
+            epochOrSlot: decimalString(value.epochOrSlot, `${evidencePath}.epochOrSlot`),
+            timeUnit,
+            amount: optionalDecimalString(value.amount, `${evidencePath}.amount`),
+            firstSeenAt: isoString(value.firstSeenAt, `${evidencePath}.firstSeenAt`),
+            missed: nullableBoundedInteger(value.missed, `${evidencePath}.missed`, 0),
+            total: nullableBoundedInteger(value.total, `${evidencePath}.total`, 0),
+            firstMissedSlot: optionalDecimalString(
+                value.firstMissedSlot,
+                `${evidencePath}.firstMissedSlot`,
+            ),
+            lastMissedSlot: optionalDecimalString(
+                value.lastMissedSlot,
+                `${evidencePath}.lastMissedSlot`,
+            ),
+            inactiveStreak: nullableBoundedInteger(
+                value.inactiveStreak,
+                `${evidencePath}.inactiveStreak`,
+                0,
+            ),
+            slashableThreshold: nullableBoundedInteger(
+                value.slashableThreshold,
+                `${evidencePath}.slashableThreshold`,
+                1,
+            ),
+            targetPercentage: nullableNumberInRange(
+                value.targetPercentage,
+                `${evidencePath}.targetPercentage`,
+                0,
+                1,
+            ),
+        };
+    });
 }
 
 function decodeEventOffense(data: Record<string, unknown> | null, path: string): MonitorEvent['offense'] {
@@ -401,6 +456,27 @@ function nullableInteger(value: unknown, path: string): number | null {
         throw new ApiContractError(`${path} must be an integer or null`);
     }
     return value as number;
+}
+
+function nullableBoundedInteger(value: unknown, path: string, minimum: number): number | null {
+    if (value === null || value === undefined) return null;
+    if (!Number.isSafeInteger(value) || (value as number) < minimum) {
+        throw new ApiContractError(`${path} must be an integer of at least ${minimum} or null`);
+    }
+    return value as number;
+}
+
+function nullableNumberInRange(
+    value: unknown,
+    path: string,
+    minimum: number,
+    maximum: number,
+): number | null {
+    if (value === null || value === undefined) return null;
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < minimum || value > maximum) {
+        throw new ApiContractError(`${path} must be a number between ${minimum} and ${maximum} or null`);
+    }
+    return value;
 }
 
 function boundedInteger(

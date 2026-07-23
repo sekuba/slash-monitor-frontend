@@ -37,6 +37,7 @@ export const rollupAbi = [
   fn('getSlotAt', [input('uint256', '_timestamp')], [out('uint256')]),
   fn('getEpochDuration', [], [out('uint256')]),
   fn('getSlotDuration', [], [out('uint256')]),
+  fn('getEpochCommittee', [input('uint256', '_epoch')], [out('address[]')], 'nonpayable'),
 ];
 
 export const slasherAbi = [

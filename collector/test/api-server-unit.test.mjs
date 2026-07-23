@@ -72,6 +72,22 @@ test('a shared Web Push authentication failure degrades channel health', () => {
   }
 });
 
+test('sentinel failures degrade the combined Aztec source after indexing has started', () => {
+  const repository = new OffenseRepository(':memory:');
+  repository.recordSuccessfulPoll([], { observedAt: 900, network: 'mainnet' });
+  repository.recordSourceSuccess('aztec_sentinel', { lastProcessedSlot: '10' }, 900);
+  repository.recordSourceFailure('aztec_sentinel', 'sentinel unavailable', 1_000);
+  const api = createApi(repository);
+  try {
+    const health = api.buildHealth().body;
+    assert.equal(health.sources.aztec.status, 'degraded');
+    assert.equal(health.sources.aztecSentinel.status, 'degraded');
+    assert.equal(health.sources.aztecOffenses.status, 'healthy');
+  } finally {
+    repository.close();
+  }
+});
+
 function createApi(repository, overrides = {}) {
   return new CollectorApiServer({
     repository,

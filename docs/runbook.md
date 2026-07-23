@@ -36,6 +36,18 @@ one Ethereum RPC. Keep the admin RPC private. Choose
 `L1_SLASH_LOG_LOOKBACK_BLOCKS` before first start; it bounds only the initial
 confirmed-log history. Later scans resume from SQLite.
 
+Sentinel duty indexing checks sync every 60 seconds and quietly indexes a
+three-epoch window on first start. It fetches one confirmed L1 committee and
+exact-range stats only for that committee when a new epoch closes; idle polls
+make neither call. `AZTEC_SENTINEL_LOOKBACK_EPOCHS` applies to both the L1
+committee and Aztec history sides of catch-up. The defaults are 3 epochs,
+8 concurrent validator requests, and a 2 MiB per-validator response limit.
+Override `AZTEC_SENTINEL_POLL_INTERVAL_MS`,
+`AZTEC_SENTINEL_LOOKBACK_EPOCHS`,
+`AZTEC_SENTINEL_VALIDATOR_CONCURRENCY`, or
+`AZTEC_SENTINEL_VALIDATOR_MAX_RESPONSE_BYTES` only for an observed node or RPC
+constraint. The fresh-switch script preserves these settings.
+
 Telegram and Web Push are independently optional. Create one Telegram bot or
 generate a stable VAPID keypair:
 

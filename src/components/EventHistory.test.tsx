@@ -29,6 +29,25 @@ describe('Pingme journal cards', () => {
             title: 'Slashing payload proposed',
             body: '4 sequencers entered the payload.',
             offense: null,
+            nodeEvidence: [{
+                kind: 'slash_offense',
+                sequencer: targets[0],
+                epoch: '772',
+                offenseId: 'offense-1',
+                offenseType: 3,
+                offenseTypeName: 'inactivity',
+                epochOrSlot: '772',
+                timeUnit: 'epoch',
+                amount: '2000000000000000000000',
+                firstSeenAt: '2026-07-22T09:00:00.000Z',
+                missed: null,
+                total: null,
+                firstMissedSlot: null,
+                lastMissedSlot: null,
+                inactiveStreak: null,
+                slashableThreshold: null,
+                targetPercentage: null,
+            }],
             l1: {
                 chainId: 1,
                 role: 'active',
@@ -57,7 +76,8 @@ describe('Pingme journal cards', () => {
         expect(markup).toContain('L1 · confirmed');
         expect(markup).toContain('Show all 4 targets');
         for (const target of targets) expect(markup).toContain(`Open ${target} on Dashtec`);
-        expect(markup).toContain('Reason: not encoded on L1');
+        expect(markup).toContain('L1 reason: not encoded · matched node evidence below');
+        expect(markup).toContain('Node evidence: Inactivity · epoch 772');
         expect(markup).toContain('Active round 195');
         expect(markup).toContain('Target epochs 772–773');
         expect(markup).toContain('Execution window: slot 28672');
@@ -89,6 +109,7 @@ describe('Pingme journal cards', () => {
                 offenseRound: '208',
                 proposalRound: '210',
             },
+            nodeEvidence: [],
             l1: null,
             occurredAt: '2026-07-22T13:34:33.502Z',
         };

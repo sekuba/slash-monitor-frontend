@@ -414,7 +414,20 @@ export class CollectorApiServer {
 
   buildBaseStatus() {
     const now = this.now();
-    const aztec = sourceHealthFromOffenseSync(this.repository.getSyncState(), this.staleAfterMs, now);
+    const aztecOffenses = sourceHealthFromOffenseSync(
+      this.repository.getSyncState(),
+      this.staleAfterMs,
+      now,
+    );
+    const aztecSentinelState = this.repository.getSourceState('aztec_sentinel');
+    const aztecSentinel = sourceHealth(
+      aztecSentinelState,
+      Math.max(this.staleAfterMs, 3 * 60_000),
+      now,
+    );
+    const aztec = aztecSentinelState
+      ? combineSourceHealth([aztecOffenses, aztecSentinel])
+      : aztecOffenses;
     const l1SnapshotState = this.repository.getSourceState('l1');
     const l1SlashLogState = this.repository.getSourceState('l1_slash_logs');
     const l1 = l1SlashLogState
@@ -451,7 +464,7 @@ export class CollectorApiServer {
       status,
       generatedAt: toIso(now),
       network: this.network,
-      sources: { l1, aztec, telegram, webPush },
+      sources: { l1, aztec, aztecOffenses, aztecSentinel, telegram, webPush },
       delivery,
     };
   }

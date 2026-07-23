@@ -8,7 +8,7 @@ Monitor (browser) ── public Ethereum RPC ── canonical Aztec contracts
 
 PINGME (browser) ── HTTP API ── backend ┬─ Aztec node + admin RPC
                                        ├─ Ethereum RPC
-                                       ├─ SQLite journal + outbox
+                                       ├─ SQLite duty index + journal + outbox
                                        └─ Telegram / Web Push
 ```
 
@@ -29,10 +29,14 @@ of being replaced with cached data presented as fresh.
 PINGME manages address watches and displays the backend event journal. The
 backend owns alert continuity because a browser may sleep or be closed.
 
-There are two event sources:
+There are three event sources:
 
 - `aztec_node` events are early, node-local offense observations. They are
   useful positive signals but are always `pending`.
+- `aztec_sentinel` events are bounded precursor signals: the first observed
+  miss in an epoch and a completed duty-bearing epoch above the configured
+  inactivity target. The database keeps every duty, while alert volume stays
+  bounded to at most these two transitions per sequencer and epoch.
 - `ethereum_l1` events come from coherently pinned canonical contract reads or
   confirmed `Slashed` logs. They are `confirmed`.
 
@@ -41,12 +45,33 @@ admin results. It retains prior state when a source fails. An offense can
 disappear only after a ready, fresh, non-regressing node cursor advances past
 that offense's slot or epoch.
 
+Sentinel collection is forward-first and epoch-gated. Minute polls check node
+sync, but make no stats or committee calls until an epoch is ready after both
+the node's two-slot processing lag and configured epoch-end buffer. The
+collector then resolves that epoch's committee at its already-confirmed L1
+block and issues bounded exact-range `aztec_getValidatorStats` calls only for
+those members. Thus work scales with committee size, not the registered
+validator set.
+
+The same three-epoch default window bounds L1 committee lookup and Aztec node
+history lookup on initial start or after a cursor gap. Committee membership is
+persisted even for zero-duty members; every returned node aggregate is checked
+against its exact slot history. A gap beyond the window starts a new coverage
+generation so unknown epochs cannot extend a precursor streak. The admin
+offense feed remains authoritative for actual offense registration.
+
 The L1 scanner resolves active, pending, and still-authorized legacy slashing
 stacks. It distinguishes a round's timing window from the Slasher's global
 pause: delayed, protected-through-scheduled-expiry, vetoed, and currently
 executable are not interchangeable states. Actual stake removed is reported
 from confirmed `Slashed(attester, amount)` logs, not inferred from a proposed
 payload amount.
+
+L1 vote words allocate two bits per target to slash units; they do not encode
+offense type. When an L1 round mentions an address, the journal therefore
+attaches separately labelled node evidence only when the address and target
+epoch match exactly and the node observation predates the L1 event. Multiple
+offenses or precursor records can be retained for one target.
 
 Confirmed-log scanning uses a durable block/hash checkpoint, bounded initial
 lookback, overlapping reads, and reorg rewind. Orphaned unsent alerts are

@@ -2,6 +2,7 @@ import path from 'node:path';
 import { createECDH } from 'node:crypto';
 
 const DEFAULT_ADMIN_POLL_INTERVAL_MS = 15_000;
+const DEFAULT_SENTINEL_POLL_INTERVAL_MS = 60_000;
 const DEFAULT_L1_POLL_INTERVAL_MS = 30_000;
 const DEFAULT_DATABASE_PATH = './data/slashmon.sqlite';
 const NETWORK_DEFAULTS = {
@@ -46,6 +47,34 @@ export function loadConfig(env = process.env, cwd = process.cwd()) {
     withdrawAfterMissedPolls: 3,
     maxOffensesPerPoll: 100_000,
     maxResponseBytes: 2 * 1024 * 1024,
+    maxSingleValidatorStatsResponseBytes: readInteger(
+      env,
+      'AZTEC_SENTINEL_VALIDATOR_MAX_RESPONSE_BYTES',
+      2 * 1024 * 1024,
+      1024,
+      16 * 1024 * 1024,
+    ),
+    sentinelPollIntervalMs: readInteger(
+      env,
+      'AZTEC_SENTINEL_POLL_INTERVAL_MS',
+      DEFAULT_SENTINEL_POLL_INTERVAL_MS,
+      5_000,
+      60 * 60_000,
+    ),
+    sentinelLookbackEpochs: readInteger(
+      env,
+      'AZTEC_SENTINEL_LOOKBACK_EPOCHS',
+      3,
+      1,
+      24,
+    ),
+    sentinelValidatorConcurrency: readInteger(
+      env,
+      'AZTEC_SENTINEL_VALIDATOR_CONCURRENCY',
+      8,
+      1,
+      128,
+    ),
 
     l1RpcUrls,
     l1ChainId: networkDefaults.chainId,

@@ -21,6 +21,10 @@ test('loadConfig provides a complete local configuration', () => {
   assert.equal(config.l1ChainId, 1);
   assert.equal(config.l1RegistryAddress, '0x35b22e09Ee0390539439E24f06Da43D83f90e298');
   assert.equal(config.l1SlashLogLookbackBlocks, 50_000);
+  assert.equal(config.sentinelPollIntervalMs, 60_000);
+  assert.equal(config.sentinelLookbackEpochs, 3);
+  assert.equal(config.sentinelValidatorConcurrency, 8);
+  assert.equal(config.maxSingleValidatorStatsResponseBytes, 2 * 1024 * 1024);
   assert.equal(config.telegram, undefined);
   assert.equal(config.vapid, undefined);
 });
@@ -59,6 +63,18 @@ test('operator-facing URLs and process settings are validated', () => {
     /must use the same browser origin/,
   );
   assert.throws(() => loadConfig({ BACKEND_PORT: '0' }), /between 1 and 65535/);
+  assert.throws(
+    () => loadConfig({ AZTEC_SENTINEL_POLL_INTERVAL_MS: '1000' }),
+    /between 5000 and 3600000/,
+  );
+  assert.throws(
+    () => loadConfig({ AZTEC_SENTINEL_LOOKBACK_EPOCHS: '0' }),
+    /between 1 and 24/,
+  );
+  assert.throws(
+    () => loadConfig({ AZTEC_SENTINEL_VALIDATOR_CONCURRENCY: '0' }),
+    /between 1 and 128/,
+  );
   assert.throws(() => loadConfig({ BACKEND_TRUST_PROXY: 'yes' }), /must be true or false/);
   assert.throws(() => loadConfig({ BACKEND_LOG_LEVEL: 'trace' }), /debug, info, warn, or error/);
 

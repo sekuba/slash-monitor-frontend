@@ -185,6 +185,47 @@ test('scanWithClient rejects a block replaced while its snapshot is being assemb
   );
 });
 
+test('epoch committee lookup is pinned to the accepted confirmed L1 block', async () => {
+  const scanner = createScanner();
+  let blockReads = 0;
+  const client = {
+    async getChainId() {
+      return 1;
+    },
+    async getBlock({ blockNumber }) {
+      assert.equal(blockNumber, 100n);
+      blockReads += 1;
+      return { number: blockNumber, hash: BLOCK_HASH, timestamp: 988n };
+    },
+    async getBytecode({ address, blockNumber }) {
+      assert.equal(address, ROLLUP);
+      assert.equal(blockNumber, 100n);
+      return '0x01';
+    },
+    async readContract({ address, functionName, args, blockNumber }) {
+      assert.equal(address, ROLLUP);
+      assert.equal(functionName, 'getEpochCommittee');
+      assert.deepEqual(args, [42n]);
+      assert.equal(blockNumber, 100n);
+      return [TARGET, PROPOSER];
+    },
+  };
+
+  assert.deepEqual(await scanner.getEpochCommitteeWithClient(client, {
+    epoch: '42',
+    rollupAddress: ROLLUP,
+    blockNumber: '100',
+    blockHash: BLOCK_HASH,
+  }), {
+    epoch: '42',
+    committee: [TARGET.toLowerCase(), PROPOSER.toLowerCase()],
+    rollupAddress: ROLLUP.toLowerCase(),
+    blockNumber: '100',
+    blockHash: BLOCK_HASH,
+  });
+  assert.equal(blockReads, 2);
+});
+
 test('scanWithClient isolates a broken pending stack and marks source coverage degraded', async () => {
   const snapshot = await createScanner().scanWithClient(fakeL1Client({ brokenPendingStack: true }));
 

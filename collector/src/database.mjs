@@ -8,7 +8,7 @@ import {
   WARNING_DELIVERY_LIFETIME_MS,
 } from './delivery-policy.mjs';
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 3;
 
 const HOUR_MS = 60 * 60_000;
 const DAY_MS = 24 * HOUR_MS;
@@ -16,6 +16,23 @@ const MAX_WATCHLISTS = 50_000;
 const MAX_UNCONNECTED_WATCHLISTS = 1_000;
 const MAX_DELIVERY_ENDPOINTS = 100_000;
 const MAX_UNVERIFIED_ENDPOINTS = 2_000;
+const VALIDATOR_DUTY_STATUSES = new Set([
+  'checkpoint-mined',
+  'checkpoint-valid',
+  'checkpoint-invalid',
+  'checkpoint-unvalidated',
+  'checkpoint-missed',
+  'blocks-missed',
+  'attestation-sent',
+  'attestation-missed',
+]);
+const MISSED_DUTY_STATUSES = new Set([
+  'checkpoint-invalid',
+  'checkpoint-unvalidated',
+  'checkpoint-missed',
+  'blocks-missed',
+  'attestation-missed',
+]);
 
 export const NOTIFICATION_TEST_COOLDOWN_MS = 60_000;
 export const NOTIFICATION_TEST_RETENTION_MS = 7 * DAY_MS;
@@ -73,8 +90,11 @@ export class OffenseRepository {
     if (version === SCHEMA_VERSION) {
       const currentSchema = this.db.prepare(`
         SELECT COUNT(*) AS count FROM sqlite_master
-        WHERE type = 'table' AND name IN ('offenses', 'watchlists', 'events', 'deliveries')
-      `).get().count === 4;
+        WHERE type = 'table' AND name IN (
+          'offenses', 'watchlists', 'events', 'deliveries',
+          'validator_duties', 'validator_epoch_performance', 'validator_indexed_epochs'
+        )
+      `).get().count === 7;
       const offenseColumns = currentSchema
         ? this.db.prepare('PRAGMA table_info(offenses)').all().map((column) => column.name)
         : [];
@@ -109,6 +129,53 @@ export class OffenseRepository {
       );
       CREATE INDEX offenses_status_last_seen_idx ON offenses(status, last_seen_at DESC);
       CREATE INDEX offenses_sequencer_idx ON offenses(sequencer, last_seen_at DESC);
+
+      CREATE TABLE validator_duties (
+        sequencer TEXT NOT NULL,
+        slot INTEGER NOT NULL,
+        epoch INTEGER NOT NULL,
+        status TEXT NOT NULL CHECK (status IN (
+          'checkpoint-mined', 'checkpoint-valid', 'checkpoint-invalid',
+          'checkpoint-unvalidated', 'checkpoint-missed', 'blocks-missed',
+          'attestation-sent', 'attestation-missed'
+        )),
+        missed INTEGER NOT NULL CHECK (missed IN (0, 1)),
+        first_seen_at INTEGER NOT NULL,
+        PRIMARY KEY(sequencer, slot)
+      );
+      CREATE INDEX validator_duties_epoch_idx
+        ON validator_duties(epoch, sequencer);
+
+      CREATE TABLE validator_indexed_epochs (
+        epoch INTEGER PRIMARY KEY,
+        from_slot INTEGER NOT NULL,
+        to_slot INTEGER NOT NULL,
+        committee_json TEXT NOT NULL,
+        committee_size INTEGER NOT NULL,
+        l1_block_number TEXT NOT NULL,
+        l1_block_hash TEXT NOT NULL,
+        node_last_processed_slot INTEGER NOT NULL,
+        coverage_generation INTEGER NOT NULL,
+        indexed_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE validator_epoch_performance (
+        sequencer TEXT NOT NULL,
+        epoch INTEGER NOT NULL,
+        missed INTEGER NOT NULL,
+        total INTEGER NOT NULL,
+        first_missed_slot INTEGER,
+        last_missed_slot INTEGER,
+        inactive INTEGER NOT NULL CHECK (inactive IN (0, 1)),
+        inactivity_target REAL NOT NULL,
+        inactive_streak INTEGER NOT NULL,
+        slashable_threshold INTEGER NOT NULL,
+        coverage_generation INTEGER NOT NULL DEFAULT 0,
+        finalized_at INTEGER NOT NULL,
+        PRIMARY KEY(sequencer, epoch)
+      );
+      CREATE INDEX validator_epoch_performance_epoch_idx
+        ON validator_epoch_performance(epoch, sequencer);
 
       CREATE TABLE sync_state (
         singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -273,7 +340,7 @@ export class OffenseRepository {
       CREATE INDEX l1_slash_logs_canonical_block_idx
         ON l1_slash_logs(network, canonical, block_number);
 
-      PRAGMA user_version = 1;
+      PRAGMA user_version = 3;
       COMMIT;
     `);
   }
@@ -547,12 +614,269 @@ export class OffenseRepository {
     return { ...row, metadata: parseJson(row.metadataJson, {}) };
   }
 
+  getValidatorIndexCursor() {
+    const row = this.db.prepare(`
+      SELECT epoch, coverage_generation AS coverageGeneration
+      FROM validator_indexed_epochs
+      ORDER BY epoch DESC
+      LIMIT 1
+    `).get();
+    return row ? { epoch: Number(row.epoch), coverageGeneration: Number(row.coverageGeneration) } : undefined;
+  }
+
+  /**
+   * Atomically persist one complete, L1-confirmed committee epoch. Membership
+   * comes from L1, so even members with no recorded status receive a 0/0 row.
+   * Returned node epoch aggregates are used as a completeness proof and must
+   * exactly match the bounded slot history.
+   */
+  recordValidatorEpoch(epochSnapshot, inactivityConfig, {
+    epochDuration,
+    network,
+    observedAt = Date.now(),
+    bootstrap = false,
+    coverageGeneration = 0,
+  }) {
+    const duration = safePositiveInteger(epochDuration, 'epochDuration');
+    const epoch = safeUnsignedInteger(epochSnapshot?.epoch, 'validator epoch');
+    const fromSlot = safeUnsignedInteger(epochSnapshot?.fromSlot, 'validator epoch fromSlot');
+    const toSlot = safeUnsignedInteger(epochSnapshot?.toSlot, 'validator epoch toSlot');
+    const expectedFromSlot = epoch * duration;
+    const expectedToSlot = expectedFromSlot + duration - 1;
+    if (
+      !Number.isSafeInteger(expectedFromSlot) ||
+      !Number.isSafeInteger(expectedToSlot) ||
+      fromSlot !== expectedFromSlot ||
+      toSlot !== expectedToSlot
+    ) {
+      throw new Error(`validator epoch ${epoch} does not match its exact slot range`);
+    }
+    const committee = Array.isArray(epochSnapshot?.committee)
+      ? epochSnapshot.committee.map(normalizeSequencer)
+      : [];
+    if (committee.length === 0 || committee.length > 4_096) {
+      throw new Error('validator epoch committee must contain between 1 and 4096 members');
+    }
+    if (new Set(committee).size !== committee.length) {
+      throw new Error(`validator epoch ${epoch} committee contains duplicate members`);
+    }
+    const l1BlockNumber = String(safeUnsignedBigIntString(
+      epochSnapshot?.l1BlockNumber,
+      'validator epoch L1 block number',
+    ));
+    const l1BlockHash = normalizeHash(epochSnapshot?.l1BlockHash, 'validator epoch L1 block hash');
+    const generation = safeUnsignedInteger(coverageGeneration, 'coverageGeneration');
+    const targetPercentage = Number(inactivityConfig?.targetPercentage);
+    if (!Number.isFinite(targetPercentage) || targetPercentage < 0 || targetPercentage > 1) {
+      throw new Error('inactivity target percentage must be between 0 and 1');
+    }
+    const threshold = safePositiveInteger(
+      inactivityConfig?.consecutiveEpochThreshold,
+      'inactivity consecutive epoch threshold',
+    );
+    if (!Array.isArray(epochSnapshot?.validators)) {
+      throw new Error('validator epoch snapshot must contain validator responses');
+    }
+
+    const committeeSet = new Set(committee);
+    const validators = new Map();
+    let minimumProcessedSlot;
+    let confirmedEpochPerformance = 0;
+    for (const response of epochSnapshot.validators) {
+      const sequencer = normalizeSequencer(response?.sequencer);
+      if (!committeeSet.has(sequencer)) {
+        throw new Error(`validator response ${sequencer} is not in the L1 committee`);
+      }
+      if (validators.has(sequencer)) {
+        throw new Error(`validator epoch ${epoch} contains duplicate response ${sequencer}`);
+      }
+      const processedSlot = safeUnsignedInteger(
+        response?.lastProcessedSlot,
+        `validator lastProcessedSlot for ${sequencer}`,
+      );
+      if (processedSlot < toSlot) {
+        throw new Error(`Aztec sentinel has not processed epoch ${epoch} for ${sequencer}`);
+      }
+      minimumProcessedSlot = minimumProcessedSlot === undefined
+        ? processedSlot
+        : Math.min(minimumProcessedSlot, processedSlot);
+      if (!Array.isArray(response.history) || !Array.isArray(response.allTimeEpochPerformance)) {
+        throw new Error(`validator response ${sequencer} is incomplete`);
+      }
+      const seenSlots = new Set();
+      const history = response.history.map((observation) => {
+        const slot = safeUnsignedInteger(observation?.slot, `validator duty slot for ${sequencer}`);
+        if (slot < fromSlot || slot > toSlot || seenSlots.has(slot)) {
+          throw new Error(`validator duty history for ${sequencer} is not an exact unique epoch range`);
+        }
+        seenSlots.add(slot);
+        return { slot, status: validatorDutyStatus(observation?.status) };
+      });
+      const computed = summarizeValidatorHistory(history);
+      const nodePerformance = response.allTimeEpochPerformance.find(
+        (candidate) => safeUnsignedInteger(candidate?.epoch, `validator performance epoch for ${sequencer}`) === epoch,
+      );
+      if (!nodePerformance) {
+        throw new Error(`Aztec sentinel has not evaluated epoch ${epoch} for ${sequencer}`);
+      }
+      const nodeMissed = safeUnsignedInteger(
+        nodePerformance.missed,
+        `validator missed duties for ${sequencer}`,
+      );
+      const nodeTotal = safeUnsignedInteger(
+        nodePerformance.total,
+        `validator total duties for ${sequencer}`,
+      );
+      if (nodeMissed !== computed.missed || nodeTotal !== computed.total) {
+        throw new Error(`Aztec validator history disagrees with epoch performance for ${sequencer}`);
+      }
+      confirmedEpochPerformance += 1;
+      validators.set(sequencer, { sequencer, history, ...computed });
+    }
+    // Undefined single-validator responses are legitimate for members whose
+    // entire retained history is empty. At least one defined member must prove
+    // that the node has closed this epoch before those members can become 0/0.
+    if (confirmedEpochPerformance === 0 || minimumProcessedSlot === undefined) {
+      throw new Error(`Aztec sentinel returned no evaluated validator data for epoch ${epoch}`);
+    }
+
+    return this.transaction(() => {
+      if (this.db.prepare('SELECT 1 FROM validator_indexed_epochs WHERE epoch = ?').get(epoch)) {
+        throw new Error(`validator epoch ${epoch} is already indexed`);
+      }
+      const insertDuty = this.db.prepare(`
+        INSERT INTO validator_duties (
+          sequencer, slot, epoch, status, missed, first_seen_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      const insertPerformance = this.db.prepare(`
+        INSERT INTO validator_epoch_performance (
+          sequencer, epoch, missed, total, first_missed_slot, last_missed_slot,
+          inactive, inactivity_target, inactive_streak, slashable_threshold,
+          coverage_generation, finalized_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const previousPerformance = this.db.prepare(`
+        SELECT inactive, inactive_streak AS inactiveStreak
+        FROM validator_epoch_performance
+        WHERE sequencer = ? AND epoch < ? AND coverage_generation = ?
+        ORDER BY epoch DESC
+        LIMIT 1
+      `);
+      let dutiesInserted = 0;
+      let inactiveEpochs = 0;
+      let events = 0;
+      for (const sequencer of committee) {
+        const performance = validators.get(sequencer) ?? {
+          history: [],
+          missed: 0,
+          total: 0,
+          firstMissedSlot: null,
+          lastMissedSlot: null,
+        };
+        for (const observation of performance.history) {
+          const missed = Number(isMissedDuty(observation.status));
+          insertDuty.run(
+            sequencer,
+            observation.slot,
+            epoch,
+            observation.status,
+            missed,
+            observedAt,
+          );
+          dutiesInserted += 1;
+        }
+        const inactive = performance.total > 0 &&
+          performance.missed / performance.total >= targetPercentage;
+        const prior = inactive
+          ? previousPerformance.get(sequencer, epoch, generation)
+          : undefined;
+        const inactiveStreak = inactive
+          ? prior?.inactive ? Number(prior.inactiveStreak) + 1 : 1
+          : 0;
+        insertPerformance.run(
+          sequencer,
+          epoch,
+          performance.missed,
+          performance.total,
+          performance.firstMissedSlot,
+          performance.lastMissedSlot,
+          Number(inactive),
+          targetPercentage,
+          inactiveStreak,
+          threshold,
+          generation,
+          observedAt,
+        );
+        inactiveEpochs += Number(inactive);
+        if (!bootstrap && performance.firstMissedSlot !== null) {
+          events += Number(this.insertEvent(inactivityFirstMissEvent({
+            sequencer,
+            epoch,
+            slot: performance.firstMissedSlot,
+            status: performance.history.find(
+              (observation) => observation.slot === performance.firstMissedSlot,
+            )?.status,
+          }, network, observedAt), [sequencer]).inserted);
+        }
+        if (!bootstrap && inactive) {
+          events += Number(this.insertEvent(inactivityEpochEvent({
+            sequencer,
+            epoch,
+            missed: performance.missed,
+            total: performance.total,
+            firstMissedSlot: performance.firstMissedSlot,
+            lastMissedSlot: performance.lastMissedSlot,
+            inactiveStreak,
+            threshold,
+            targetPercentage,
+          }, network, observedAt), [sequencer]).inserted);
+        }
+      }
+      this.db.prepare(`
+        INSERT INTO validator_indexed_epochs (
+          epoch, from_slot, to_slot, committee_json, committee_size,
+          l1_block_number, l1_block_hash, node_last_processed_slot,
+          coverage_generation, indexed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        epoch,
+        fromSlot,
+        toSlot,
+        JSON.stringify(committee),
+        committee.length,
+        l1BlockNumber,
+        l1BlockHash,
+        minimumProcessedSlot,
+        generation,
+        observedAt,
+      );
+      return {
+        epoch: String(epoch),
+        committeeSize: committee.length,
+        validatorsWithHistory: validators.size,
+        dutiesInserted,
+        epochsFinalized: committee.length,
+        inactiveEpochs,
+        events,
+        nodeLastProcessedSlot: String(minimumProcessedSlot),
+        coverageGeneration: generation,
+      };
+    });
+  }
+
   recordEvent(event, targets = []) {
     return this.transaction(() => this.insertEvent(event, targets));
   }
 
   insertEvent(event, targets = [], directEndpointIds = undefined) {
     const observedAt = Number(event.observedAt ?? Date.now());
+    const normalizedTargets = [...new Set(targets.map((value) => String(value).toLowerCase()))];
+    const eventData = this.attachNodeEvidence(
+      event,
+      normalizedTargets,
+      observedAt,
+    );
     const result = this.db.prepare(`
       INSERT OR IGNORE INTO events (
         id, network, source, type, severity, title, body, data_json, observed_at, created_at
@@ -565,13 +889,12 @@ export class OffenseRepository {
       event.severity,
       event.title,
       event.body,
-      JSON.stringify(event.data ?? {}),
+      JSON.stringify(eventData),
       observedAt,
       Number(event.createdAt ?? observedAt),
     );
     if (Number(result.changes) === 0) return { inserted: false, queued: 0 };
 
-    const normalizedTargets = [...new Set(targets.map((value) => String(value).toLowerCase()))];
     const insertTarget = this.db.prepare('INSERT OR IGNORE INTO event_targets(event_id, sequencer) VALUES (?, ?)');
     for (const target of normalizedTargets) insertTarget.run(event.id, target);
 
@@ -606,6 +929,101 @@ export class OffenseRepository {
       queued += Number(insertDelivery.run(deliveryId, event.id, endpoint.id, observedAt, observedAt, observedAt).changes);
     }
     return { inserted: true, queued };
+  }
+
+  attachNodeEvidence(event, targets, observedAt) {
+    const data = event.data ?? {};
+    const isL1 = event.source === 'ethereum_l1' || data.originSource === 'ethereum_l1';
+    if (!isL1 || targets.length === 0 || !Array.isArray(data.targetEpochs)) return data;
+    let epochDuration;
+    let targetEpochs;
+    try {
+      epochDuration = safePositiveInteger(data.epochDuration, 'L1 event epochDuration');
+      targetEpochs = [...new Set(data.targetEpochs.map((epoch) =>
+        safeUnsignedInteger(epoch, 'L1 event target epoch')
+      ))];
+    } catch {
+      return data;
+    }
+    if (targetEpochs.length === 0) return data;
+
+    const targetPlaceholders = targets.map(() => '?').join(',');
+    const epochPlaceholders = targetEpochs.map(() => '?').join(',');
+    const evidence = [];
+    const offenseRows = this.db.prepare(`
+      SELECT id, sequencer, amount, offense_type AS offenseType,
+        offense_type_name AS offenseTypeName, epoch_or_slot AS epochOrSlot,
+        time_unit AS timeUnit, first_seen_at AS firstSeenAt
+      FROM offenses
+      WHERE sequencer IN (${targetPlaceholders}) AND first_seen_at <= ?
+    `).all(...targets, observedAt);
+    const targetEpochSet = new Set(targetEpochs);
+    for (const offense of offenseRows) {
+      let epoch;
+      try {
+        const position = safeUnsignedInteger(offense.epochOrSlot, 'stored offense position');
+        if (offense.timeUnit === 'epoch') epoch = position;
+        else if (offense.timeUnit === 'slot') epoch = Math.floor(position / epochDuration);
+        else continue;
+      } catch {
+        continue;
+      }
+      if (!targetEpochSet.has(epoch)) continue;
+      evidence.push({
+        kind: 'slash_offense',
+        sequencer: offense.sequencer,
+        epoch: String(epoch),
+        offenseId: offense.id,
+        offenseType: Number(offense.offenseType),
+        offenseTypeName: offense.offenseTypeName,
+        epochOrSlot: String(offense.epochOrSlot),
+        timeUnit: offense.timeUnit,
+        amount: String(offense.amount),
+        firstSeenAt: toIso(offense.firstSeenAt),
+      });
+    }
+
+    const performanceRows = this.db.prepare(`
+      SELECT sequencer, epoch, missed, total, first_missed_slot AS firstMissedSlot,
+        last_missed_slot AS lastMissedSlot, inactive_streak AS inactiveStreak,
+        slashable_threshold AS slashableThreshold, inactivity_target AS targetPercentage,
+        finalized_at AS finalizedAt
+      FROM validator_epoch_performance
+      WHERE inactive = 1 AND finalized_at <= ?
+        AND sequencer IN (${targetPlaceholders})
+        AND epoch IN (${epochPlaceholders})
+    `).all(observedAt, ...targets, ...targetEpochs);
+    for (const performance of performanceRows) {
+      evidence.push({
+        kind: 'inactivity_epoch',
+        sequencer: performance.sequencer,
+        epoch: String(performance.epoch),
+        offenseId: null,
+        offenseType: null,
+        offenseTypeName: 'inactivity precursor',
+        epochOrSlot: String(performance.epoch),
+        timeUnit: 'epoch',
+        amount: null,
+        firstSeenAt: toIso(performance.finalizedAt),
+        missed: Number(performance.missed),
+        total: Number(performance.total),
+        firstMissedSlot: performance.firstMissedSlot === null
+          ? null
+          : String(performance.firstMissedSlot),
+        lastMissedSlot: performance.lastMissedSlot === null
+          ? null
+          : String(performance.lastMissedSlot),
+        inactiveStreak: Number(performance.inactiveStreak),
+        slashableThreshold: Number(performance.slashableThreshold),
+        targetPercentage: Number(performance.targetPercentage),
+      });
+    }
+    evidence.sort((left, right) =>
+      left.sequencer.localeCompare(right.sequencer) ||
+      Number(BigInt(left.epoch) - BigInt(right.epoch)) ||
+      left.kind.localeCompare(right.kind)
+    );
+    return evidence.length > 0 ? { ...data, nodeEvidence: evidence } : data;
   }
 
   listEvents({ network, addresses = [], sources = [], cursor, limit = 50 } = {}) {
@@ -2254,6 +2672,73 @@ function pendingEvent(type, offense, network, observedAt, explicitId, timing = {
   };
 }
 
+function inactivityFirstMissEvent(miss, network, observedAt) {
+  return {
+    id: stableId('event', network, 'inactivity_first_miss', miss.sequencer, miss.epoch),
+    network,
+    source: 'aztec_sentinel',
+    type: 'inactivity_first_miss',
+    severity: 'warning',
+    title: 'First missed duty observed',
+    body: `${shortAddress(miss.sequencer)} missed a duty in epoch ${miss.epoch}; this is precursor evidence, not a registered slash offense.`,
+    data: {
+      certainty: 'pending',
+      sequencer: miss.sequencer,
+      offenseType: null,
+      offenseTypeName: 'inactivity precursor',
+      epochOrSlot: String(miss.epoch),
+      timeUnit: 'epoch',
+      epoch: String(miss.epoch),
+      slot: String(miss.slot),
+      dutyStatus: miss.status,
+    },
+    observedAt,
+  };
+}
+
+function inactivityEpochEvent(performance, network, observedAt) {
+  const thresholdReached = performance.inactiveStreak >= performance.threshold;
+  return {
+    id: stableId(
+      'event',
+      network,
+      'inactivity_epoch_completed',
+      performance.sequencer,
+      performance.epoch,
+    ),
+    network,
+    source: 'aztec_sentinel',
+    type: 'inactivity_epoch_completed',
+    severity: 'warning',
+    title: thresholdReached
+      ? 'Duty-bearing inactivity streak reached threshold'
+      : 'Inactive duty epoch completed',
+    body: `${shortAddress(performance.sequencer)} missed ${performance.missed}/${performance.total} observed duties in epoch ${performance.epoch}; duty-bearing inactive streak ${performance.inactiveStreak}/${performance.threshold}.`,
+    data: {
+      certainty: 'pending',
+      sequencer: performance.sequencer,
+      offenseType: null,
+      offenseTypeName: 'inactivity precursor',
+      epochOrSlot: String(performance.epoch),
+      timeUnit: 'epoch',
+      epoch: String(performance.epoch),
+      missed: performance.missed,
+      total: performance.total,
+      firstMissedSlot: performance.firstMissedSlot === null
+        ? null
+        : String(performance.firstMissedSlot),
+      lastMissedSlot: performance.lastMissedSlot === null
+        ? null
+        : String(performance.lastMissedSlot),
+      inactiveStreak: performance.inactiveStreak,
+      slashableThreshold: performance.threshold,
+      targetPercentage: performance.targetPercentage,
+      thresholdReached,
+    },
+    observedAt,
+  };
+}
+
 function pendingEventCopy(type, offense) {
   const label = String(offense.offenseTypeName ?? 'unknown').replaceAll('_', ' ');
   const position = offense.timeUnit && offense.epochOrSlot !== undefined
@@ -2537,6 +3022,7 @@ function onchainEvent(type, round, network, observedAt, snapshot, explicitId, ex
       role,
       round: String(round.round),
       targetEpochs: round.targetEpochs ?? [],
+      epochDuration: snapshot.epochDuration ?? round.epochDuration ?? null,
       currentSlot: snapshot.currentSlot ?? round.currentSlot ?? null,
       currentEpoch: snapshot.currentEpoch ?? round.currentEpoch ?? null,
       executableSlot,
@@ -2822,6 +3308,73 @@ function safeBlockNumber(value, label) {
   }
   if (parsed < 0n || parsed > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error(`${label} is out of range`);
   return Number(parsed);
+}
+
+function safeUnsignedInteger(value, label) {
+  let parsed;
+  try {
+    parsed = BigInt(value);
+  } catch {
+    throw new Error(`${label} is invalid`);
+  }
+  if (parsed < 0n || parsed > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error(`${label} is out of range`);
+  }
+  return Number(parsed);
+}
+
+function safePositiveInteger(value, label) {
+  const parsed = safeUnsignedInteger(value, label);
+  if (parsed < 1) throw new Error(`${label} must be positive`);
+  return parsed;
+}
+
+function safeUnsignedBigIntString(value, label) {
+  let parsed;
+  try {
+    parsed = BigInt(value);
+  } catch {
+    throw new Error(`${label} is invalid`);
+  }
+  if (parsed < 0n) throw new Error(`${label} must be unsigned`);
+  return parsed.toString();
+}
+
+function summarizeValidatorHistory(history) {
+  let missed = 0;
+  let firstMissedSlot = null;
+  let lastMissedSlot = null;
+  for (const observation of history) {
+    if (!isMissedDuty(observation.status)) continue;
+    missed += 1;
+    firstMissedSlot = firstMissedSlot === null
+      ? observation.slot
+      : Math.min(firstMissedSlot, observation.slot);
+    lastMissedSlot = lastMissedSlot === null
+      ? observation.slot
+      : Math.max(lastMissedSlot, observation.slot);
+  }
+  return {
+    missed,
+    total: history.length,
+    firstMissedSlot,
+    lastMissedSlot,
+  };
+}
+
+function normalizeSequencer(value) {
+  return normalizeHexAddress(value, 'sequencer');
+}
+
+function validatorDutyStatus(value) {
+  if (!VALIDATOR_DUTY_STATUSES.has(value)) {
+    throw new Error(`validator duty status is invalid: ${String(value)}`);
+  }
+  return value;
+}
+
+function isMissedDuty(status) {
+  return MISSED_DUTY_STATUSES.has(status);
 }
 
 function normalizeHash(value, label) {

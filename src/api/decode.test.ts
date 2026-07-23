@@ -123,6 +123,18 @@ describe('Slashmon API decoders', () => {
                     transactionHash: `0x${'34'.repeat(32)}`,
                     payloadAddress: '0x00000000000000000000000000000000000000bb',
                     actions: [{ sequencer: address, amount: '2000000000000000000000' }],
+                    nodeEvidence: [{
+                        kind: 'slash_offense',
+                        sequencer: address,
+                        epoch: '772',
+                        offenseId: 'offense-1',
+                        offenseType: 3,
+                        offenseTypeName: 'inactivity',
+                        epochOrSlot: '772',
+                        timeUnit: 'epoch',
+                        amount: '2000000000000000000000',
+                        firstSeenAt: '2026-07-21T09:00:00.000Z',
+                    }],
                 },
                 occurredAt: '2026-07-21T10:00:00.000Z',
             },
@@ -132,6 +144,25 @@ describe('Slashmon API decoders', () => {
         expect(event.certainty).toBe('confirmed');
         expect(event.targets).toEqual([address]);
         expect(event.offense).toBeNull();
+        expect(event.nodeEvidence).toEqual([{
+            kind: 'slash_offense',
+            sequencer: address,
+            epoch: '772',
+            offenseId: 'offense-1',
+            offenseType: 3,
+            offenseTypeName: 'inactivity',
+            epochOrSlot: '772',
+            timeUnit: 'epoch',
+            amount: '2000000000000000000000',
+            firstSeenAt: '2026-07-21T09:00:00.000Z',
+            missed: null,
+            total: null,
+            firstMissedSlot: null,
+            lastMissedSlot: null,
+            inactiveStreak: null,
+            slashableThreshold: null,
+            targetPercentage: null,
+        }]);
         expect(event.l1).toEqual({
             chainId: 1,
             role: 'active',

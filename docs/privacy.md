@@ -10,6 +10,7 @@ The SQLite database contains:
 - watched network and sequencer addresses;
 - hashed management and one-time link tokens;
 - Telegram chat IDs or Web Push endpoints and encryption material;
+- per-sequencer public duty observations and completed inactivity ratios;
 - the public event journal, source checkpoints, and retry state.
 
 Slashmon never needs validator keys, seed phrases, wallet signatures, or an

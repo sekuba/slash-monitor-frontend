@@ -118,18 +118,12 @@ function EventTargets({ event }: { event: MonitorEvent }) {
                     const amount = event.l1?.actions.find((action) =>
                         action.sequencer.toLowerCase() === target.toLowerCase())?.amount;
                     return (
-                        <div key={target} className="min-w-0">
-                            <SequencerAddressLink
-                                address={target}
-                                chars={6}
-                                className="font-mono text-xs font-bold text-whisper-white"
-                            />
-                            {amount && (
-                                <span className="text-[0.68rem] font-bold text-whisper-white/55">
-                                    {formatAztec(amount)} AZTEC proposed
-                                </span>
-                            )}
-                        </div>
+                        <EventTarget
+                            key={target}
+                            event={event}
+                            target={target}
+                            amount={amount}
+                        />
                     );
                 })}
             </div>
@@ -143,23 +137,61 @@ function EventTargets({ event }: { event: MonitorEvent }) {
                             const amount = event.l1?.actions.find((action) =>
                                 action.sequencer.toLowerCase() === target.toLowerCase())?.amount;
                             return (
-                                <div key={target} className="min-w-0">
-                                    <SequencerAddressLink
-                                        address={target}
-                                        full
-                                        className="font-mono text-xs font-bold text-whisper-white"
-                                    />
-                                    {amount && (
-                                        <span className="text-[0.68rem] font-bold text-whisper-white/55">
-                                            {formatAztec(amount)} AZTEC proposed
-                                        </span>
-                                    )}
-                                </div>
+                                <EventTarget
+                                    key={target}
+                                    event={event}
+                                    target={target}
+                                    amount={amount}
+                                    full
+                                />
                             );
                         })}
                     </div>
                 </details>
             )}
+        </div>
+    );
+}
+
+function EventTarget({
+    event,
+    target,
+    amount,
+    full = false,
+}: {
+    event: MonitorEvent;
+    target: MonitorEvent['targets'][number];
+    amount?: string;
+    full?: boolean;
+}) {
+    const evidence = event.nodeEvidence.filter((item) =>
+        item.sequencer.toLowerCase() === target.toLowerCase());
+    return (
+        <div className="min-w-0">
+            <SequencerAddressLink
+                address={target}
+                chars={full ? undefined : 6}
+                full={full}
+                className="font-mono text-xs font-bold text-whisper-white"
+            />
+            {amount && (
+                <span className="text-[0.68rem] font-bold text-whisper-white/55">
+                    {formatAztec(amount)} AZTEC proposed
+                </span>
+            )}
+            {evidence.map((item) => (
+                <div
+                    key={`${item.kind}-${item.epoch}-${item.offenseId ?? 'precursor'}`}
+                    className="mt-1 text-[0.68rem] font-bold text-chartreuse"
+                >
+                    {item.kind === 'slash_offense'
+                        ? `Node evidence: ${humanize(item.offenseTypeName)} · epoch ${item.epoch}`
+                        : item.missed !== null && item.total !== null &&
+                            item.inactiveStreak !== null && item.slashableThreshold !== null
+                            ? `Node precursor: ${item.missed}/${item.total} duties missed · epoch ${item.epoch} · streak ${item.inactiveStreak}/${item.slashableThreshold}`
+                            : `Node precursor: ${humanize(item.offenseTypeName)} · epoch ${item.epoch}`}
+                </div>
+            ))}
         </div>
     );
 }
@@ -180,7 +212,11 @@ function EventFacts({ event }: { event: MonitorEvent }) {
     }
     if (event.l1) {
         const l1 = event.l1;
-        if (event.type !== 'l1_reorg_detected') facts.push('Reason: not encoded on L1');
+        if (event.type !== 'l1_reorg_detected') {
+            facts.push(event.nodeEvidence.length > 0
+                ? 'L1 reason: not encoded · matched node evidence below'
+                : 'Reason: not encoded on L1');
+        }
         if (l1.round) facts.push(`${humanize(l1.role ?? 'active')} round ${l1.round}`);
         if (l1.targetEpochs.length > 0) facts.push(`Target ${formatEpochRange(l1.targetEpochs)}`);
         if (l1.executableSlot) {

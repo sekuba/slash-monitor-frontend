@@ -45,8 +45,29 @@ export interface MonitorEvent {
     title: string;
     body: string;
     offense: EventOffense | null;
+    nodeEvidence: NodeEvidence[];
     l1: EventL1Context | null;
     occurredAt: string;
+}
+
+export interface NodeEvidence {
+    kind: 'slash_offense' | 'inactivity_epoch';
+    sequencer: Address;
+    epoch: string;
+    offenseId: string | null;
+    offenseType: number | null;
+    offenseTypeName: string;
+    epochOrSlot: string;
+    timeUnit: 'epoch' | 'slot';
+    amount: string | null;
+    firstSeenAt: string;
+    missed: number | null;
+    total: number | null;
+    firstMissedSlot: string | null;
+    lastMissedSlot: string | null;
+    inactiveStreak: number | null;
+    slashableThreshold: number | null;
+    targetPercentage: number | null;
 }
 
 export interface EventOffense {

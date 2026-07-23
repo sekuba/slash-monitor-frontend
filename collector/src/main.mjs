@@ -8,6 +8,7 @@ import { DeliveryWorker } from './delivery-worker.mjs';
 import { L1Collector } from './l1-collector.mjs';
 import { L1Scanner } from './l1-scanner.mjs';
 import { Logger, errorMessage } from './logger.mjs';
+import { SentinelCollector } from './sentinel-collector.mjs';
 import { TelegramBot } from './telegram-bot.mjs';
 
 async function main() {
@@ -32,6 +33,7 @@ async function main() {
     nodeApiKey: config.nodeApiKey,
     timeoutMs: config.requestTimeoutMs,
     maxResponseBytes: config.maxResponseBytes,
+    maxSingleValidatorStatsResponseBytes: config.maxSingleValidatorStatsResponseBytes,
     maxOffenses: config.maxOffensesPerPoll,
   });
   const offenseCollector = new OffenseCollector({
@@ -48,7 +50,6 @@ async function main() {
     withdrawAfterMissedPolls: config.withdrawAfterMissedPolls,
     logger,
   });
-
   const l1Scanner = new L1Scanner({
     rpcUrls: config.l1RpcUrls,
     chainId: config.l1ChainId,
@@ -65,6 +66,21 @@ async function main() {
     slashLogReorgRewindBlocks: config.l1SlashLogReorgRewindBlocks,
     slashLogProviderTimeoutMs: config.l1SlashLogProviderTimeoutMs,
   });
+  const sentinelCollector = new SentinelCollector({
+    client: adminClient,
+    committeeScanner: l1Scanner,
+    repository,
+    network: config.network,
+    expectedChainId: config.l1ChainId,
+    expectedRegistryAddress: config.l1RegistryAddress,
+    pollIntervalMs: config.sentinelPollIntervalMs,
+    maxBackoffMs: config.maxBackoffMs,
+    lookbackEpochs: config.sentinelLookbackEpochs,
+    validatorConcurrency: config.sentinelValidatorConcurrency,
+    maxStallMs: config.syncMaxL2StallMs,
+    logger,
+  });
+
   const l1Collector = new L1Collector({
     scanner: l1Scanner,
     repository,
@@ -140,6 +156,7 @@ async function main() {
 
   const workers = [
     ['aztec', offenseCollector],
+    ['aztec-sentinel', sentinelCollector],
     ['l1', l1Collector],
     ['delivery', deliveryWorker],
     ...(telegramBot ? [['telegram', telegramBot]] : []),

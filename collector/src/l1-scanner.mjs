@@ -10,6 +10,7 @@ import {
 } from './l1-abis.mjs';
 
 const MAX_RESOLVED_ROLLUPS = 256;
+const MAX_EPOCH_COMMITTEE_SIZE = 4_096;
 
 export class L1Scanner {
   constructor({
@@ -65,6 +66,95 @@ export class L1Scanner {
     this.now = now;
     this.nextProviderIndex = 0;
     this.nextLogProviderIndex = 0;
+    this.nextCommitteeProviderIndex = 0;
+  }
+
+  /**
+   * Resolve one historical committee against the exact confirmed L1 checkpoint
+   * already accepted by the normal L1 collector. The before/after hash checks
+   * prevent a provider from mixing a replacement block into the result.
+   */
+  async getEpochCommittee(checkpoint, signal) {
+    const errors = [];
+    for (let offset = 0; offset < this.rpcUrls.length; offset += 1) {
+      const providerIndex = (this.nextCommitteeProviderIndex + offset) % this.rpcUrls.length;
+      const timeoutSignal = AbortSignal.timeout(this.requestTimeoutMs);
+      const providerSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+      const client = this.clientFactory(this.rpcUrls[providerIndex], providerSignal, providerIndex);
+      try {
+        const result = await this.getEpochCommitteeWithClient(client, checkpoint);
+        this.nextCommitteeProviderIndex = providerIndex;
+        return result;
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        if (timeoutSignal.aborted) {
+          errors.push(`provider ${providerIndex + 1}: committee lookup timed out after ${this.requestTimeoutMs}ms`);
+          continue;
+        }
+        errors.push(`provider ${providerIndex + 1}: ${sanitizeRpcError(error)}`);
+      }
+    }
+    throw new Error(`Every configured L1 RPC failed the epoch committee lookup (${errors.join('; ')})`);
+  }
+
+  async getEpochCommitteeWithClient(client, checkpoint = {}) {
+    const epoch = requireUnsignedBigInt(checkpoint.epoch, 'committee epoch');
+    const blockNumber = requireUnsignedBigInt(checkpoint.blockNumber, 'committee L1 block number');
+    if (typeof checkpoint.blockHash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(checkpoint.blockHash)) {
+      throw new Error('committee L1 block hash must be a 32-byte hex value');
+    }
+    const blockHash = checkpoint.blockHash.toLowerCase();
+    const rollupAddress = getAddress(checkpoint.rollupAddress);
+    requireNonZero(rollupAddress, 'committee Rollup');
+
+    const actualChainId = await client.getChainId();
+    if (actualChainId !== this.chainId) {
+      throw new Error(`chain id ${actualChainId}, expected ${this.chainId}`);
+    }
+    const pinnedBlock = await client.getBlock({ blockNumber });
+    if (!pinnedBlock.hash || pinnedBlock.hash.toLowerCase() !== blockHash) {
+      throw new Error(`confirmed L1 committee checkpoint ${blockNumber} is no longer canonical`);
+    }
+    requireCode(
+      await client.getBytecode({ address: rollupAddress, blockNumber }),
+      'committee Rollup',
+      rollupAddress,
+    );
+    const rawCommittee = await read(
+      client,
+      rollupAddress,
+      rollupAbi,
+      'getEpochCommittee',
+      blockNumber,
+      [epoch],
+    );
+    if (!Array.isArray(rawCommittee) || rawCommittee.length === 0) {
+      throw new Error(`L1 returned an empty committee for epoch ${epoch}`);
+    }
+    if (rawCommittee.length > MAX_EPOCH_COMMITTEE_SIZE) {
+      throw new Error(
+        `L1 returned ${rawCommittee.length} committee members; maximum is ${MAX_EPOCH_COMMITTEE_SIZE}`,
+      );
+    }
+    const committee = rawCommittee.map((value) => {
+      const address = getAddress(value);
+      requireNonZero(address, 'committee member');
+      return address.toLowerCase();
+    });
+    if (new Set(committee).size !== committee.length) {
+      throw new Error(`L1 returned duplicate committee members for epoch ${epoch}`);
+    }
+    const verifiedBlock = await client.getBlock({ blockNumber });
+    if (!verifiedBlock.hash || verifiedBlock.hash.toLowerCase() !== blockHash) {
+      throw new Error(`confirmed L1 committee checkpoint ${blockNumber} changed during lookup`);
+    }
+    return {
+      epoch: epoch.toString(),
+      committee,
+      rollupAddress: rollupAddress.toLowerCase(),
+      blockNumber: blockNumber.toString(),
+      blockHash,
+    };
   }
 
   async scan(previous = {}, signal) {
@@ -826,6 +916,12 @@ function readOptionalBigInt(value) {
   } catch {
     return undefined;
   }
+}
+
+function requireUnsignedBigInt(value, label) {
+  const parsed = readOptionalBigInt(value);
+  if (parsed === undefined || parsed < 0n) throw new Error(`${label} must be an unsigned integer`);
+  return parsed;
 }
 
 function normalizeSlashLog(log, expectedEmitter) {
