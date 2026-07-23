@@ -101,7 +101,7 @@ export function loadConfig(env = process.env, cwd = process.cwd()) {
     l1SlashLogLookbackBlocks: readInteger(
       env,
       'L1_SLASH_LOG_LOOKBACK_BLOCKS',
-      50_000,
+      600,
       1,
       10_000_000,
     ),

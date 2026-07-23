@@ -34,7 +34,9 @@ sudoedit /etc/slashmon-backend.env
 Set the public PWA URL, its exact CORS origin, both Aztec endpoints, and at least
 one Ethereum RPC. Keep the admin RPC private. Choose
 `L1_SLASH_LOG_LOOKBACK_BLOCKS` before first start; it bounds only the initial
-confirmed-log history. Later scans resume from SQLite.
+confirmed-log history. Its default is 600 Ethereum blocks, approximately the
+current mainnet wall-clock span of three Aztec epochs with a small margin.
+Later scans resume from SQLite.
 
 Sentinel duty indexing checks sync every 60 seconds and quietly indexes a
 three-epoch window on first start. It fetches one confirmed L1 committee and

@@ -23,7 +23,7 @@ export class L1Scanner {
     maxHeadAgeMs = 15 * 60_000,
     maxHeadStallMs = 2 * 60_000,
     maxFutureSkewMs = 2 * 60_000,
-    slashLogLookbackBlocks = 50_000,
+    slashLogLookbackBlocks = 600,
     slashLogChunkSize = 1_000,
     slashLogOverlapBlocks = 12,
     slashLogReorgRewindBlocks = 128,

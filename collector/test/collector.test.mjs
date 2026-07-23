@@ -1,13 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { OffenseCollector } from '../src/collector.mjs';
+import { OffenseCollector, validateNodeIdentity } from '../src/collector.mjs';
 import { OffenseRepository } from '../src/database.mjs';
 import { parseOffenseSnapshot } from '../src/offenses.mjs';
 import { OFFENSE_A, OFFENSE_B, silentLogger } from './helpers.mjs';
 
 const REGISTRY = `0x${'a'.repeat(40)}`;
 const ROLLUP = `0x${'b'.repeat(40)}`;
+
+test('node identity comparisons ignore Ethereum address casing', () => {
+  assert.doesNotThrow(() => validateNodeIdentity({
+    l1ChainId: 1,
+    registryAddress: '0x35b22e09ee0390539439e24f06da43d83f90e298',
+    rollupAddress: ROLLUP,
+  }, {
+    expectedChainId: 1,
+    expectedRegistryAddress: '0x35b22e09Ee0390539439E24f06Da43D83f90e298',
+    canonicalRollupAddress: `0x${'B'.repeat(40)}`,
+  }));
+});
 
 test('collector retains data while the node is unavailable and recovers', async (t) => {
   const repository = new OffenseRepository(':memory:');

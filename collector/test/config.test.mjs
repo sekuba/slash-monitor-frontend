@@ -20,7 +20,7 @@ test('loadConfig provides a complete local configuration', () => {
   assert.equal(config.port, 8790);
   assert.equal(config.l1ChainId, 1);
   assert.equal(config.l1RegistryAddress, '0x35b22e09Ee0390539439E24f06Da43D83f90e298');
-  assert.equal(config.l1SlashLogLookbackBlocks, 50_000);
+  assert.equal(config.l1SlashLogLookbackBlocks, 600);
   assert.equal(config.sentinelPollIntervalMs, 60_000);
   assert.equal(config.sentinelLookbackEpochs, 3);
   assert.equal(config.sentinelEpochEndBufferSlots, 2);

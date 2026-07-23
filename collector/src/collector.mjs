@@ -194,12 +194,16 @@ export function validateNodeIdentity(nodeInfo, {
     throw new Error(`Aztec node L1 chain mismatch: reported ${String(nodeInfo.l1ChainId)}, expected ${expectedChainId}`);
   }
   const registryAddress = normalizeAddress(nodeInfo.registryAddress, 'node Registry');
-  if (registryAddress !== expectedRegistryAddress) {
-    throw new Error(`Aztec node Registry mismatch: reported ${registryAddress}, expected ${expectedRegistryAddress}`);
+  const expectedRegistry = normalizeAddress(expectedRegistryAddress, 'expected Registry');
+  if (registryAddress !== expectedRegistry) {
+    throw new Error(`Aztec node Registry mismatch: reported ${registryAddress}, expected ${expectedRegistry}`);
   }
   const rollupAddress = normalizeAddress(nodeInfo.rollupAddress, 'node Rollup');
-  if (canonicalRollupAddress && rollupAddress !== canonicalRollupAddress) {
-    throw new Error(`Aztec node Rollup mismatch: reported ${rollupAddress}, canonical L1 is ${canonicalRollupAddress}`);
+  const canonicalRollup = canonicalRollupAddress
+    ? normalizeAddress(canonicalRollupAddress, 'canonical L1 Rollup')
+    : undefined;
+  if (canonicalRollup && rollupAddress !== canonicalRollup) {
+    throw new Error(`Aztec node Rollup mismatch: reported ${rollupAddress}, canonical L1 is ${canonicalRollup}`);
   }
 }
 
