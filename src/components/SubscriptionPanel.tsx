@@ -2,7 +2,7 @@ import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import type { Address } from 'viem';
 import { parseAddressList, formatAddressList } from '@/lib/addresses';
 import { useNotificationSubscription } from '@/hooks/useNotificationSubscription';
-import { formatAddress } from '@/lib/utils';
+import { SequencerAddressControl } from './SequencerAddressControl';
 import type { BackendConfig, MonitorNetwork } from '@/types/backendApi';
 
 interface SubscriptionPanelProps {
@@ -72,15 +72,15 @@ export function SubscriptionPanel({
                 <div className="mt-4 flex flex-wrap items-center gap-2">
                     <span className="mr-1 text-xs font-black uppercase text-chartreuse">Records</span>
                     {manager.subscription!.sequencers.map((sequencer) => (
-                        <button
+                        <SequencerAddressControl
                             key={sequencer}
-                            type="button"
-                            onClick={() => onSelectSequencer(sequencer)}
-                            className="border-2 border-chartreuse bg-brand-black px-2 py-1 font-mono text-xs font-black text-whisper-white hover:text-chartreuse"
-                            title={`Open record for ${sequencer}`}
-                        >
-                            {formatAddress(sequencer, 6)}
-                        </button>
+                            address={sequencer}
+                            chars={6}
+                            showCopy
+                            onOpenRecord={onSelectSequencer}
+                            className="font-mono text-xs font-black text-whisper-white"
+                            containerClassName="border-2 border-chartreuse bg-brand-black p-2"
+                        />
                     ))}
                 </div>
             )}

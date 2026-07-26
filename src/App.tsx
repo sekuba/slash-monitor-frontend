@@ -75,11 +75,18 @@ export function App() {
     }, [isTestnet, restartScanner]);
 
     const selectSequencer = useCallback((sequencer: Address | null) => {
+        if (
+            sequencer &&
+            location.selectedSequencer?.toLowerCase() === sequencer.toLowerCase()
+        ) {
+            document.getElementById('sequencer-record-timeline')
+                ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            return;
+        }
         const next = urlForSequencer(window.location.href, sequencer);
         window.history.pushState({}, '', next);
         setLocation(parseAppSearch(next.search));
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    }, []);
+    }, [location.selectedSequencer]);
 
     const updateRpc = useCallback((url: string) => {
         const savedUrl = setRpcOverride(config.chainId, url);
@@ -114,8 +121,8 @@ export function App() {
             {location.view === 'pingme' ? (
                 <main className="mx-auto max-w-7xl px-4 py-8">
                     <BackendOverview
-                        key={`${location.network}:${location.selectedEventId ?? ''}:${location.selectedSequencer ?? ''}`}
                         network={location.network}
+                        selectedEventId={location.selectedEventId}
                         selectedSequencer={location.selectedSequencer}
                         onSelectSequencer={selectSequencer}
                     />

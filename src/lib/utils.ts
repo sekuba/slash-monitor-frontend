@@ -1,8 +1,9 @@
 import type { Address } from 'viem';
-import type { ResolvedMonitorConfig, RoundStatus, DetectedSlashing, TargetedSequencer } from '@/types/slashing';
+import type { ResolvedMonitorConfig, DetectedSlashing, TargetedSequencer } from '@/types/slashing';
 import { isRoundProtectedByPause } from './pauseProtection';
+import type { RoundDisplayStatus } from './presentation';
 
-export type RoundDisplayStatus = RoundStatus | 'vetoed';
+export type { RoundDisplayStatus } from './presentation';
 export interface RoundDisplayState {
     status: RoundDisplayStatus;
     isActionable: boolean;
@@ -220,31 +221,4 @@ export function deriveRoundPresentation(slashing: DetectedSlashing, options: {
         }),
         isProtected,
     };
-}
-const STATUS_COLORS: Record<RoundDisplayStatus, string> = {
-    'below-quorum': 'bg-aqua text-brand-black border-5 border-brand-black shadow-brutal',
-    'quorum-reached': 'bg-malachite text-chartreuse border-5 border-chartreuse shadow-brutal-chartreuse',
-    'newly-executable': 'bg-oxblood text-vermillion border-5 border-vermillion shadow-brutal-vermillion',
-    'executable': 'bg-oxblood text-vermillion border-5 border-vermillion shadow-brutal-vermillion',
-    'executed': 'bg-vermillion text-brand-black border-5 border-brand-black shadow-brutal',
-    'expired': 'bg-aqua text-brand-black border-5 border-brand-black shadow-brutal',
-    'vetoed': 'bg-lapis text-aqua border-5 border-aqua shadow-brutal-aqua',
-};
-
-export function getStatusColor(status: RoundDisplayStatus): string {
-    return STATUS_COLORS[status] ?? STATUS_COLORS['quorum-reached'];
-}
-
-const STATUS_TEXT: Record<RoundDisplayStatus, string> = {
-    'below-quorum': 'No Target at Quorum',
-    'quorum-reached': 'Quorum Reached',
-    'newly-executable': 'Newly Executable',
-    'executable': 'Executable',
-    'executed': 'Executed',
-    'expired': 'Expired',
-    'vetoed': 'Vetoed',
-};
-
-export function getStatusText(status: RoundDisplayStatus): string {
-    return STATUS_TEXT[status] ?? 'Pending';
 }

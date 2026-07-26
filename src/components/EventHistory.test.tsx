@@ -82,8 +82,13 @@ describe('Pingme journal cards', () => {
         );
 
         expect(markup).toContain('L1 · confirmed');
-        expect(markup).toContain('Show all 4 targets');
-        for (const target of targets) expect(markup).toContain(`Open ${target} on Dashtec`);
+        expect(markup).toContain('Show 1 more target');
+        expect(markup).not.toContain('Show all 4 targets');
+        for (const target of targets) {
+            const linkTitle = `title="Open ${target} on Dashtec"`;
+            expect(markup).toContain(linkTitle);
+            expect(markup.split(linkTitle)).toHaveLength(2);
+        }
         expect(markup).toContain('L1 reason: not encoded · matched node evidence below');
         expect(markup).toContain('Node evidence: Inactivity · epoch 772');
         expect(markup).toContain('Active round 195');
@@ -133,7 +138,7 @@ describe('Pingme journal cards', () => {
         expect(markup).not.toContain('aztec_node');
     });
 
-    it('labels a precursor duty miss as the first missed slot', () => {
+    it('labels a precursor duty miss without claiming it was first', () => {
         vi.stubGlobal('window', { location: new URL('https://slashmon.example/?view=pingme') });
         const event: MonitorEvent = {
             id: 'event-precursor',
@@ -165,7 +170,10 @@ describe('Pingme journal cards', () => {
             <EventHistory events={[event]} hasWatchlistCapability={false} />,
         );
 
-        expect(markup).toContain('First missed slot 26690');
+        expect(markup).toContain('Missed slot 26690');
+        expect(markup).toContain('Missed duty observed');
+        expect(markup).not.toContain('First missed slot');
+        expect(markup).not.toContain('First missed duty observed');
         expect(markup).not.toContain('Epoch starts at slot 26690');
     });
 

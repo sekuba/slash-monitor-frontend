@@ -8,15 +8,26 @@ import type { MonitorNetwork } from '@/types/backendApi';
 
 export function BackendOverview({
     network,
+    selectedEventId,
     selectedSequencer,
     onSelectSequencer,
 }: {
     network: MonitorNetwork;
+    selectedEventId: string | null;
     selectedSequencer: Address | null;
     onSelectSequencer: (sequencer: Address | null) => void;
 }) {
-    const monitor = useBackendMonitor(network);
+    const monitor = useBackendMonitor(network, selectedEventId);
     const configuredNetwork = monitor.config?.network;
+    const networkFeed = (
+        <EventHistory
+            events={monitor.events?.data ?? []}
+            hasWatchlistCapability={monitor.hasWatchlistCapability}
+            selectedEventId={selectedEventId}
+            selectedEventError={monitor.selectedEventError}
+            onSelectSequencer={onSelectSequencer}
+        />
+    );
 
     const health = (
         <SourceHealthBanner
@@ -57,12 +68,17 @@ export function BackendOverview({
                 onSelectSequencer={onSelectSequencer}
             />
             <div className="mb-10">
-                <EventHistory
-                    events={monitor.events?.data ?? []}
-                    hasWatchlistCapability={monitor.hasWatchlistCapability}
-                    selectedEventError={monitor.selectedEventError}
-                    onSelectSequencer={onSelectSequencer}
-                />
+                {selectedSequencer ? (
+                    <details className="border-5 border-aqua bg-lapis p-4 shadow-brutal-aqua">
+                        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 font-black text-aqua">
+                            <span className="text-lg">Network feed</span>
+                            <span className="border-3 border-brand-black bg-aqua px-2 py-1 text-xs uppercase text-brand-black">
+                                {monitor.events?.data.length ?? 0} events
+                            </span>
+                        </summary>
+                        <div className="mt-5">{networkFeed}</div>
+                    </details>
+                ) : networkFeed}
             </div>
         </>
     );

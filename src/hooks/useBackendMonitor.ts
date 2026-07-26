@@ -31,7 +31,10 @@ const initialState: BackendMonitorState = {
     lastReceivedAt: null,
 };
 
-export function useBackendMonitor(network: MonitorNetwork) {
+export function useBackendMonitor(
+    network: MonitorNetwork,
+    selectedEventId: string | null,
+) {
     const [state, setState] = useState<BackendMonitorState>(initialState);
     const [credentialSnapshot, setCredentialSnapshot] = useState(() => ({
         network,
@@ -58,7 +61,6 @@ export function useBackendMonitor(network: MonitorNetwork) {
         const controller = new AbortController();
         abortRef.current = controller;
 
-        const selectedEventId = readSelectedEventId();
         const scopedRequests = createBackendReadRequests(
             slashmonApi,
             network,
@@ -123,7 +125,7 @@ export function useBackendMonitor(network: MonitorNetwork) {
         if (abortRef.current === controller) {
             abortRef.current = null;
         }
-    }, [credentials, network, scopeKey]);
+    }, [credentials, network, scopeKey, selectedEventId]);
 
     useEffect(() => {
         const initialRefresh = window.setTimeout(() => void refresh(), 0);
@@ -214,11 +216,6 @@ export function createBackendReadRequests(
             ? api.getEvent(selectedEventId, network, signal)
             : Promise.resolve(null),
     };
-}
-
-function readSelectedEventId(): string | null {
-    const value = new URLSearchParams(window.location.search).get('event');
-    return value && /^[a-zA-Z0-9:_-]{1,200}$/.test(value) ? value : null;
 }
 
 function prependSelectedEvent(page: EventPage, selected: EventPage['data'][number] | null): EventPage {

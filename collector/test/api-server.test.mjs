@@ -603,7 +603,7 @@ test('public journal exposes Sentinel precursor feed and detail', async (t) => {
     source: 'aztec_sentinel',
     type: 'inactivity_first_miss',
     severity: 'warning',
-    title: 'First missed duty observed',
+    title: 'Missed duty observed',
     body: 'Precursor evidence, not a registered slash offense.',
     data: {
       certainty: 'pending',
@@ -670,7 +670,7 @@ test('sequencer record returns its indexed journal and exact protocol timing sna
     source: 'aztec_sentinel',
     type: 'inactivity_first_miss',
     severity: 'warning',
-    title: 'First missed duty observed',
+    title: 'Missed duty observed',
     body: 'Precursor only.',
     data: { certainty: 'pending', sequencer: SEQUENCER_A, epoch: '42', slot: '1344' },
     observedAt: NOW,

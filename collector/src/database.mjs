@@ -2794,7 +2794,7 @@ function inactivityFirstMissEvent(miss, network, observedAt) {
     source: 'aztec_sentinel',
     type: 'inactivity_first_miss',
     severity: 'warning',
-    title: 'First missed duty observed',
+    title: 'Missed duty observed',
     body: `${shortAddress(miss.sequencer)} missed a duty in epoch ${miss.epoch}; this is precursor evidence, not a registered slash offense.`,
     data: {
       certainty: 'pending',
@@ -2828,7 +2828,7 @@ function inactivityEpochEvent(performance, network, observedAt) {
     title: thresholdReached
       ? 'Inactivity streak reached threshold'
       : 'Inactive duty epoch completed',
-    body: `${shortAddress(performance.sequencer)} missed ${performance.missed}/${performance.total} observed duties in epoch ${performance.epoch}; duty-bearing inactive streak ${performance.inactiveStreak}/${performance.threshold}.`,
+    body: `${shortAddress(performance.sequencer)} missed ${performance.missed}/${performance.total} observed duties in epoch ${performance.epoch}; inactive streak ${performance.inactiveStreak}/${performance.threshold}.`,
     data: {
       certainty: 'pending',
       sequencer: performance.sequencer,

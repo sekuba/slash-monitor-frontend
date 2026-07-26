@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DetectedSlashing, ResolvedMonitorConfig } from '@/types/slashing';
-import { deriveRoundPresentation, getStatusColor } from './utils';
+import { deriveRoundPresentation } from './utils';
+import { getRoundVisual } from './presentation';
 
 const config = {
     slashingRoundSize: 10,
@@ -43,7 +44,7 @@ describe('deriveRoundPresentation', () => {
     });
 
     it('keeps completed round states visibly distinct from the page background', () => {
-        expect(getStatusColor('executed')).toContain('bg-vermillion');
-        expect(getStatusColor('expired')).toContain('bg-aqua');
+        expect(getRoundVisual('executed').badgeClass).toContain('bg-vermillion');
+        expect(getRoundVisual('expired').badgeClass).toContain('bg-aqua');
     });
 });

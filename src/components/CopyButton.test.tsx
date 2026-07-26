@@ -12,6 +12,10 @@ describe('CopyButton', () => {
         );
 
         expect(markup).toContain('aria-label="Copy sequencer address"');
+        expect(markup).toContain('text-chartreuse');
+        expect(markup).toContain('bg-transparent');
+        expect(markup).not.toContain('bg-whisper-white');
+        expect(markup).not.toContain('shadow-');
         expect(markup).not.toContain('>Copy</span>');
     });
 });

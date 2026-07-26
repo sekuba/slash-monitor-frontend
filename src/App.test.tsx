@@ -38,6 +38,19 @@ describe('top-level view isolation', () => {
         expect(markup).toContain('brutal-button--nav-selected');
     });
 
+    it('keeps the network feed collapsed while a sequencer record is selected', () => {
+        installBrowser(
+            'https://slashmon.example/?view=pingme&sequencer=0x1111111111111111111111111111111111111111',
+        );
+
+        const markup = renderToStaticMarkup(<App />);
+
+        expect(scannerSpy).not.toHaveBeenCalled();
+        expect(markup).toContain('<details');
+        expect(markup).toContain('Network feed');
+        expect(markup).toContain('id="sequencer-record-timeline"');
+    });
+
     it('treats removed and unknown views as the Monitor', () => {
         installBrowser('https://slashmon.example/?view=unknown&network=testnet');
 

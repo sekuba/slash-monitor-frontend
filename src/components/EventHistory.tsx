@@ -1,10 +1,12 @@
 import { useEffect, useRef } from 'react';
-import { SequencerAddressLink } from './SequencerAddressLink';
+import { SequencerAddressControl } from './SequencerAddressControl';
+import { getEventTitle, getEventVisual } from '@/lib/presentation';
 import type { EventL1Context, MonitorEvent } from '@/types/backendApi';
 
 interface EventHistoryProps {
     events: MonitorEvent[];
     hasWatchlistCapability: boolean;
+    selectedEventId?: string | null;
     selectedEventError?: string | null;
     onSelectSequencer?: (sequencer: MonitorEvent['targets'][number]) => void;
 }
@@ -12,10 +14,10 @@ interface EventHistoryProps {
 export function EventHistory({
     events,
     hasWatchlistCapability,
+    selectedEventId = null,
     selectedEventError = null,
     onSelectSequencer,
 }: EventHistoryProps) {
-    const selectedEventId = new URLSearchParams(window.location.search).get('event');
     const scrolledEventIdRef = useRef<string | null>(null);
 
     useEffect(() => {
@@ -36,7 +38,7 @@ export function EventHistory({
                     <div className="mb-2 inline-flex border-3 border-brand-black bg-aqua px-3 py-1 text-xs font-black uppercase text-brand-black">
                         Pingme Journal
                     </div>
-                    <h2 className="text-2xl font-black text-aqua">Slashing Activity</h2>
+                    <h2 className="text-2xl font-black text-aqua">Network feed</h2>
                     <p className="mt-2 text-sm font-bold text-whisper-white">
                         {hasWatchlistCapability
                             ? 'Node signals and confirmed L1 activity for this browser’s watch list.'
@@ -86,17 +88,18 @@ function EventCard({
     onSelectSequencer?: EventHistoryProps['onSelectSequencer'];
 }) {
     const pending = event.certainty === 'pending';
+    const visual = getEventVisual(event.type);
     return (
         <article
             id={`event-${event.id}`}
             className={`border-3 bg-brand-black p-4 ${
-                selected ? 'border-chartreuse shadow-brutal-chartreuse' : pending ? 'border-orchid' : 'border-aqua'
+                selected ? 'border-chartreuse shadow-brutal-chartreuse' : visual.border
             }`}
         >
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
-                    <h3 className={`text-base font-black ${pending ? 'text-orchid' : 'text-aqua'}`}>
-                        {event.title}
+                    <h3 className={`text-base font-black ${visual.text}`}>
+                        {getEventTitle(event)}
                     </h3>
                     <EventTargets event={event} onSelectSequencer={onSelectSequencer} />
                 </div>
@@ -127,7 +130,11 @@ function EventTargets({
     if (event.targets.length === 0) {
         return null;
     }
-    const preview = event.targets.slice(0, 3);
+    const uniqueTargets = event.targets.filter((target, index, targets) =>
+        targets.findIndex((candidate) =>
+            candidate.toLowerCase() === target.toLowerCase()) === index);
+    const preview = uniqueTargets.slice(0, 3);
+    const remaining = uniqueTargets.slice(3);
     return (
         <div className="mt-2">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -145,13 +152,13 @@ function EventTargets({
                     );
                 })}
             </div>
-            {event.targets.length > 3 && (
+            {remaining.length > 0 && (
                 <details className="mt-2 text-xs text-whisper-white/80">
                     <summary className="w-fit cursor-pointer font-black uppercase text-aqua underline underline-offset-4">
-                        Show all {event.targets.length} targets
+                        Show {remaining.length} more target{remaining.length === 1 ? '' : 's'}
                     </summary>
                     <div className="mt-2 grid gap-2 border-l-3 border-aqua/50 pl-3 sm:grid-cols-2 xl:grid-cols-3">
-                        {event.targets.map((target) => {
+                        {remaining.map((target) => {
                             const amount = event.l1?.actions.find((action) =>
                                 action.sequencer.toLowerCase() === target.toLowerCase())?.amount;
                             return (
@@ -189,21 +196,14 @@ function EventTarget({
         item.sequencer.toLowerCase() === target.toLowerCase());
     return (
         <div className="min-w-0">
-            <SequencerAddressLink
+            <SequencerAddressControl
                 address={target}
                 chars={full ? undefined : 6}
                 full={full}
+                showCopy
+                onOpenRecord={onSelectSequencer}
                 className="font-mono text-xs font-bold text-whisper-white"
             />
-            {onSelectSequencer && (
-                <button
-                    type="button"
-                    onClick={() => onSelectSequencer(target)}
-                    className="mt-1 block text-[0.65rem] font-black uppercase text-orchid underline underline-offset-4 hover:text-chartreuse"
-                >
-                    Open record
-                </button>
-            )}
             {amount && (
                 <span className="text-[0.68rem] font-bold text-whisper-white/55">
                     {formatAztec(amount)} AZTEC proposed
@@ -234,7 +234,7 @@ function EventFacts({ event }: { event: MonitorEvent }) {
         if (offense.epoch) facts.push(`Epoch ${offense.epoch}`);
         if (offense.slot) {
             const slotLabel = event.type === 'inactivity_first_miss'
-                ? 'First missed slot'
+                ? 'Missed slot'
                 : offense.timeUnit === 'epoch'
                     ? 'Epoch starts at slot'
                     : 'Slot';

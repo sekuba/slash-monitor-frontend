@@ -1,10 +1,10 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { getAddress, isAddress, type Address } from 'viem';
-import { SequencerAddressLink } from './SequencerAddressLink';
+import { SequencerAddressControl } from './SequencerAddressControl';
 import { SlashingProcess, type SlashingProcessTiming } from './SlashingProcess';
-import { CopyButton } from './CopyButton';
 import { formatJournalTime } from './EventHistory';
 import { useSequencerRecord } from '@/hooks/useSequencerRecord';
+import { getEventTitle, getEventVisual } from '@/lib/presentation';
 import type {
     MonitorEvent,
     MonitorNetwork,
@@ -108,13 +108,24 @@ function RecordBody({
     sequencer: Address;
     monitor: ReturnType<typeof useSequencerRecord>;
 }) {
-    const events = monitor.record?.events ?? [];
+    const record = monitor.record?.sequencer.toLowerCase() === sequencer.toLowerCase()
+        ? monitor.record
+        : null;
+    const timelineRef = useRef<HTMLDivElement | null>(null);
+    const scrolledSequencerRef = useRef<string | null>(null);
+    const events = record?.events ?? [];
     const summary = summarizeRecord(events);
-    const timing = monitor.record?.protocol
-        ? protocolTiming(monitor.record.protocol)
+    const timing = record?.protocol
+        ? protocolTiming(record.protocol)
         : null;
 
-    if (monitor.isLoading && !monitor.record) {
+    useEffect(() => {
+        if (!record || !timelineRef.current || scrolledSequencerRef.current === sequencer) return;
+        scrolledSequencerRef.current = sequencer;
+        timelineRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, [record, sequencer]);
+
+    if (monitor.isLoading && !record) {
         return (
             <div className="mt-5 border-5 border-aqua bg-lapis p-6 text-sm font-black text-aqua shadow-brutal-aqua" aria-live="polite">
                 Loading sequencer record…
@@ -128,14 +139,13 @@ function RecordBody({
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0">
                         <div className="text-xs font-black uppercase tracking-[0.18em] text-chartreuse">Sequencer</div>
-                        <div className="mt-2 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
-                            <SequencerAddressLink
-                                address={sequencer}
-                                full
-                                className="font-mono text-sm font-black text-whisper-white sm:text-base"
-                            />
-                            <CopyButton value={sequencer} ariaLabel="Copy sequencer address" />
-                        </div>
+                        <SequencerAddressControl
+                            address={sequencer}
+                            full
+                            showCopy
+                            className="font-mono text-sm font-black text-whisper-white sm:text-base"
+                            containerClassName="mt-2"
+                        />
                     </div>
                     <span className={`self-start border-3 border-brand-black px-3 py-2 text-xs font-black uppercase text-brand-black ${summary.color}`}>
                         {summary.label}
@@ -146,12 +156,12 @@ function RecordBody({
                     <RecordStat label="L1" value={summary.confirmed.toString()} />
                     <RecordStat label="Pending" value={summary.pending.toString()} />
                 </div>
-                {monitor.record?.protocol && (
+                {record?.protocol && (
                     <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs font-bold text-whisper-white/60">
-                        <span>Slot {monitor.record.protocol.currentSlot}</span>
-                        <span>Epoch {monitor.record.protocol.currentEpoch}</span>
-                        <span>Round {monitor.record.protocol.currentRound}</span>
-                        <span>Snapshot {formatJournalTime(monitor.record.protocol.observedAt)}</span>
+                        <span>Slot {record.protocol.currentSlot}</span>
+                        <span>Epoch {record.protocol.currentEpoch}</span>
+                        <span>Round {record.protocol.currentRound}</span>
+                        <span>Snapshot {formatJournalTime(record.protocol.observedAt)}</span>
                     </div>
                 )}
             </section>
@@ -165,13 +175,13 @@ function RecordBody({
                 </div>
             )}
 
-            {timing && monitor.record?.protocol ? (
+            {timing && record?.protocol ? (
                 <SlashingProcess
                     timing={timing}
                     pause={{
-                        active: !monitor.record.protocol.isSlashingEnabled,
-                        endsAt: pauseEndDate(monitor.record.protocol),
-                        durationSeconds: monitor.record.protocol.pauseDurationSeconds,
+                        active: !record.protocol.isSlashingEnabled,
+                        endsAt: pauseEndDate(record.protocol),
+                        durationSeconds: record.protocol.pauseDurationSeconds,
                     }}
                     title="How this record progresses"
                 />
@@ -181,9 +191,11 @@ function RecordBody({
                 </p>
             )}
 
-            <RecordTimeline events={events} />
+            <div id="sequencer-record-timeline" ref={timelineRef} className="scroll-mt-4">
+                <RecordTimeline events={events} />
+            </div>
 
-            {monitor.record?.nextCursor && (
+            {record?.nextCursor && (
                 <button
                     type="button"
                     onClick={() => void monitor.loadOlder()}
@@ -228,7 +240,7 @@ function RecordTimeline({ events }: { events: MonitorEvent[] }) {
             </div>
             <ol className="ml-3 border-l-5 border-aqua pl-5 sm:ml-5 sm:pl-7">
                 {events.map((event) => {
-                    const stage = eventStage(event);
+                    const stage = getEventVisual(event.type);
                     const facts = recordEventFacts(event);
                     return (
                         <li key={event.id} className="relative pb-4 last:pb-0">
@@ -239,7 +251,7 @@ function RecordTimeline({ events }: { events: MonitorEvent[] }) {
                                         <span className={`text-[0.65rem] font-black uppercase tracking-[0.15em] ${stage.text}`}>
                                             {stage.label}
                                         </span>
-                                        <h4 className="mt-1 text-base font-black text-whisper-white">{event.title}</h4>
+                                        <h4 className="mt-1 text-base font-black text-whisper-white">{getEventTitle(event)}</h4>
                                     </div>
                                     <span className="text-right text-[0.68rem] font-bold text-whisper-white/55">
                                         {formatJournalTime(event.occurredAt)}
@@ -324,35 +336,10 @@ function summarizeRecord(events: MonitorEvent[]) {
     };
 }
 
-function eventStage(event: MonitorEvent) {
-    if (event.type === 'l1_slash_confirmed' || event.type === 'l1_slash_reconfirmed') {
-        return { label: 'L1 slash', border: 'border-vermillion', text: 'text-vermillion', dot: 'bg-vermillion' };
-    }
-    if (event.type.includes('reorg') || event.type.includes('reverted') || event.type.includes('cleared')) {
-        return { label: 'Correction', border: 'border-orchid', text: 'text-orchid', dot: 'bg-orchid' };
-    }
-    if (event.type.includes('veto')) {
-        return { label: 'Veto', border: 'border-aqua', text: 'text-aqua', dot: 'bg-aqua' };
-    }
-    if (event.type.includes('expired') || event.type.includes('protected')) {
-        return { label: 'Closed', border: 'border-chartreuse', text: 'text-chartreuse', dot: 'bg-chartreuse' };
-    }
-    if (event.type.includes('executable') || event.type.includes('execution_paused')) {
-        return { label: 'Window', border: 'border-vermillion', text: 'text-vermillion', dot: 'bg-vermillion' };
-    }
-    if (event.type.includes('onchain_targeted') || event.type.includes('payload_changed')) {
-        return { label: 'Quorum', border: 'border-chartreuse', text: 'text-chartreuse', dot: 'bg-chartreuse' };
-    }
-    if (event.type.includes('vote')) {
-        return { label: 'Vote', border: 'border-aqua', text: 'text-aqua', dot: 'bg-aqua' };
-    }
-    return { label: 'Node signal', border: 'border-orchid', text: 'text-orchid', dot: 'bg-orchid' };
-}
-
 export function recordEventSummary(event: MonitorEvent): string {
     const offense = event.offense;
     if (event.type === 'inactivity_first_miss') {
-        return `First missed duty${offense?.slot ? ` at slot ${offense.slot}` : ''}. This is precursor evidence only.`;
+        return `Missed duty${offense?.slot ? ` at slot ${offense.slot}` : ''}. This is precursor evidence only.`;
     }
     if (event.type === 'inactivity_epoch_completed') {
         return event.body || 'The inactivity threshold was evaluated for this epoch.';

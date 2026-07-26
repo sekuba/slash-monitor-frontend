@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { SequencerAddressLink } from './SequencerAddressLink';
+import { SequencerAddressControl } from './SequencerAddressControl';
 import type { TargetedSequencer } from '@/types/slashing';
 
 interface SlashingHelpModalProps {
@@ -103,9 +103,10 @@ export function SlashingHelpModal({
                                     key={sequencer.address}
                                     className="flex flex-col gap-2 border-3 border-orchid bg-brand-black p-3 sm:flex-row sm:items-center sm:justify-between"
                                 >
-                                    <SequencerAddressLink
+                                    <SequencerAddressControl
                                         address={sequencer.address}
                                         chars={9}
+                                        showCopy
                                         className="font-mono text-sm font-black text-whisper-white"
                                     />
                                     <div className="flex flex-wrap gap-2">
