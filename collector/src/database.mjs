@@ -2711,7 +2711,7 @@ function inactivityEpochEvent(performance, network, observedAt) {
     type: 'inactivity_epoch_completed',
     severity: 'warning',
     title: thresholdReached
-      ? 'Duty-bearing inactivity streak reached threshold'
+      ? 'Inactivity streak reached threshold'
       : 'Inactive duty epoch completed',
     body: `${shortAddress(performance.sequencer)} missed ${performance.missed}/${performance.total} observed duties in epoch ${performance.epoch}; duty-bearing inactive streak ${performance.inactiveStreak}/${performance.threshold}.`,
     data: {
