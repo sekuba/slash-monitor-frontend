@@ -7,6 +7,8 @@ import type {
     MonitorEvent,
     MonitorNetwork,
     NotificationChannelState,
+    SequencerRecordPage,
+    SlashingProtocolSnapshot,
     SourceHealth,
     TelegramLink,
     BackendConfig,
@@ -91,6 +93,29 @@ export function decodeEventPage(input: unknown, expectedNetwork: MonitorNetwork)
 export function decodeEventDetail(input: unknown, expectedNetwork: MonitorNetwork): MonitorEvent {
     const envelope = expectApiEnvelope(input, 'event');
     return decodeEvent(expectObject(envelope.data, 'event.data'), expectedNetwork, 'event.data');
+}
+
+export function decodeSequencerRecord(
+    input: unknown,
+    expectedNetwork: MonitorNetwork,
+    expectedSequencer: string,
+): SequencerRecordPage {
+    const envelope = expectApiEnvelope(input, 'sequencer record');
+    const root = expectObject(envelope.data, 'sequencer record.data');
+    const sequencer = address(root.sequencer, 'sequencer record.data.sequencer');
+    if (sequencer.toLowerCase() !== expectedSequencer.toLowerCase()) {
+        throw new ApiContractError('sequencer record address does not match the request');
+    }
+    const pagination = expectObject(envelope.pagination, 'sequencer record.pagination');
+    return {
+        sequencer,
+        protocol: root.protocol === null
+            ? null
+            : decodeProtocolSnapshot(root.protocol, 'sequencer record.data.protocol'),
+        events: expectArray(root.events, 'sequencer record.data.events').map((event, index) =>
+            decodeEvent(event, expectedNetwork, `sequencer record.data.events[${index}]`)),
+        nextCursor: optionalString(pagination.nextCursor) ?? null,
+    };
 }
 
 export function decodeSubscription(input: unknown): ManagedSubscription {
@@ -274,6 +299,7 @@ function decodeEventL1(
             : boundedInteger(data.chainId, `${path}.chainId`, 1, Number.MAX_SAFE_INTEGER),
         role: optionalString(data.role),
         round: optionalDecimalString(data.round, `${path}.round`),
+        status: optionalString(data.status),
         targetEpochs,
         currentSlot: optionalDecimalString(data.currentSlot, `${path}.currentSlot`),
         currentEpoch: optionalDecimalString(data.currentEpoch, `${path}.currentEpoch`),
@@ -286,7 +312,124 @@ function decodeEventL1(
         transactionHash: optionalHash(data.transactionHash, `${path}.transactionHash`),
         payloadAddress: optionalAddress(data.payloadAddress, `${path}.payloadAddress`),
         amount: optionalDecimalString(data.amount, `${path}.amount`),
+        isVetoed: optionalBoolean(data.isVetoed, `${path}.isVetoed`),
+        isExecuted: optionalBoolean(data.isExecuted, `${path}.isExecuted`),
+        isSlashingEnabled: optionalBoolean(data.isSlashingEnabled, `${path}.isSlashingEnabled`),
+        isExecutionPaused: optionalBoolean(data.isExecutionPaused, `${path}.isExecutionPaused`),
+        isProtected: optionalBoolean(data.isProtected, `${path}.isProtected`),
+        pauseStartedAtSlot: optionalDecimalString(
+            data.pauseStartedAtSlot,
+            `${path}.pauseStartedAtSlot`,
+        ),
+        pauseEndsAtSlot: optionalDecimalString(data.pauseEndsAtSlot, `${path}.pauseEndsAtSlot`),
         actions,
+    };
+}
+
+function decodeProtocolSnapshot(input: unknown, path: string): SlashingProtocolSnapshot {
+    const value = expectObject(input, path);
+    const inactivity = value.inactivity === null
+        ? null
+        : (() => {
+            const config = expectObject(value.inactivity, `${path}.inactivity`);
+            return {
+                targetPercentage: numberInRange(
+                    config.targetPercentage,
+                    `${path}.inactivity.targetPercentage`,
+                    0,
+                    1,
+                ),
+                consecutiveEpochs: boundedInteger(
+                    config.consecutiveEpochs,
+                    `${path}.inactivity.consecutiveEpochs`,
+                    1,
+                    Number.MAX_SAFE_INTEGER,
+                ),
+            };
+        })();
+    return {
+        chainId: boundedInteger(value.chainId, `${path}.chainId`, 1, Number.MAX_SAFE_INTEGER),
+        observedAt: isoString(value.observedAt, `${path}.observedAt`),
+        currentSlot: decimalString(value.currentSlot, `${path}.currentSlot`),
+        currentEpoch: decimalString(value.currentEpoch, `${path}.currentEpoch`),
+        currentRound: decimalString(value.currentRound, `${path}.currentRound`),
+        slotDurationSeconds: boundedInteger(
+            value.slotDurationSeconds,
+            `${path}.slotDurationSeconds`,
+            1,
+            Number.MAX_SAFE_INTEGER,
+        ),
+        epochDurationSlots: boundedInteger(
+            value.epochDurationSlots,
+            `${path}.epochDurationSlots`,
+            1,
+            Number.MAX_SAFE_INTEGER,
+        ),
+        quorum: boundedInteger(value.quorum, `${path}.quorum`, 1, Number.MAX_SAFE_INTEGER),
+        roundSizeSlots: boundedInteger(
+            value.roundSizeSlots,
+            `${path}.roundSizeSlots`,
+            1,
+            Number.MAX_SAFE_INTEGER,
+        ),
+        roundSizeEpochs: boundedInteger(
+            value.roundSizeEpochs,
+            `${path}.roundSizeEpochs`,
+            1,
+            Number.MAX_SAFE_INTEGER,
+        ),
+        executionDelayRounds: boundedInteger(
+            value.executionDelayRounds,
+            `${path}.executionDelayRounds`,
+            0,
+            Number.MAX_SAFE_INTEGER,
+        ),
+        lifetimeRounds: boundedInteger(
+            value.lifetimeRounds,
+            `${path}.lifetimeRounds`,
+            1,
+            Number.MAX_SAFE_INTEGER,
+        ),
+        slashOffsetRounds: boundedInteger(
+            value.slashOffsetRounds,
+            `${path}.slashOffsetRounds`,
+            1,
+            Number.MAX_SAFE_INTEGER,
+        ),
+        roundDurationSeconds: boundedInteger(
+            value.roundDurationSeconds,
+            `${path}.roundDurationSeconds`,
+            1,
+            Number.MAX_SAFE_INTEGER,
+        ),
+        executionDelaySeconds: boundedInteger(
+            value.executionDelaySeconds,
+            `${path}.executionDelaySeconds`,
+            0,
+            Number.MAX_SAFE_INTEGER,
+        ),
+        executionWindowSeconds: boundedInteger(
+            value.executionWindowSeconds,
+            `${path}.executionWindowSeconds`,
+            1,
+            Number.MAX_SAFE_INTEGER,
+        ),
+        isSlashingEnabled: expectBoolean(value.isSlashingEnabled, `${path}.isSlashingEnabled`),
+        pauseDurationSeconds: nullableBoundedInteger(
+            value.pauseDurationSeconds,
+            `${path}.pauseDurationSeconds`,
+            1,
+        ),
+        slashingDisabledUntil: optionalDecimalString(
+            value.slashingDisabledUntil,
+            `${path}.slashingDisabledUntil`,
+        ),
+        pauseStartedAtSlot: optionalDecimalString(
+            value.pauseStartedAtSlot,
+            `${path}.pauseStartedAtSlot`,
+        ),
+        pauseEndsAtSlot: optionalDecimalString(value.pauseEndsAtSlot, `${path}.pauseEndsAtSlot`),
+        inactivity,
     };
 }
 
@@ -368,6 +511,11 @@ function expectBoolean(value: unknown, path: string): boolean {
         throw new ApiContractError(`${path} must be a boolean`);
     }
     return value;
+}
+
+function optionalBoolean(value: unknown, path: string): boolean | null {
+    if (value === null || value === undefined) return null;
+    return expectBoolean(value, path);
 }
 
 function address(value: unknown, path: string): Address {
@@ -477,6 +625,19 @@ function nullableNumberInRange(
         throw new ApiContractError(`${path} must be a number between ${minimum} and ${maximum} or null`);
     }
     return value;
+}
+
+function numberInRange(
+    value: unknown,
+    path: string,
+    minimum: number,
+    maximum: number,
+): number {
+    const result = nullableNumberInRange(value, path, minimum, maximum);
+    if (result === null) {
+        throw new ApiContractError(`${path} must be a number between ${minimum} and ${maximum}`);
+    }
+    return result;
 }
 
 function boundedInteger(

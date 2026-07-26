@@ -40,9 +40,11 @@ There are three event sources:
 - `ethereum_l1` events come from coherently pinned canonical contract reads or
   confirmed `Slashed` logs. They are `confirmed`.
 
-All three observation sources are present in the public journal. Authenticated
-watch-list event reads are address-scoped views of the same journal, while
-catch-up and notification-test artifacts remain endpoint-scoped.
+All three observation sources are present in the public journal. The public
+sequencer-record endpoint is an address-scoped view of that journal plus the
+latest confirmed protocol timing snapshot. Authenticated watch-list event
+reads use the same address index. Catch-up and notification-test artifacts
+remain endpoint-scoped.
 
 The backend checks node chain, Registry, and Rollup identity before trusting
 admin results. It retains prior state when a source fails. An offense can

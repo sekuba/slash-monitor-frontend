@@ -222,12 +222,12 @@ export function deriveRoundPresentation(slashing: DetectedSlashing, options: {
     };
 }
 const STATUS_COLORS: Record<RoundDisplayStatus, string> = {
-    'below-quorum': 'bg-lapis/50 text-aqua border-5 border-aqua/50 shadow-brutal',
+    'below-quorum': 'bg-aqua text-brand-black border-5 border-brand-black shadow-brutal',
     'quorum-reached': 'bg-malachite text-chartreuse border-5 border-chartreuse shadow-brutal-chartreuse',
     'newly-executable': 'bg-oxblood text-vermillion border-5 border-vermillion shadow-brutal-vermillion',
     'executable': 'bg-oxblood text-vermillion border-5 border-vermillion shadow-brutal-vermillion',
-    'executed': 'bg-oxblood/50 text-vermillion border-5 border-vermillion/50 shadow-brutal',
-    'expired': 'bg-malachite/30 text-whisper-white/60 border-5 border-brand-black shadow-brutal',
+    'executed': 'bg-vermillion text-brand-black border-5 border-brand-black shadow-brutal',
+    'expired': 'bg-aqua text-brand-black border-5 border-brand-black shadow-brutal',
     'vetoed': 'bg-lapis text-aqua border-5 border-aqua shadow-brutal-aqua',
 };
 

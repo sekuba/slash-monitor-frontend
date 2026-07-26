@@ -3,6 +3,7 @@ import type { DetectedSlashing } from '@/types/slashing';
 import { useSlashingStore } from '@/store/slashingStore';
 import { formatAddress, formatEther, formatTimeRemaining, getStatusColor, getStatusText, deriveRoundPresentation, } from '@/lib/utils';
 import { SequencerAddressLink } from './SequencerAddressLink';
+import { CopyButton } from './CopyButton';
 interface RoundCardProps {
     slashing: DetectedSlashing;
     sequencerOccurrences?: Map<string, number>;
@@ -33,14 +34,15 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
     }, [config]);
 
     // Determine color theme based on status
-    const getColorTheme = (): 'aqua' | 'chartreuse' | 'vermillion' | 'default' => {
-        if (displayStatus === 'vetoed' || isProtected)
+    const getColorTheme = (): 'aqua' | 'chartreuse' | 'vermillion' => {
+        if (displayStatus === 'vetoed' ||
+            displayStatus === 'expired' ||
+            displayStatus === 'below-quorum' ||
+            isProtected)
             return 'aqua';
         if (displayStatus === 'quorum-reached')
             return 'chartreuse';
-        if (displayStatus === 'newly-executable' || displayStatus === 'executable')
-            return 'vermillion';
-        return 'default';
+        return 'vermillion';
     };
 
     const colorTheme = getColorTheme();
@@ -51,19 +53,16 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
             aqua: 'border-aqua shadow-brutal-aqua',
             chartreuse: 'border-chartreuse shadow-brutal-chartreuse',
             vermillion: 'border-vermillion shadow-brutal-vermillion',
-            default: 'border-brand-black shadow-brutal',
         },
         background: {
             aqua: 'bg-lapis',
             chartreuse: 'bg-malachite',
             vermillion: 'bg-oxblood',
-            default: 'bg-malachite/20',
         },
         pulseColor: {
             aqua: '[--pulse-color:var(--color-aqua)]',
             chartreuse: '[--pulse-color:var(--color-chartreuse)]',
             vermillion: '[--pulse-color:var(--color-vermillion)]',
-            default: '[--pulse-color:var(--color-chartreuse)]',
         },
     };
     return (<div className={`${themeStyles.background[colorTheme]} border-5 ${themeStyles.border[colorTheme]} ${isActionable ? `brutal-border-pulse ${themeStyles.pulseColor[colorTheme]}` : ''} transition-all hover:translate-x-1 hover:translate-y-1 hover:shadow-none relative`}>
@@ -190,11 +189,7 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
               <div className="text-xs text-whisper-white font-black uppercase tracking-wider mb-2">Payload Address</div>
               <div className="font-mono text-sm text-whisper-white bg-brand-black px-4 py-3 border-3 border-chartreuse flex items-center justify-between">
                 <span>{formatAddress(slashing.payloadAddress, 9)}</span>
-                <button type="button" onClick={() => navigator.clipboard.writeText(slashing.payloadAddress!)} className="brutal-button brutal-button--icon-sm" title="Copy address" aria-label="Copy payload address">
-                  <svg className="w-5 h-5 text-brand-black stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-                  </svg>
-                </button>
+                <CopyButton value={slashing.payloadAddress} ariaLabel="Copy payload address" />
               </div>
             </div>)}
 
@@ -229,11 +224,7 @@ export function RoundCard({ slashing, sequencerOccurrences }: RoundCardProps) {
                             </svg>
                             <span className="font-black">{occurrences}</span>
                           </span>)}
-                        <button type="button" onClick={() => navigator.clipboard.writeText(action.validator)} className="brutal-button brutal-button--neutral brutal-button--icon-sm shrink-0" title="Copy sequencer address" aria-label="Copy sequencer address">
-                          <svg className="w-4 h-4 text-brand-black stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-                          </svg>
-                        </button>
+                        <CopyButton value={action.validator} ariaLabel="Copy sequencer address" />
                       </div>
                       <span className="text-vermillion font-black text-lg whitespace-nowrap">{parseInt(formatEther(action.slashAmount), 10)} AZTEC</span>
                     </div>);

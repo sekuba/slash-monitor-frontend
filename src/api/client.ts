@@ -3,6 +3,7 @@ import {
     decodeEventDetail,
     decodeEventPage,
     decodePublicConfig,
+    decodeSequencerRecord,
     decodeStatus,
     decodeSubscription,
     decodeTelegramLink,
@@ -14,6 +15,7 @@ import type {
     ManagedSubscription,
     MonitorEvent,
     MonitorNetwork,
+    SequencerRecordPage,
     TelegramLink,
     BackendConfig,
     BackendStatus,
@@ -79,6 +81,22 @@ export class SlashmonApiClient {
             `/events/${encodeURIComponent(id)}?${query}`,
             { signal },
         ), network);
+    }
+
+    async getSequencerRecord(
+        sequencer: string,
+        network: MonitorNetwork,
+        signal?: AbortSignal,
+        cursor?: string,
+    ): Promise<SequencerRecordPage> {
+        const query = new URLSearchParams({ network, limit: '50' });
+        if (cursor) {
+            query.set('cursor', cursor);
+        }
+        return decodeSequencerRecord(await this.request(
+            `/sequencers/${encodeURIComponent(sequencer)}/record?${query}`,
+            { signal },
+        ), network, sequencer);
     }
 
     async getSubscriptionEvent(

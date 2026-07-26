@@ -200,6 +200,32 @@ export class CollectorApiServer {
         generatedAt: toIso(this.now()),
       });
     }
+    const sequencerRecordMatch = /^\/api\/v2\/sequencers\/([^/]+)\/record$/.exec(url.pathname);
+    if (method === 'GET' && sequencerRecordMatch) {
+      let rawSequencer;
+      try {
+        rawSequencer = decodeURIComponent(sequencerRecordMatch[1]);
+      } catch {
+        throw new HttpError(400, 'invalid_address', 'Sequencer address is malformed');
+      }
+      const [sequencer] = normalizeAddresses([rawSequencer], 1);
+      const query = parseEventQuery(url.searchParams, this.network);
+      const page = this.repository.listEvents({
+        ...query,
+        addresses: [sequencer],
+        sources: PUBLIC_EVENT_SOURCES,
+      });
+      return writeJson(response, 200, {
+        schemaVersion: 2,
+        data: {
+          sequencer,
+          protocol: this.repository.getSlashingProtocolSnapshot() ?? null,
+          events: page.data,
+        },
+        pagination: { nextCursor: page.nextCursor ?? null },
+        generatedAt: toIso(this.now()),
+      });
+    }
     if (method === 'GET' && url.pathname.startsWith('/api/v2/events/')) {
       const id = decodeURIComponent(url.pathname.slice('/api/v2/events/'.length));
       if (!/^[A-Za-z0-9:_-]{1,200}$/.test(id)) {

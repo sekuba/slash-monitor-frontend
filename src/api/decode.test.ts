@@ -5,6 +5,7 @@ import {
     decodeEventDetail,
     decodeEventPage,
     decodePublicConfig,
+    decodeSequencerRecord,
     decodeStatus,
     decodeSubscription,
     decodeTelegramLink,
@@ -167,6 +168,7 @@ describe('Slashmon API decoders', () => {
             chainId: 1,
             role: 'active',
             round: '195',
+            status: null,
             targetEpochs: ['772', '773'],
             currentSlot: '25000',
             currentEpoch: '781',
@@ -179,8 +181,59 @@ describe('Slashmon API decoders', () => {
             transactionHash: `0x${'34'.repeat(32)}`,
             payloadAddress: '0x00000000000000000000000000000000000000bb',
             amount: null,
+            isVetoed: null,
+            isExecuted: null,
+            isSlashingEnabled: null,
+            isExecutionPaused: null,
+            isProtected: null,
+            pauseStartedAtSlot: null,
+            pauseEndsAtSlot: null,
             actions: [{ sequencer: address, amount: '2000000000000000000000' }],
         });
+    });
+
+    it('decodes a sequencer record with exact protocol timings', () => {
+        const record = decodeSequencerRecord({
+            schemaVersion: 2,
+            data: {
+                sequencer: address,
+                protocol: {
+                    chainId: 1,
+                    observedAt: '2026-07-26T07:00:00.000Z',
+                    currentSlot: '31170',
+                    currentEpoch: '974',
+                    currentRound: '243',
+                    slotDurationSeconds: 72,
+                    epochDurationSlots: 32,
+                    quorum: 65,
+                    roundSizeSlots: 128,
+                    roundSizeEpochs: 4,
+                    executionDelayRounds: 28,
+                    lifetimeRounds: 34,
+                    slashOffsetRounds: 2,
+                    roundDurationSeconds: 9216,
+                    executionDelaySeconds: 258048,
+                    executionWindowSeconds: 55296,
+                    isSlashingEnabled: false,
+                    pauseDurationSeconds: 259200,
+                    slashingDisabledUntil: '1785050000',
+                    pauseStartedAtSlot: '27691',
+                    pauseEndsAtSlot: '31291',
+                    inactivity: { targetPercentage: 0.8, consecutiveEpochs: 2 },
+                },
+                events: [],
+            },
+            pagination: { nextCursor: null },
+        }, 'mainnet', address);
+
+        expect(record.protocol).toEqual(expect.objectContaining({
+            quorum: 65,
+            slashOffsetRounds: 2,
+            executionDelaySeconds: 258048,
+            executionWindowSeconds: 55296,
+            pauseDurationSeconds: 259200,
+            inactivity: { targetPercentage: 0.8, consecutiveEpochs: 2 },
+        }));
     });
 
     it('requires the one-time management token on creation', () => {

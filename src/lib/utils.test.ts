@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DetectedSlashing, ResolvedMonitorConfig } from '@/types/slashing';
-import { deriveRoundPresentation } from './utils';
+import { deriveRoundPresentation, getStatusColor } from './utils';
 
 const config = {
     slashingRoundSize: 10,
@@ -40,5 +40,10 @@ describe('deriveRoundPresentation', () => {
         expect(deriveRoundPresentation({ ...livePayload, isVetoed: true }, options).isProtected).toBe(false);
         expect(deriveRoundPresentation({ ...livePayload, isExecuted: true, status: 'executed' }, options).isProtected).toBe(false);
         expect(deriveRoundPresentation({ ...livePayload, status: 'expired' }, options).isProtected).toBe(false);
+    });
+
+    it('keeps completed round states visibly distinct from the page background', () => {
+        expect(getStatusColor('executed')).toContain('bg-vermillion');
+        expect(getStatusColor('expired')).toContain('bg-aqua');
     });
 });

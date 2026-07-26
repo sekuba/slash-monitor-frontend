@@ -614,6 +614,120 @@ export class OffenseRepository {
     return { ...row, metadata: parseJson(row.metadataJson, {}) };
   }
 
+  getSlashingProtocolSnapshot() {
+    const l1State = this.getSourceState('l1');
+    const metadata = l1State?.metadata;
+    const activeStack = Array.isArray(metadata?.stacks)
+      ? metadata.stacks.find((stack) => stack?.role === 'active')
+      : undefined;
+    const parameters = activeStack?.parameters;
+    if (!metadata || !activeStack || !parameters || l1State.lastSuccessAt == null) {
+      return undefined;
+    }
+
+    try {
+      const chainId = safePositiveInteger(metadata.chainId, 'protocol chain id');
+      const currentSlot = safeUnsignedBigIntString(metadata.currentSlot, 'protocol current slot');
+      const currentEpoch = safeUnsignedBigIntString(metadata.currentEpoch, 'protocol current epoch');
+      const currentRound = safeUnsignedBigIntString(
+        activeStack.currentRound,
+        'protocol current round',
+      );
+      const slotDurationSeconds = safePositiveInteger(
+        metadata.slotDuration,
+        'protocol slot duration',
+      );
+      const epochDurationSlots = safePositiveInteger(
+        metadata.epochDuration,
+        'protocol epoch duration',
+      );
+      const quorum = safePositiveInteger(parameters.quorum, 'protocol quorum');
+      const roundSizeSlots = safePositiveInteger(parameters.roundSize, 'protocol round size');
+      const roundSizeEpochs = safePositiveInteger(
+        parameters.roundSizeInEpochs,
+        'protocol round size in epochs',
+      );
+      const executionDelayRounds = safeUnsignedInteger(
+        parameters.executionDelayInRounds,
+        'protocol execution delay',
+      );
+      const lifetimeRounds = safePositiveInteger(
+        parameters.lifetimeInRounds,
+        'protocol lifetime',
+      );
+      const slashOffsetRounds = safePositiveInteger(
+        parameters.slashOffsetInRounds,
+        'protocol slash offset',
+      );
+      if (lifetimeRounds <= executionDelayRounds) {
+        throw new Error('protocol lifetime must exceed its execution delay');
+      }
+
+      const sentinel = this.getSourceState('aztec_sentinel')?.metadata;
+      const targetPercentage = Number(sentinel?.targetPercentage);
+      const consecutiveEpochs = Number(sentinel?.consecutiveEpochThreshold);
+      const inactivity = Number.isFinite(targetPercentage) &&
+        targetPercentage > 0 &&
+        targetPercentage <= 1 &&
+        Number.isSafeInteger(consecutiveEpochs) &&
+        consecutiveEpochs > 0
+        ? { targetPercentage, consecutiveEpochs }
+        : null;
+      const pauseDurationSeconds = activeStack.slashingDisableDuration === null ||
+        activeStack.slashingDisableDuration === undefined
+        ? null
+        : safePositiveInteger(
+          activeStack.slashingDisableDuration,
+          'protocol pause duration',
+        );
+
+      return {
+        chainId,
+        observedAt: toIso(l1State.lastSuccessAt),
+        currentSlot,
+        currentEpoch,
+        currentRound,
+        slotDurationSeconds,
+        epochDurationSlots,
+        quorum,
+        roundSizeSlots,
+        roundSizeEpochs,
+        executionDelayRounds,
+        lifetimeRounds,
+        slashOffsetRounds,
+        roundDurationSeconds: checkedProduct(
+          roundSizeSlots,
+          slotDurationSeconds,
+          'protocol round duration',
+        ),
+        executionDelaySeconds: checkedProduct(
+          executionDelayRounds,
+          roundSizeSlots,
+          slotDurationSeconds,
+          'protocol execution delay duration',
+        ),
+        executionWindowSeconds: checkedProduct(
+          lifetimeRounds - executionDelayRounds,
+          roundSizeSlots,
+          slotDurationSeconds,
+          'protocol execution window duration',
+        ),
+        isSlashingEnabled: activeStack.isSlashingEnabled !== false,
+        pauseDurationSeconds,
+        slashingDisabledUntil: optionalUnsignedBigIntString(
+          activeStack.slashingDisabledUntil,
+        ),
+        pauseStartedAtSlot: optionalUnsignedBigIntString(activeStack.pauseStartedAtSlot),
+        pauseEndsAtSlot: optionalUnsignedBigIntString(activeStack.pauseEndsAtSlot),
+        inactivity,
+      };
+    } catch {
+      // A partial or older L1 metadata snapshot must not produce a plausible
+      // timing contract. Events remain readable while the next scan repairs it.
+      return undefined;
+    }
+  }
+
   getValidatorIndexCursor() {
     const row = this.db.prepare(`
       SELECT epoch, coverage_generation AS coverageGeneration
@@ -2385,6 +2499,7 @@ export class OffenseRepository {
             currentRound: stack.currentRound,
             isSlashingEnabled: Boolean(stack.isSlashingEnabled),
             slashingDisabledUntil: stack.slashingDisabledUntil ?? null,
+            slashingDisableDuration: stack.slashingDisableDuration ?? null,
             pauseStartedAtSlot: stack.pauseStartedAtSlot ?? null,
             pauseEndsAtSlot: stack.pauseEndsAtSlot ?? null,
             parameters: stack.parameters,
@@ -3327,6 +3442,20 @@ function safePositiveInteger(value, label) {
   const parsed = safeUnsignedInteger(value, label);
   if (parsed < 1) throw new Error(`${label} must be positive`);
   return parsed;
+}
+
+function checkedProduct(...input) {
+  const label = input.pop();
+  const result = input.reduce((product, value) => product * value, 1);
+  if (!Number.isSafeInteger(result) || result < 0) {
+    throw new Error(`${label} is out of range`);
+  }
+  return result;
+}
+
+function optionalUnsignedBigIntString(value) {
+  if (value === null || value === undefined) return null;
+  return safeUnsignedBigIntString(value, 'optional protocol value');
 }
 
 function safeUnsignedBigIntString(value, label) {

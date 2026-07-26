@@ -4,7 +4,13 @@ import { BackendOverview } from './components/BackendOverview';
 import { Dashboard } from './components/Dashboard';
 import { Header } from './components/Header';
 import { useSlashingMonitor } from './hooks/useSlashingMonitor';
-import { parseAppSearch, urlForNetwork, urlForView, type AppView } from './lib/navigation';
+import {
+    parseAppSearch,
+    urlForNetwork,
+    urlForSequencer,
+    urlForView,
+    type AppView,
+} from './lib/navigation';
 import { normalizeRpcUrls } from './lib/rpc';
 import { clearRpcOverride, getRpcOverride, setRpcOverride } from './lib/rpcOverride';
 import { useSlashingStore } from './store/slashingStore';
@@ -68,6 +74,13 @@ export function App() {
         setLocation(parseAppSearch(next.search));
     }, [isTestnet, restartScanner]);
 
+    const selectSequencer = useCallback((sequencer: Address | null) => {
+        const next = urlForSequencer(window.location.href, sequencer);
+        window.history.pushState({}, '', next);
+        setLocation(parseAppSearch(next.search));
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, []);
+
     const updateRpc = useCallback((url: string) => {
         const savedUrl = setRpcOverride(config.chainId, url);
         setRpcOverrides((current) => ({ ...current, [location.network]: savedUrl }));
@@ -101,8 +114,10 @@ export function App() {
             {location.view === 'pingme' ? (
                 <main className="mx-auto max-w-7xl px-4 py-8">
                     <BackendOverview
-                        key={`${location.network}:${location.selectedEventId ?? ''}`}
+                        key={`${location.network}:${location.selectedEventId ?? ''}:${location.selectedSequencer ?? ''}`}
                         network={location.network}
+                        selectedSequencer={location.selectedSequencer}
+                        onSelectSequencer={selectSequencer}
                     />
                 </main>
             ) : (

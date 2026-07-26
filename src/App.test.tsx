@@ -25,7 +25,9 @@ describe('top-level view isolation', () => {
 
         expect(scannerSpy).not.toHaveBeenCalled();
         expect(markup).toContain('Connecting To Pingme');
-        expect(markup).toContain('Watch My Sequencers');
+        expect(markup).toContain('Watch sequencers');
+        expect(markup).not.toContain('PWA Web Push');
+        expect(markup).not.toContain('>Telegram</h3>');
         expect(markup).not.toContain('Address-First Alerts');
         expect(markup).not.toContain('Pick the mainnet sequencers');
         expect(markup).toContain('Monitor');

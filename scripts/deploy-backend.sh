@@ -11,10 +11,11 @@ readonly system_node='/usr/local/bin/node'
 readonly database='/var/lib/slashmon/slashmon.sqlite'
 readonly backup_root='/var/backups/slashmon'
 
-if (( $# != 1 )) || [[ "$1" != '--fresh' && "$1" != '--upgrade' ]]; then
+if (( $# != 1 )) || [[ "$1" != '--fresh' && "$1" != '--upgrade' && "$1" != '--reset-db' ]]; then
   cat <<'EOF'
 Usage: scripts/deploy-backend.sh --fresh
        scripts/deploy-backend.sh --upgrade
+       scripts/deploy-backend.sh --reset-db
 
 Deploy the checked-out Slashmon backend from a clean commit.
 
@@ -28,7 +29,11 @@ Deploy the checked-out Slashmon backend from a clean commit.
 --upgrade verifies and backs up the current database, installs an immutable
 release, and preserves all state and earlier releases.
 
-Both modes reduce /etc/slashmon-backend.env to settings supported by the
+--reset-db verifies and backs up the current database, installs an immutable
+release, then removes only the live database. Watches, event history, and
+delivery state start empty; the timestamped backup and earlier releases remain.
+
+All modes reduce /etc/slashmon-backend.env to settings supported by the
 current backend. Run this from a clean checkout as its normal owner, not root.
 EOF
   exit 2
@@ -51,7 +56,7 @@ require_command() {
 for command_name in git sudo tar node pnpm curl env mktemp systemctl; do
   require_command "$command_name"
 done
-if [[ "$mode" == '--upgrade' ]]; then
+if [[ "$mode" == '--upgrade' || "$mode" == '--reset-db' ]]; then
   require_command date
 fi
 
@@ -89,13 +94,13 @@ if ! sudo test -f "$environment_file"; then
   echo "$environment_file is missing. Install and fill collector/deploy/slashmon-backend.env.example first." >&2
   exit 1
 fi
-if [[ "$mode" == '--upgrade' ]]; then
+if [[ "$mode" == '--upgrade' || "$mode" == '--reset-db' ]]; then
   if ! sudo systemctl cat "$new_service" >/dev/null 2>&1; then
     echo "$new_service is not installed; use --fresh for the first deployment." >&2
     exit 1
   fi
   if ! sudo test -f "$database"; then
-    echo "$database is missing; refusing an upgrade without persistent state." >&2
+    echo "$database is missing; refusing $mode without persistent state." >&2
     exit 1
   fi
 fi
@@ -232,7 +237,7 @@ else
 fi
 
 backup_path=''
-if [[ "$mode" == '--upgrade' ]]; then
+if [[ "$mode" == '--upgrade' || "$mode" == '--reset-db' ]]; then
   backup_path="$backup_root/slashmon-$(date -u +%Y%m%dT%H%M%SZ)-before-$revision.sqlite"
   sudo install -d -o root -g root -m 0700 "$backup_root"
   if sudo test -e "$backup_path"; then
@@ -242,13 +247,13 @@ if [[ "$mode" == '--upgrade' ]]; then
 fi
 
 echo "Stopping $new_service..."
-if [[ "$mode" == '--upgrade' ]]; then
+if [[ "$mode" == '--upgrade' || "$mode" == '--reset-db' ]]; then
   sudo systemctl stop "$new_service"
 elif sudo systemctl cat "$new_service" >/dev/null 2>&1; then
   sudo systemctl stop "$new_service"
 fi
 
-if [[ "$mode" == '--upgrade' ]]; then
+if [[ "$mode" == '--upgrade' || "$mode" == '--reset-db' ]]; then
   echo 'Checking and backing up the database...'
   database_check="$(
     sudo "$system_node" --input-type=module --eval "
@@ -265,6 +270,10 @@ if [[ "$mode" == '--upgrade' ]]; then
     exit 1
   fi
   sudo install -o root -g root -m 0600 "$database" "$backup_path"
+  if [[ "$mode" == '--reset-db' ]]; then
+    echo "Resetting the live database; backup retained at $backup_path"
+    sudo rm -f -- "$database" "${database}-wal" "${database}-shm"
+  fi
 else
   echo 'Permanently removing Slashmon state...'
   if sudo systemctl cat "$old_service" >/dev/null 2>&1; then
@@ -316,6 +325,8 @@ fi
 
 if [[ "$mode" == '--upgrade' ]]; then
   echo "Slashmon backend $revision is live. Database backup: $backup_path"
+elif [[ "$mode" == '--reset-db' ]]; then
+  echo "Slashmon backend $revision is live with a reset database. Previous database: $backup_path"
 else
   echo "Slashmon backend $revision is live with a fresh database."
 fi

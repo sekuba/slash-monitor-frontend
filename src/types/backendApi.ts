@@ -86,6 +86,7 @@ export interface EventL1Context {
     chainId: number;
     role: string | null;
     round: string | null;
+    status: string | null;
     targetEpochs: string[];
     currentSlot: string | null;
     currentEpoch: string | null;
@@ -98,6 +99,13 @@ export interface EventL1Context {
     transactionHash: string | null;
     payloadAddress: Address | null;
     amount: string | null;
+    isVetoed: boolean | null;
+    isExecuted: boolean | null;
+    isSlashingEnabled: boolean | null;
+    isExecutionPaused: boolean | null;
+    isProtected: boolean | null;
+    pauseStartedAtSlot: string | null;
+    pauseEndsAtSlot: string | null;
     actions: EventL1Action[];
 }
 
@@ -108,6 +116,41 @@ export interface EventL1Action {
 
 export interface EventPage {
     data: MonitorEvent[];
+    nextCursor: string | null;
+}
+
+export interface SlashingProtocolSnapshot {
+    chainId: number;
+    observedAt: string;
+    currentSlot: string;
+    currentEpoch: string;
+    currentRound: string;
+    slotDurationSeconds: number;
+    epochDurationSlots: number;
+    quorum: number;
+    roundSizeSlots: number;
+    roundSizeEpochs: number;
+    executionDelayRounds: number;
+    lifetimeRounds: number;
+    slashOffsetRounds: number;
+    roundDurationSeconds: number;
+    executionDelaySeconds: number;
+    executionWindowSeconds: number;
+    isSlashingEnabled: boolean;
+    pauseDurationSeconds: number | null;
+    slashingDisabledUntil: string | null;
+    pauseStartedAtSlot: string | null;
+    pauseEndsAtSlot: string | null;
+    inactivity: {
+        targetPercentage: number;
+        consecutiveEpochs: number;
+    } | null;
+}
+
+export interface SequencerRecordPage {
+    sequencer: Address;
+    protocol: SlashingProtocolSnapshot | null;
+    events: MonitorEvent[];
     nextCursor: string | null;
 }
 

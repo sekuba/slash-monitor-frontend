@@ -79,6 +79,7 @@ pnpm exec web-push generate-vapid-keys
 The current contract is rooted at `/api/v2`:
 
 - `GET /config`, `/status`, `/events`, `/events/:id`
+- `GET /sequencers/:address/record`
 - `POST /subscriptions`
 - `GET`, `PATCH`, or `DELETE /subscriptions/:id`
 - `GET /subscriptions/:id/events` and `/events/:eventId`
@@ -99,11 +100,18 @@ node offense or completed inactive epoch matching both the target address and
 one of the round's target epochs. This is explicitly correlated node evidence:
 L1 votes and payloads do not encode an offense type.
 
+The sequencer record paginates every public journal event targeting one
+address. It also returns the latest active Slasher parameters, current
+slot/epoch/round, scheduled pause, and node-reported inactivity thresholds.
+If no complete L1 snapshot is available, `protocol` is `null` while the event
+history remains readable.
+
 ## Storage and delivery
 
 Startup creates the current schema only in an empty database. Databases from
-older implementations are rejected rather than migrated. Back up or archive an
-old file, then start with a new path.
+older implementations are rejected rather than migrated. Production deploys
+use `scripts/deploy-backend.sh --upgrade` for compatible releases or
+`--reset-db` to verify and archive the old database before starting empty.
 
 Event creation, target matching, and outbox insertion are one transaction.
 Delivery is at-least-once: stable IDs suppress normal duplicates, but a crash

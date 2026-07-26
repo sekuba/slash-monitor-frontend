@@ -56,20 +56,28 @@ Run one mode from a clean checkout of the commit to deploy:
 ```bash
 scripts/deploy-backend.sh --fresh
 scripts/deploy-backend.sh --upgrade
+scripts/deploy-backend.sh --reset-db
 ```
 
-Use `--fresh` for the first deployment or an intentionally incompatible reset.
-It permanently removes all Slashmon state and `/var/backups/slashmon`; it
-creates no backup. Use `--upgrade` for a compatible release. It stops the only
+Use `--fresh` only for the first deployment or a full machine-level reset. It
+permanently removes all Slashmon state and `/var/backups/slashmon`; it creates
+no backup. Use `--upgrade` for a schema-compatible release. It stops the only
 writer, checkpoints and checks SQLite, saves a timestamped database under
-`/var/backups/slashmon`, switches the immutable release, and restarts the
-service without deleting state. Keep the previous release and backup until
-source polls and test deliveries succeed. Neither mode provides automatic
-rollback.
+`/var/backups/slashmon`, switches the immutable release, and restarts without
+deleting state.
+
+Use `--reset-db` when a release intentionally requires an empty database. It
+performs the same checkpoint, integrity check, and timestamped backup, then
+removes only `slashmon.sqlite` and its SQLite sidecars. The new process creates
+the current schema; watches, notification endpoints, journal history, and
+collector cursors restart empty. Backups and earlier releases remain available.
+Keep the previous release and backup until source polls and test deliveries
+succeed. No mode provides automatic rollback.
 
 The unit stores the database at `/var/lib/slashmon/slashmon.sqlite`. Startup
-accepts an empty database or the current schema only; there is no migration
-path.
+accepts an empty database or the current schema only; there is no automatic
+schema migration. Releases that only change API reads or stored JSON metadata
+remain compatible and should use `--upgrade`.
 
 To self-host the PWA, install all dependencies and run `pnpm build` in the
 release. Serve `dist/` as static files. Frontend RPC URLs must be public HTTPS

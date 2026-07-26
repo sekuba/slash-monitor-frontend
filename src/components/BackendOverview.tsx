@@ -1,10 +1,20 @@
 import { EventHistory } from './EventHistory';
 import { SourceHealthBanner } from './SourceHealthBanner';
 import { SubscriptionPanel } from './SubscriptionPanel';
+import { SequencerRecord } from './SequencerRecord';
 import { useBackendMonitor } from '@/hooks/useBackendMonitor';
+import type { Address } from 'viem';
 import type { MonitorNetwork } from '@/types/backendApi';
 
-export function BackendOverview({ network }: { network: MonitorNetwork }) {
+export function BackendOverview({
+    network,
+    selectedSequencer,
+    onSelectSequencer,
+}: {
+    network: MonitorNetwork;
+    selectedSequencer: Address | null;
+    onSelectSequencer: (sequencer: Address | null) => void;
+}) {
     const monitor = useBackendMonitor(network);
     const configuredNetwork = monitor.config?.network;
 
@@ -35,12 +45,23 @@ export function BackendOverview({ network }: { network: MonitorNetwork }) {
     return (
         <>
             {health}
-            <SubscriptionPanel key={network} network={network} config={monitor.config} />
+            <SequencerRecord
+                network={network}
+                sequencer={selectedSequencer}
+                onSelect={onSelectSequencer}
+            />
+            <SubscriptionPanel
+                key={network}
+                network={network}
+                config={monitor.config}
+                onSelectSequencer={onSelectSequencer}
+            />
             <div className="mb-10">
                 <EventHistory
                     events={monitor.events?.data ?? []}
                     hasWatchlistCapability={monitor.hasWatchlistCapability}
                     selectedEventError={monitor.selectedEventError}
+                    onSelectSequencer={onSelectSequencer}
                 />
             </div>
         </>

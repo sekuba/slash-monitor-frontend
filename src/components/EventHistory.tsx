@@ -6,12 +6,14 @@ interface EventHistoryProps {
     events: MonitorEvent[];
     hasWatchlistCapability: boolean;
     selectedEventError?: string | null;
+    onSelectSequencer?: (sequencer: MonitorEvent['targets'][number]) => void;
 }
 
 export function EventHistory({
     events,
     hasWatchlistCapability,
     selectedEventError = null,
+    onSelectSequencer,
 }: EventHistoryProps) {
     const selectedEventId = new URLSearchParams(window.location.search).get('event');
     const scrolledEventIdRef = useRef<string | null>(null);
@@ -65,6 +67,7 @@ export function EventHistory({
                             key={event.id}
                             event={event}
                             selected={event.id === selectedEventId}
+                            onSelectSequencer={onSelectSequencer}
                         />
                     ))}
                 </div>
@@ -73,7 +76,15 @@ export function EventHistory({
     );
 }
 
-function EventCard({ event, selected }: { event: MonitorEvent; selected: boolean }) {
+function EventCard({
+    event,
+    selected,
+    onSelectSequencer,
+}: {
+    event: MonitorEvent;
+    selected: boolean;
+    onSelectSequencer?: EventHistoryProps['onSelectSequencer'];
+}) {
     const pending = event.certainty === 'pending';
     return (
         <article
@@ -87,7 +98,7 @@ function EventCard({ event, selected }: { event: MonitorEvent; selected: boolean
                     <h3 className={`text-base font-black ${pending ? 'text-orchid' : 'text-aqua'}`}>
                         {event.title}
                     </h3>
-                    <EventTargets event={event} />
+                    <EventTargets event={event} onSelectSequencer={onSelectSequencer} />
                 </div>
                 <span className={`shrink-0 border-3 border-brand-black px-2 py-1 text-xs font-black uppercase text-brand-black ${pending ? 'bg-orchid' : 'bg-aqua'}`}>
                     {pending ? 'Node · pending' : 'L1 · confirmed'}
@@ -106,7 +117,13 @@ function EventCard({ event, selected }: { event: MonitorEvent; selected: boolean
     );
 }
 
-function EventTargets({ event }: { event: MonitorEvent }) {
+function EventTargets({
+    event,
+    onSelectSequencer,
+}: {
+    event: MonitorEvent;
+    onSelectSequencer?: EventHistoryProps['onSelectSequencer'];
+}) {
     if (event.targets.length === 0) {
         return null;
     }
@@ -123,6 +140,7 @@ function EventTargets({ event }: { event: MonitorEvent }) {
                             event={event}
                             target={target}
                             amount={amount}
+                            onSelectSequencer={onSelectSequencer}
                         />
                     );
                 })}
@@ -143,6 +161,7 @@ function EventTargets({ event }: { event: MonitorEvent }) {
                                     target={target}
                                     amount={amount}
                                     full
+                                    onSelectSequencer={onSelectSequencer}
                                 />
                             );
                         })}
@@ -158,11 +177,13 @@ function EventTarget({
     target,
     amount,
     full = false,
+    onSelectSequencer,
 }: {
     event: MonitorEvent;
     target: MonitorEvent['targets'][number];
     amount?: string;
     full?: boolean;
+    onSelectSequencer?: EventHistoryProps['onSelectSequencer'];
 }) {
     const evidence = event.nodeEvidence.filter((item) =>
         item.sequencer.toLowerCase() === target.toLowerCase());
@@ -174,6 +195,15 @@ function EventTarget({
                 full={full}
                 className="font-mono text-xs font-bold text-whisper-white"
             />
+            {onSelectSequencer && (
+                <button
+                    type="button"
+                    onClick={() => onSelectSequencer(target)}
+                    className="mt-1 block text-[0.65rem] font-black uppercase text-orchid underline underline-offset-4 hover:text-chartreuse"
+                >
+                    Open record
+                </button>
+            )}
             {amount && (
                 <span className="text-[0.68rem] font-bold text-whisper-white/55">
                     {formatAztec(amount)} AZTEC proposed

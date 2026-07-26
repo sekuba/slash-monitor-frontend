@@ -75,6 +75,31 @@ describe('Slashmon capability-scoped API reads', () => {
             expect(init?.cache).toBe('no-store');
         }
     });
+
+    it('requests an address-scoped sequencer record with cursor pagination', async () => {
+        const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({
+            schemaVersion: 2,
+            data: {
+                sequencer: address,
+                protocol: null,
+                events: [],
+            },
+            pagination: { nextCursor: null },
+        }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+        vi.stubGlobal('fetch', fetchMock);
+        const client = new SlashmonApiClient('https://api.slashmon.invalid');
+
+        const record = await client.getSequencerRecord(address, 'mainnet', undefined, 'older-1');
+
+        expect(record.sequencer).toBe(address);
+        expect(fetchMock).toHaveBeenCalledOnce();
+        expect(String(fetchMock.mock.calls[0][0])).toBe(
+            `https://api.slashmon.invalid/api/v2/sequencers/${address}/record?network=mainnet&limit=50&cursor=older-1`,
+        );
+    });
 });
 
 function event(id: string, type: string, eventSource: string, certainty: 'pending' | 'confirmed') {

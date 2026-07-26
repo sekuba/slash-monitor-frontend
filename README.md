@@ -6,9 +6,10 @@ Slashmon watches Aztec slashing and has two deliberately separate parts:
   canonical Aztec contracts and checks slashing rounds directly through public
   L1 RPCs. Its on-page details panel can select a browser-local RPC and inspect
   the resolved deployment metadata.
-- **PINGME** is the alerting UI for the backend. The backend journals per-duty
-  inactivity precursors and registered offenses from one Aztec node, verifies
-  L1 slashing state, and sends matched alerts through Telegram or Web Push.
+- **PINGME** is the backend UI. It can search the complete journal for one
+  sequencer, manage address watches, and send matched alerts through Telegram
+  or Web Push. The backend records per-duty inactivity precursors and
+  registered offenses from one Aztec node, then verifies L1 slashing state.
 
 Node-local offenses are early warnings, not consensus. Slashmon labels them
 `pending`. Ethereum observations are labelled `confirmed`. The backend never

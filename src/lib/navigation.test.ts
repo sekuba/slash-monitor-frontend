@@ -1,12 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { parseAppSearch, urlForNetwork, urlForView } from './navigation';
+import { parseAppSearch, urlForNetwork, urlForSequencer, urlForView } from './navigation';
 
 describe('query-based application navigation', () => {
     it('parses supported views and defaults unknown values to the mainnet monitor', () => {
-        expect(parseAppSearch('')).toEqual({ view: 'monitor', network: 'mainnet', selectedEventId: null });
-        expect(parseAppSearch('?view=pingme&network=testnet&event=event_1')).toEqual({ view: 'pingme', network: 'testnet', selectedEventId: 'event_1' });
-        expect(parseAppSearch('?view=unknown&network=unknown&event=not%20valid')).toEqual({ view: 'monitor', network: 'mainnet', selectedEventId: null });
-        expect(parseAppSearch('?view=admin')).toEqual({ view: 'monitor', network: 'mainnet', selectedEventId: null });
+        expect(parseAppSearch('')).toEqual({ view: 'monitor', network: 'mainnet', selectedEventId: null, selectedSequencer: null });
+        expect(parseAppSearch('?view=pingme&network=testnet&event=event_1&sequencer=0x1111111111111111111111111111111111111111')).toEqual({
+            view: 'pingme',
+            network: 'testnet',
+            selectedEventId: 'event_1',
+            selectedSequencer: '0x1111111111111111111111111111111111111111',
+        });
+        expect(parseAppSearch('?view=unknown&network=unknown&event=not%20valid&sequencer=invalid')).toEqual({
+            view: 'monitor',
+            network: 'mainnet',
+            selectedEventId: null,
+            selectedSequencer: null,
+        });
+        expect(parseAppSearch('?view=admin')).toEqual({ view: 'monitor', network: 'mainnet', selectedEventId: null, selectedSequencer: null });
     });
 
     it('preserves the network and unrelated query state when changing views', () => {
@@ -31,8 +41,27 @@ describe('query-based application navigation', () => {
             'https://slashmon.example/?view=pingme&network=testnet&event=testnet-event&utm_source=push',
             'mainnet',
         );
-        expect(parseAppSearch(next.search)).toEqual({ view: 'pingme', network: 'mainnet', selectedEventId: null });
+        expect(parseAppSearch(next.search)).toEqual({
+            view: 'pingme',
+            network: 'mainnet',
+            selectedEventId: null,
+            selectedSequencer: null,
+        });
         expect(next.searchParams.has('event')).toBe(false);
         expect(next.searchParams.get('utm_source')).toBe('push');
+    });
+
+    it('opens and clears a sequencer record without carrying an event selection', () => {
+        const address = '0x1111111111111111111111111111111111111111';
+        const record = urlForSequencer(
+            'https://slashmon.example/?view=pingme&event=event-1&utm_source=alert',
+            address,
+        );
+        expect(record.searchParams.get('view')).toBe('pingme');
+        expect(record.searchParams.get('sequencer')).toBe(address);
+        expect(record.searchParams.has('event')).toBe(false);
+        expect(record.searchParams.get('utm_source')).toBe('alert');
+
+        expect(urlForSequencer(record.href, null).searchParams.has('sequencer')).toBe(false);
     });
 });

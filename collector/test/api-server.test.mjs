@@ -634,6 +634,98 @@ test('public journal exposes Sentinel precursor feed and detail', async (t) => {
   assert.equal((await detailResponse.json()).data.type, 'inactivity_first_miss');
 });
 
+test('sequencer record returns its indexed journal and exact protocol timing snapshot', async (t) => {
+  const repository = healthyRepository();
+  repository.recordSourceSuccess('l1', {
+    chainId: 1,
+    currentSlot: '31170',
+    currentEpoch: '974',
+    slotDuration: '72',
+    epochDuration: '32',
+    stacks: [{
+      role: 'active',
+      currentRound: '243',
+      isSlashingEnabled: false,
+      slashingDisabledUntil: '1785050000',
+      slashingDisableDuration: '259200',
+      pauseStartedAtSlot: '27691',
+      pauseEndsAtSlot: '31291',
+      parameters: {
+        quorum: '65',
+        roundSize: '128',
+        roundSizeInEpochs: '4',
+        executionDelayInRounds: '28',
+        lifetimeInRounds: '34',
+        slashOffsetInRounds: '2',
+      },
+    }],
+  }, NOW - 500);
+  repository.recordSourceSuccess('aztec_sentinel', {
+    targetPercentage: 0.8,
+    consecutiveEpochThreshold: 2,
+  }, NOW - 400);
+  repository.recordEvent({
+    id: 'record-second-event',
+    network: 'mainnet',
+    source: 'aztec_sentinel',
+    type: 'inactivity_first_miss',
+    severity: 'warning',
+    title: 'First missed duty observed',
+    body: 'Precursor only.',
+    data: { certainty: 'pending', sequencer: SEQUENCER_A, epoch: '42', slot: '1344' },
+    observedAt: NOW,
+  }, [SEQUENCER_A]);
+  const { baseUrl } = await startApi(t, repository);
+
+  const response = await fetch(
+    `${baseUrl}/api/v2/sequencers/${SEQUENCER_A}/record?network=mainnet&limit=1`,
+  );
+  assert.equal(response.status, 200);
+  const record = await response.json();
+  assert.equal(record.schemaVersion, 2);
+  assert.equal(record.data.sequencer, SEQUENCER_A);
+  assert.deepEqual(record.data.events.map((event) => event.id), ['record-second-event']);
+  assert.match(record.pagination.nextCursor, /^[A-Za-z0-9_-]+$/);
+  assert.deepEqual(record.data.protocol, {
+    chainId: 1,
+    observedAt: new Date(NOW - 500).toISOString(),
+    currentSlot: '31170',
+    currentEpoch: '974',
+    currentRound: '243',
+    slotDurationSeconds: 72,
+    epochDurationSlots: 32,
+    quorum: 65,
+    roundSizeSlots: 128,
+    roundSizeEpochs: 4,
+    executionDelayRounds: 28,
+    lifetimeRounds: 34,
+    slashOffsetRounds: 2,
+    roundDurationSeconds: 9_216,
+    executionDelaySeconds: 258_048,
+    executionWindowSeconds: 55_296,
+    isSlashingEnabled: false,
+    pauseDurationSeconds: 259_200,
+    slashingDisabledUntil: '1785050000',
+    pauseStartedAtSlot: '27691',
+    pauseEndsAtSlot: '31291',
+    inactivity: { targetPercentage: 0.8, consecutiveEpochs: 2 },
+  });
+
+  const next = await (
+    await fetch(
+      `${baseUrl}/api/v2/sequencers/${SEQUENCER_A}/record?network=mainnet&limit=1&cursor=${record.pagination.nextCursor}`,
+    )
+  ).json();
+  assert.equal(next.data.events.length, 1);
+  assert.equal(next.data.events[0].type, 'pending_offense_detected');
+
+  const malformed = await fetch(
+    `${baseUrl}/api/v2/sequencers/not-an-address/record?network=mainnet`,
+  );
+  assert.equal(malformed.status, 400);
+  assert.equal((await malformed.json()).error.code, 'invalid_address');
+});
+
 function healthyRepository() {
   const repository = new OffenseRepository(':memory:');
   const [offense] = parseOffenseSnapshot([OFFENSE_A]);

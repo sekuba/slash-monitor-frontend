@@ -1,14 +1,21 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import type { Address } from 'viem';
 import { parseAddressList, formatAddressList } from '@/lib/addresses';
 import { useNotificationSubscription } from '@/hooks/useNotificationSubscription';
+import { formatAddress } from '@/lib/utils';
 import type { BackendConfig, MonitorNetwork } from '@/types/backendApi';
 
 interface SubscriptionPanelProps {
     network: MonitorNetwork;
     config: BackendConfig | null;
+    onSelectSequencer: (sequencer: Address) => void;
 }
 
-export function SubscriptionPanel({ network, config }: SubscriptionPanelProps) {
+export function SubscriptionPanel({
+    network,
+    config,
+    onSelectSequencer,
+}: SubscriptionPanelProps) {
     const manager = useNotificationSubscription(network, config);
     const maximum = config?.limits.maxSequencers ?? 100;
 
@@ -32,13 +39,17 @@ export function SubscriptionPanel({ network, config }: SubscriptionPanelProps) {
     );
     const hasChannel = Boolean(telegramConnected || webPushConnected);
     const hasPendingChannel = Boolean(telegramPending || webPushPending);
+    const hasAddresses = Boolean(manager.subscription?.sequencers.length);
 
     return (
         <section id="notifications" className="mb-8 border-6 border-chartreuse bg-malachite p-5 shadow-brutal-chartreuse sm:p-7">
             <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-                <h2 className="text-3xl font-black text-chartreuse">Watch My Sequencers</h2>
-                <span className={`self-start border-3 border-brand-black px-3 py-2 text-xs font-black uppercase text-brand-black ${hasChannel ? 'bg-aqua' : hasPendingChannel ? 'bg-chartreuse' : 'bg-vermillion'}`}>
-                    {hasChannel ? 'Alerts Armed' : hasPendingChannel ? 'Channel Checking' : 'No Channel Yet'}
+                <div>
+                    <div className="text-xs font-black uppercase tracking-[0.18em] text-chartreuse">Optional alerts</div>
+                    <h2 className="mt-1 text-3xl font-black text-whisper-white">Watch sequencers</h2>
+                </div>
+                <span className={`self-start border-3 border-brand-black px-3 py-2 text-xs font-black uppercase text-brand-black ${hasChannel ? 'bg-aqua' : hasPendingChannel || !hasAddresses ? 'bg-chartreuse' : 'bg-vermillion'}`}>
+                    {hasChannel ? 'Armed' : hasPendingChannel ? 'Checking' : hasAddresses ? 'Choose a channel' : 'Add addresses'}
                 </span>
             </div>
 
@@ -57,13 +68,30 @@ export function SubscriptionPanel({ network, config }: SubscriptionPanelProps) {
                 onSave={manager.saveAddresses}
             />
 
-            <div className="mt-5 grid gap-5 lg:grid-cols-2">
+            {hasAddresses && (
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                    <span className="mr-1 text-xs font-black uppercase text-chartreuse">Records</span>
+                    {manager.subscription!.sequencers.map((sequencer) => (
+                        <button
+                            key={sequencer}
+                            type="button"
+                            onClick={() => onSelectSequencer(sequencer)}
+                            className="border-2 border-chartreuse bg-brand-black px-2 py-1 font-mono text-xs font-black text-whisper-white hover:text-chartreuse"
+                            title={`Open record for ${sequencer}`}
+                        >
+                            {formatAddress(sequencer, 6)}
+                        </button>
+                    ))}
+                </div>
+            )}
+
+            {hasAddresses && <div className="mt-5 grid gap-5 lg:grid-cols-2">
                 <ChannelCard
                     title="Telegram"
                     enabled={telegramConnected}
                     pending={telegramPending}
                     available={Boolean(config?.telegram.enabled)}
-                    description="Fast mobile and desktop alerts with durable messages in your bot chat. Telegram learns your chat/address association."
+                    description="Alerts in a private bot chat. Telegram sees the linked addresses."
                 >
                     <button
                         type="button"
@@ -112,13 +140,11 @@ export function SubscriptionPanel({ network, config }: SubscriptionPanelProps) {
                         </button>
                     )}
                 </ChannelCard>
-            </div>
+            </div>}
 
             {manager.subscription && (
                 <div className="mt-5 flex flex-col gap-3 border-3 border-chartreuse bg-brand-black p-4 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-xs font-bold text-whisper-white/65">
-                        This browser holds the management key. Slashmon cannot recover it if site data is erased.
-                    </p>
+                    <p className="text-xs font-bold text-whisper-white/65">This browser holds the watch-list key.</p>
                     <div className="flex flex-wrap gap-3">
                         <button
                             type="button"
@@ -212,7 +238,7 @@ function AddressForm({
                     setAddressText(event.target.value);
                     setValidationMessage(null);
                 }}
-                rows={4}
+                rows={3}
                 spellCheck={false}
                 autoComplete="off"
                 placeholder={'0x1234…\n0xabcd…'}
@@ -269,14 +295,14 @@ function ChannelCard({
 function pushDescription(capability: ReturnType<typeof useNotificationSubscription>['pushCapability']): string {
     switch (capability) {
         case 'install-required':
-            return 'On iPhone or iPad: add Slashmon to your Home Screen, open the installed app, then enable Web Push.';
+            return 'On iPhone or iPad, install this page to the Home Screen first.';
         case 'permission-denied':
             return 'Notifications are blocked. Re-enable them in browser or operating-system settings first.';
         case 'unsupported':
-            return 'This browser does not expose standards-based Web Push. Telegram remains available.';
+            return 'Web Push is unavailable in this browser.';
         case 'enabled':
-            return 'Encrypted browser push that works after the page closes. Lock-screen previews may reveal alert text.';
+            return 'Browser alerts after this page closes.';
         default:
-            return 'Encrypted browser push that works after the page closes. No native Slashmon app required.';
+            return 'Browser alerts after this page closes.';
     }
 }
