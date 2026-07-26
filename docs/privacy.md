@@ -17,9 +17,11 @@ Slashmon never needs validator keys, seed phrases, wallet signatures, or an
 Aztec keystore. Protect the database and backups as secrets. The systemd unit
 uses a private state directory and `UMask=0077`.
 
-Public API responses expose source health and public-address observations. They
-do not expose watch membership, channel endpoints, tokens, or delivery state.
-Catch-up and notification-test events remain endpoint-scoped.
+Public API responses expose source health and all public-address observation
+events from the Aztec node, Sentinel, and Ethereum L1. They do not expose watch
+membership, channel endpoints, tokens, or delivery state. Catch-up and
+notification-test events remain endpoint-scoped because they describe a
+recipient's delivery lifecycle rather than a public network observation.
 
 ## Provider exposure
 

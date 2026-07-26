@@ -17,6 +17,7 @@ import {
 
 const WATCHLIST_ID_PATTERN = /^[0-9a-f-]{36}$/i;
 const MAX_SEQUENCER_FILTERS = 100;
+const PUBLIC_EVENT_SOURCES = ['aztec_node', 'aztec_sentinel', 'ethereum_l1'];
 
 export class CollectorApiServer {
   constructor({
@@ -190,7 +191,7 @@ export class CollectorApiServer {
       const query = parseEventQuery(url.searchParams, this.network);
       const page = this.repository.listEvents({
         ...query,
-        sources: ['aztec_node', 'ethereum_l1'],
+        sources: PUBLIC_EVENT_SOURCES,
       });
       return writeJson(response, 200, {
         schemaVersion: 2,
@@ -206,7 +207,7 @@ export class CollectorApiServer {
       }
       const network = normalizeNetwork(url.searchParams.get('network') ?? this.network, this.network);
       const event = this.repository.getEvent(id);
-      if (!event || event.network !== network || !['aztec_node', 'ethereum_l1'].includes(event.source)) {
+      if (!event || event.network !== network || !PUBLIC_EVENT_SOURCES.includes(event.source)) {
         throw new HttpError(404, 'event_not_found', 'Event not found');
       }
       return writeJson(response, 200, {

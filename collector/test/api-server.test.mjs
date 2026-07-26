@@ -595,6 +595,45 @@ test('anonymous reads and watch-list creation have tighter independent limits', 
   assert.equal(secondCreate.body.error.code, 'subscription_rate_limited');
 });
 
+test('public journal exposes Sentinel precursor feed and detail', async (t) => {
+  const repository = healthyRepository();
+  repository.recordEvent({
+    id: 'sentinel-first-miss',
+    network: 'mainnet',
+    source: 'aztec_sentinel',
+    type: 'inactivity_first_miss',
+    severity: 'warning',
+    title: 'First missed duty observed',
+    body: 'Precursor evidence, not a registered slash offense.',
+    data: {
+      certainty: 'pending',
+      sequencer: SEQUENCER_A,
+      epoch: '42',
+      slot: '1344',
+    },
+    observedAt: NOW,
+  }, [SEQUENCER_A]);
+  const { baseUrl } = await startApi(t, repository);
+
+  const feedResponse = await fetch(
+    `${baseUrl}/api/v2/events?network=mainnet&address=${SEQUENCER_A}`,
+  );
+  assert.equal(feedResponse.status, 200);
+  const feed = await feedResponse.json();
+  assert.deepEqual(
+    feed.data
+      .filter((event) => event.id === 'sentinel-first-miss')
+      .map(({ source, type, certainty }) => ({ source, type, certainty })),
+    [{ source: 'aztec_sentinel', type: 'inactivity_first_miss', certainty: 'pending' }],
+  );
+
+  const detailResponse = await fetch(
+    `${baseUrl}/api/v2/events/sentinel-first-miss?network=mainnet`,
+  );
+  assert.equal(detailResponse.status, 200);
+  assert.equal((await detailResponse.json()).data.type, 'inactivity_first_miss');
+});
+
 function healthyRepository() {
   const repository = new OffenseRepository(':memory:');
   const [offense] = parseOffenseSnapshot([OFFENSE_A]);

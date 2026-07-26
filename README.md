@@ -62,5 +62,5 @@ Notification watches use a bearer capability stored by browser origin. Host a
 production PINGME installation on a dedicated origin and do not add third-party
 scripts. A shared GitHub Pages origin is suitable only for the public Monitor.
 
-The destructive one-time backend switch is documented in the runbook and runs
-as `scripts/switch-backend.sh --fresh`.
+Production backend deployments use `scripts/deploy-backend.sh`: `--fresh`
+resets all state, while `--upgrade` preserves and backs up the current database.

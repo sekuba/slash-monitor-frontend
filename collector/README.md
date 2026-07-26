@@ -91,12 +91,13 @@ requests require it as `Authorization: Bearer …`. A PATCH replaces the address
 list; deleting a subscription removes the watch and its channels.
 
 `GET /live` reports process liveness. `GET /health` reports operational source
-and delivery health. Public events include node-local and L1 observations but never
-watch/address associations, provider endpoints, or delivery metadata. For an L1
-round, `data.nodeEvidence` contains every earlier node offense or completed
-inactive epoch matching both the target address and one of the round's target
-epochs. This is explicitly correlated node evidence: L1 votes and payloads do
-not encode an offense type.
+and delivery health. Public events include node-local, Sentinel, and L1
+observations but never watch/address associations, provider endpoints, or
+delivery metadata. Catch-up and notification-test events remain
+endpoint-scoped. For an L1 round, `data.nodeEvidence` contains every earlier
+node offense or completed inactive epoch matching both the target address and
+one of the round's target epochs. This is explicitly correlated node evidence:
+L1 votes and payloads do not encode an offense type.
 
 ## Storage and delivery
 

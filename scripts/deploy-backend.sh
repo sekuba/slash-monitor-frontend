@@ -8,26 +8,33 @@ readonly environment_file='/etc/slashmon-backend.env'
 readonly release_root='/opt/slashmon/releases'
 readonly current_link='/opt/slashmon/current'
 readonly system_node='/usr/local/bin/node'
+readonly database='/var/lib/slashmon/slashmon.sqlite'
+readonly backup_root='/var/backups/slashmon'
 
-if [[ "${1:-}" != '--fresh' || $# -ne 1 ]]; then
+if (( $# != 1 )) || [[ "$1" != '--fresh' && "$1" != '--upgrade' ]]; then
   cat <<'EOF'
-Usage: scripts/switch-backend.sh --fresh
+Usage: scripts/deploy-backend.sh --fresh
+       scripts/deploy-backend.sh --upgrade
 
-Install the checked-out Slashmon backend as a clean, incompatible release.
+Deploy the checked-out Slashmon backend from a clean commit.
 
-This permanently deletes:
+--fresh permanently deletes:
   /var/lib/slashmon
   /var/lib/private/slashmon
   /var/lib/slashmon-offense-collector
   /var/lib/private/slashmon-offense-collector
   /var/backups/slashmon
 
-No database backup or rollback release is created. The existing
-/etc/slashmon-backend.env is reduced to the settings supported by the new
-backend. Run this from a clean checkout as its normal owner, not as root.
+--upgrade verifies and backs up the current database, installs an immutable
+release, and preserves all state and earlier releases.
+
+Both modes reduce /etc/slashmon-backend.env to settings supported by the
+current backend. Run this from a clean checkout as its normal owner, not root.
 EOF
   exit 2
 fi
+
+readonly mode="$1"
 
 if (( EUID == 0 )); then
   echo 'Run this as the checkout owner, not as root; the script uses sudo where needed.' >&2
@@ -44,6 +51,9 @@ require_command() {
 for command_name in git sudo tar node pnpm curl env mktemp systemctl; do
   require_command "$command_name"
 done
+if [[ "$mode" == '--upgrade' ]]; then
+  require_command date
+fi
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "$script_dir/.." && pwd)"
@@ -79,11 +89,21 @@ if ! sudo test -f "$environment_file"; then
   echo "$environment_file is missing. Install and fill collector/deploy/slashmon-backend.env.example first." >&2
   exit 1
 fi
+if [[ "$mode" == '--upgrade' ]]; then
+  if ! sudo systemctl cat "$new_service" >/dev/null 2>&1; then
+    echo "$new_service is not installed; use --fresh for the first deployment." >&2
+    exit 1
+  fi
+  if ! sudo test -f "$database"; then
+    echo "$database is missing; refusing an upgrade without persistent state." >&2
+    exit 1
+  fi
+fi
 
-staging_root="$(mktemp -d /tmp/slashmon-switch.XXXXXX)"
+staging_root="$(mktemp -d /tmp/slashmon-deploy.XXXXXX)"
 environment_tmp="$(mktemp /tmp/slashmon-environment.XXXXXX)"
 cleanup() {
-  if [[ -n "${staging_root:-}" && "$staging_root" == /tmp/slashmon-switch.* ]]; then
+  if [[ -n "${staging_root:-}" && "$staging_root" == /tmp/slashmon-deploy.* ]]; then
     rm -rf -- "$staging_root"
   fi
   if [[ -n "${environment_tmp:-}" && "$environment_tmp" == /tmp/slashmon-environment.* ]]; then
@@ -202,7 +222,7 @@ if sudo test -d "$release_path"; then
     collector/node_modules/web-push/package.json; do
     if ! sudo test -f "$release_path/$release_file"; then
       echo "Existing release is incomplete: $release_path" >&2
-      echo 'Remove that release directory and run the switch again.' >&2
+      echo 'Remove that release directory and run the deployment again.' >&2
       exit 1
     fi
   done
@@ -210,32 +230,70 @@ else
   sudo install -d -m 0755 "$release_path"
   sudo cp -a --no-preserve=ownership "$staging_release/." "$release_path/"
 fi
-echo 'Stopping old writers and permanently removing Slashmon state...'
-if sudo systemctl cat "$new_service" >/dev/null 2>&1; then
+
+backup_path=''
+if [[ "$mode" == '--upgrade' ]]; then
+  backup_path="$backup_root/slashmon-$(date -u +%Y%m%dT%H%M%SZ)-before-$revision.sqlite"
+  sudo install -d -o root -g root -m 0700 "$backup_root"
+  if sudo test -e "$backup_path"; then
+    echo "Backup already exists: $backup_path" >&2
+    exit 1
+  fi
+fi
+
+echo "Stopping $new_service..."
+if [[ "$mode" == '--upgrade' ]]; then
+  sudo systemctl stop "$new_service"
+elif sudo systemctl cat "$new_service" >/dev/null 2>&1; then
   sudo systemctl stop "$new_service"
 fi
-if sudo systemctl cat "$old_service" >/dev/null 2>&1; then
-  sudo systemctl stop "$old_service"
-  sudo systemctl disable "$old_service" >/dev/null 2>&1 || true
+
+if [[ "$mode" == '--upgrade' ]]; then
+  echo 'Checking and backing up the database...'
+  database_check="$(
+    sudo "$system_node" --input-type=module --eval "
+      import { DatabaseSync } from 'node:sqlite';
+      const connection = new DatabaseSync('$database');
+      connection.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+      const result = connection.prepare('PRAGMA quick_check').get();
+      connection.close();
+      process.stdout.write(String(result.quick_check));
+    "
+  )"
+  if [[ "$database_check" != 'ok' ]]; then
+    echo "SQLite quick check failed: $database_check" >&2
+    exit 1
+  fi
+  sudo install -o root -g root -m 0600 "$database" "$backup_path"
+else
+  echo 'Permanently removing Slashmon state...'
+  if sudo systemctl cat "$old_service" >/dev/null 2>&1; then
+    sudo systemctl stop "$old_service"
+    sudo systemctl disable "$old_service" >/dev/null 2>&1 || true
+  fi
 fi
 
 sudo install -o root -g root -m 0600 "$environment_tmp" "$environment_file"
 sudo install -m 0644 \
   "$release_path/collector/deploy/slashmon-backend.service" \
   "/etc/systemd/system/$new_service"
-sudo rm -f -- "/etc/systemd/system/$old_service"
+if [[ "$mode" == '--fresh' ]]; then
+  sudo rm -f -- "/etc/systemd/system/$old_service"
+fi
 sudo systemctl daemon-reload
 
-state_paths=(
-  /var/lib/slashmon
-  /var/lib/private/slashmon
-  /var/lib/slashmon-offense-collector
-  /var/lib/private/slashmon-offense-collector
-  /var/backups/slashmon
-)
-for state_path in "${state_paths[@]}"; do
-  sudo rm -rf -- "$state_path"
-done
+if [[ "$mode" == '--fresh' ]]; then
+  state_paths=(
+    /var/lib/slashmon
+    /var/lib/private/slashmon
+    /var/lib/slashmon-offense-collector
+    /var/lib/private/slashmon-offense-collector
+    "$backup_root"
+  )
+  for state_path in "${state_paths[@]}"; do
+    sudo rm -rf -- "$state_path"
+  done
+fi
 
 sudo ln -sfn "$release_path" "$current_link"
 sudo systemctl enable --now "$new_service"
@@ -256,7 +314,11 @@ if [[ "$live" != true ]]; then
   exit 1
 fi
 
-echo "Slashmon backend $revision is live with a fresh database."
+if [[ "$mode" == '--upgrade' ]]; then
+  echo "Slashmon backend $revision is live. Database backup: $backup_path"
+else
+  echo "Slashmon backend $revision is live with a fresh database."
+fi
 curl --fail --silent "$local_api/live"
 echo
 curl --silent "$local_api/health"
