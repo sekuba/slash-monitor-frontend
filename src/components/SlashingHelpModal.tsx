@@ -1,7 +1,5 @@
 import { useEffect, useState } from 'react';
 import { SequencerAddressLink } from './SequencerAddressLink';
-import { SlashingProcess } from './SlashingProcess';
-import { useSlashingStore } from '@/store/slashingStore';
 import type { TargetedSequencer } from '@/types/slashing';
 
 interface SlashingHelpModalProps {
@@ -17,7 +15,6 @@ export function SlashingHelpModal({
     onClose,
     targetedSequencers,
 }: SlashingHelpModalProps) {
-    const { config } = useSlashingStore();
     const [filter, setFilter] = useState('');
 
     useEffect(() => {
@@ -34,7 +31,7 @@ export function SlashingHelpModal({
         };
     }, [isOpen, onClose]);
 
-    if (!isOpen || !config) return null;
+    if (!isOpen) return null;
 
     const normalized = filter.trim().toLowerCase();
     const visible = targetedSequencers.filter((sequencer) =>
@@ -122,25 +119,6 @@ export function SlashingHelpModal({
                             ))}
                         </div>
                     </section>
-
-                    <SlashingProcess
-                        timing={{
-                            slashOffsetRounds: config.slashOffsetInRounds,
-                            roundSizeSlots: config.slashingRoundSize,
-                            roundSizeEpochs: config.slashingRoundSizeInEpochs,
-                            quorum: config.quorum,
-                            roundDurationSeconds: config.slashingRoundSize * config.slotDuration,
-                            executionDelayRounds: config.executionDelayInRounds,
-                            executionDelaySeconds: config.executionDelayInRounds *
-                                config.slashingRoundSize *
-                                config.slotDuration,
-                            executionWindowRounds: config.lifetimeInRounds -
-                                config.executionDelayInRounds,
-                            executionWindowSeconds: (config.lifetimeInRounds - config.executionDelayInRounds) *
-                                config.slashingRoundSize *
-                                config.slotDuration,
-                        }}
-                    />
 
                     <section className="flex flex-col gap-4 border-5 border-vermillion bg-oxblood p-5 shadow-brutal-vermillion lg:flex-row lg:items-center lg:justify-between">
                         <div>

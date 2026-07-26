@@ -33,7 +33,7 @@ describe('sequencer record presentation', () => {
         expect(markup).toContain('Node records an offense locally');
         expect(markup).toContain('Inactivity: ≥80% missed duties for 2 consecutive epochs');
         expect(markup).toContain('Sequencers vote on slashing');
-        expect(markup).toContain('65 matching ballots per target');
+        expect(markup).toContain('min. 65 ballots per target');
         expect(markup).toContain('2 rounds · 8 epochs');
         expect(markup).toContain('5h 7m 12s');
         expect(markup).toContain('28 rounds · 112 epochs');

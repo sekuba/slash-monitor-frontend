@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { CopyButton } from './CopyButton';
 
 describe('CopyButton', () => {
-    it('uses a labeled clipboard action instead of an unexplained icon', () => {
+    it('uses an icon-only clipboard action with an accessible label', () => {
         const markup = renderToStaticMarkup(
             <CopyButton
                 value="0x1111111111111111111111111111111111111111"
@@ -11,7 +11,7 @@ describe('CopyButton', () => {
             />,
         );
 
-        expect(markup).toContain('>Copy</span>');
         expect(markup).toContain('aria-label="Copy sequencer address"');
+        expect(markup).not.toContain('>Copy</span>');
     });
 });
