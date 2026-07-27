@@ -545,7 +545,7 @@ test('a shared Web Push credential outage is visible without blaming one endpoin
   assert.equal(health.sources.l1.status, 'healthy');
 });
 
-test('mutation limits separate clients only through an explicitly trusted loopback proxy', async (t) => {
+test('mutation limits prefer Cloudflare client IP through an explicitly trusted loopback proxy', async (t) => {
   const repository = healthyRepository();
   const { baseUrl } = await startApi(t, repository, {
     trustLoopbackProxy: true,
@@ -555,19 +555,31 @@ test('mutation limits separate clients only through an explicitly trusted loopba
   const first = await jsonRequest(`${baseUrl}/api/v2/subscriptions`, {
     method: 'POST',
     origin: ALLOWED_ORIGIN,
-    headers: { 'x-real-ip': '198.51.100.10' },
+    headers: {
+      'cf-connecting-ip': '198.51.100.10',
+      'x-forwarded-for': '192.0.2.1',
+      'x-real-ip': '192.0.2.2',
+    },
     body: { network: 'mainnet', addresses: [SEQUENCER_A] },
   });
   const otherClient = await jsonRequest(`${baseUrl}/api/v2/subscriptions`, {
     method: 'POST',
     origin: ALLOWED_ORIGIN,
-    headers: { 'x-real-ip': '198.51.100.11' },
+    headers: {
+      'cf-connecting-ip': '198.51.100.11',
+      'x-forwarded-for': '192.0.2.1',
+      'x-real-ip': '192.0.2.2',
+    },
     body: { network: 'mainnet', addresses: [SEQUENCER_A] },
   });
   const repeated = await jsonRequest(`${baseUrl}/api/v2/subscriptions`, {
     method: 'POST',
     origin: ALLOWED_ORIGIN,
-    headers: { 'x-real-ip': '198.51.100.10' },
+    headers: {
+      'cf-connecting-ip': '198.51.100.10',
+      'x-forwarded-for': '192.0.2.3',
+      'x-real-ip': '192.0.2.4',
+    },
     body: { network: 'mainnet', addresses: [SEQUENCER_A] },
   });
 
@@ -575,6 +587,69 @@ test('mutation limits separate clients only through an explicitly trusted loopba
   assert.equal(otherClient.response.status, 201);
   assert.equal(repeated.response.status, 429);
   assert.equal(repeated.body.error.code, 'rate_limited');
+});
+
+test('mutation limits fall back to the rightmost forwarded address', async (t) => {
+  const repository = healthyRepository();
+  const { baseUrl } = await startApi(t, repository, {
+    trustLoopbackProxy: true,
+    rateLimitMaxMutations: 1,
+  });
+
+  const first = await jsonRequest(`${baseUrl}/api/v2/subscriptions`, {
+    method: 'POST',
+    origin: ALLOWED_ORIGIN,
+    headers: {
+      'cf-connecting-ip': 'invalid',
+      'x-forwarded-for': '192.0.2.1, 198.51.100.10',
+    },
+    body: { network: 'mainnet', addresses: [SEQUENCER_A] },
+  });
+  const otherClient = await jsonRequest(`${baseUrl}/api/v2/subscriptions`, {
+    method: 'POST',
+    origin: ALLOWED_ORIGIN,
+    headers: { 'x-forwarded-for': '192.0.2.1, 198.51.100.11' },
+    body: { network: 'mainnet', addresses: [SEQUENCER_A] },
+  });
+  const repeated = await jsonRequest(`${baseUrl}/api/v2/subscriptions`, {
+    method: 'POST',
+    origin: ALLOWED_ORIGIN,
+    headers: { 'x-forwarded-for': '192.0.2.2, 198.51.100.10' },
+    body: { network: 'mainnet', addresses: [SEQUENCER_A] },
+  });
+
+  assert.equal(first.response.status, 201);
+  assert.equal(otherClient.response.status, 201);
+  assert.equal(repeated.response.status, 429);
+});
+
+test('mutation limits ignore client IP headers unless loopback proxy trust is enabled', async (t) => {
+  const repository = healthyRepository();
+  const { baseUrl } = await startApi(t, repository, {
+    rateLimitMaxMutations: 1,
+  });
+
+  const first = await jsonRequest(`${baseUrl}/api/v2/subscriptions`, {
+    method: 'POST',
+    origin: ALLOWED_ORIGIN,
+    headers: {
+      'cf-connecting-ip': '198.51.100.10',
+      'x-forwarded-for': '198.51.100.10',
+    },
+    body: { network: 'mainnet', addresses: [SEQUENCER_A] },
+  });
+  const spoofedOtherClient = await jsonRequest(`${baseUrl}/api/v2/subscriptions`, {
+    method: 'POST',
+    origin: ALLOWED_ORIGIN,
+    headers: {
+      'cf-connecting-ip': '198.51.100.11',
+      'x-forwarded-for': '198.51.100.11',
+    },
+    body: { network: 'mainnet', addresses: [SEQUENCER_A] },
+  });
+
+  assert.equal(first.response.status, 201);
+  assert.equal(spoofedOtherClient.response.status, 429);
 });
 
 test('anonymous reads and watch-list creation have tighter independent limits', async (t) => {

@@ -119,7 +119,8 @@ needed.
 
 ## Deployment model
 
-The supported shape is one Node 24 process, one SQLite file, one local reverse
-proxy, one Aztec node, and one or more Ethereum RPCs. Running two backend
-processes against the same identity is unsupported because Telegram polling and
-provider delivery would race even if SQLite serialized writes.
+The supported shape is one Node 24 process, one SQLite file, one local
+Cloudflare Tunnel connector, one Aztec node, and one or more Ethereum RPCs.
+Running two backend processes against the same identity is unsupported because
+Telegram polling and provider delivery would race even if SQLite serialized
+writes.

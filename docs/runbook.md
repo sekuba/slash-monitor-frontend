@@ -83,16 +83,19 @@ To self-host the PWA, install all dependencies and run `pnpm build` in the
 release. Serve `dist/` as static files. Frontend RPC URLs must be public HTTPS
 endpoints; never put credentials in `VITE_*` variables.
 
-## Reverse proxy
+## HTTPS tunnel
 
 Keep the backend on `127.0.0.1:8790`. Expose `/api/v2/*` over HTTPS and apply
 request-body, read, and mutation rate limits. Serve the PWA on the exact origin
 in `BACKEND_CORS_ORIGIN`; `SLASHMON_PUBLIC_URL` is its full installed URL for
 notification links.
 
-If the proxy overwrites `X-Real-IP` or `X-Forwarded-For` and connects over
-loopback, set `BACKEND_TRUST_PROXY=true`. Leave it false for any remote proxy
-hop.
+For a Cloudflare Tunnel that connects directly to the loopback listener, set
+`BACKEND_TRUST_PROXY=true`. The backend then prefers Cloudflare's canonical
+`CF-Connecting-IP` value and falls back to the rightmost valid
+`X-Forwarded-For` address. Forwarded addresses are ignored unless the socket
+peer is loopback. Leave this setting false if the backend is directly reachable
+or the proxy connects over a non-loopback hop.
 
 ### Abuse-control defaults
 

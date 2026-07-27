@@ -830,13 +830,17 @@ function mutationClientKey(request, trustLoopbackProxy) {
   const remote = request.socket.remoteAddress ?? 'unknown';
   if (!trustLoopbackProxy || !isLoopback(remote)) return remote;
 
-  const realIp = request.headers['x-real-ip'];
-  if (typeof realIp === 'string' && isIP(realIp.trim())) return realIp.trim();
+  // Cloudflare sends this as one canonical address. Only trust it when the
+  // request came from the explicitly trusted loopback tunnel process.
+  const cloudflareIp = request.headers['cf-connecting-ip'];
+  if (typeof cloudflareIp === 'string' && isIP(cloudflareIp.trim())) {
+    return cloudflareIp.trim();
+  }
 
   const forwarded = request.headers['x-forwarded-for'];
   if (typeof forwarded === 'string') {
-    // For the documented single local reverse proxy, the rightmost address is
-    // the socket peer it observed and cannot be supplied past that proxy hop.
+    // Cloudflare appends the address that connected to its edge, so the
+    // rightmost valid address is the conservative compatibility fallback.
     const candidates = forwarded.split(',').map((value) => value.trim()).filter(Boolean);
     for (let index = candidates.length - 1; index >= 0; index -= 1) {
       if (isIP(candidates[index])) return candidates[index];
