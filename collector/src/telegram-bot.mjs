@@ -174,7 +174,7 @@ export class TelegramBot {
     if (command !== '/start' && !this.takeCommandReplySlot(chatId)) return;
 
     try {
-      await this.client.sendMessage(chatId, response, signal);
+      await this.client.sendMessage(chatId, response, signal, { priority: 'low' });
     } catch (error) {
       // The command mutation is already durable. Advancing the update avoids
       // replaying a single-use link or destructive command after a send timeout.

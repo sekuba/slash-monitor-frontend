@@ -34,7 +34,7 @@ const MISSED_DUTY_STATUSES = new Set([
   'attestation-missed',
 ]);
 
-export const NOTIFICATION_TEST_COOLDOWN_MS = 60_000;
+export const NOTIFICATION_TEST_COOLDOWN_MS = 5 * 60_000;
 export const NOTIFICATION_TEST_RETENTION_MS = 7 * DAY_MS;
 export const CATCHUP_EVENT_RETENTION_MS = 30 * DAY_MS;
 export const TERMINAL_DELIVERY_RETENTION_MS = 30 * DAY_MS;
@@ -45,11 +45,23 @@ export const UNVERIFIED_ENDPOINT_RETENTION_MS = DAY_MS;
 export const CATCHUP_REPLAY_COOLDOWN_MS = 60_000;
 export const CATCHUP_SCAN_COOLDOWN_MS = 5_000;
 
-export class NotificationTestCooldownError extends Error {
-  constructor(retryAfterMs) {
-    super('A notification test was already queued for this subscription; try again shortly');
-    this.name = 'NotificationTestCooldownError';
+export class NotificationRateLimitError extends Error {
+  constructor(code, message, retryAfterMs) {
+    super(message);
+    this.name = 'NotificationRateLimitError';
+    this.code = code;
     this.retryAfterMs = Math.max(1, Math.ceil(Number(retryAfterMs)));
+  }
+}
+
+export class NotificationTestCooldownError extends NotificationRateLimitError {
+  constructor(retryAfterMs) {
+    super(
+      'notification_test_cooldown',
+      'A notification test was already queued for this subscription; try again shortly',
+      retryAfterMs,
+    );
+    this.name = 'NotificationTestCooldownError';
   }
 }
 
@@ -1237,8 +1249,22 @@ export class OffenseRepository {
     };
   }
 
-  createWatchlist({ id, managementTokenHash, network, addresses, now = Date.now() }) {
+  createWatchlist({
+    id,
+    managementTokenHash,
+    network,
+    addresses,
+    now = Date.now(),
+    admissionLimits,
+  }) {
     return this.transaction(() => {
+      this.assertPrivateEventLimits({
+        type: 'watchlist_admission',
+        now,
+        limits: admissionLimits,
+        code: 'subscription_capacity_limited',
+        message: 'Watch-list creation is temporarily busy; try again later',
+      });
       // Anonymous lists that never connect a channel are cheap to create but
       // should not become permanent storage-amplification debris.
       this.db.prepare(`
@@ -1262,6 +1288,19 @@ export class OffenseRepository {
         ) VALUES (?, ?, ?, ?, ?, ?)
       `).run(id, managementTokenHash, network, now, now, now);
       this.replaceWatchlistAddresses(id, addresses);
+      if (admissionLimits) {
+        this.insertEvent({
+          id: `watchlist-admission-${id}`,
+          network,
+          source: 'test',
+          type: 'watchlist_admission',
+          severity: 'info',
+          title: 'Private watch-list admission',
+          body: 'Private abuse-control journal entry.',
+          data: { watchlistId: id, admission: true },
+          observedAt: now,
+        });
+      }
       return this.getWatchlist(id);
     });
   }
@@ -1358,6 +1397,7 @@ export class OffenseRepository {
     configJson = null,
     now = Date.now(),
     allowRebind = false,
+    admissionLimits,
   }) {
     return this.transaction(() => this.upsertEndpointInternal({
       watchlistId,
@@ -1366,10 +1406,19 @@ export class OffenseRepository {
       configJson,
       now,
       allowRebind,
+      admissionLimits,
     }));
   }
 
-  upsertEndpointInternal({ watchlistId, kind, destination, configJson = null, now, allowRebind = false }) {
+  upsertEndpointInternal({
+    watchlistId,
+    kind,
+    destination,
+    configJson = null,
+    now,
+    allowRebind = false,
+    admissionLimits,
+  }) {
     const id = stableId('endpoint', kind, destination);
     const existing = this.db.prepare(`
       SELECT id, watchlist_id AS watchlistId, enabled, verified_at AS verifiedAt,
@@ -1382,6 +1431,21 @@ export class OffenseRepository {
       : null;
     if (existing && existing.watchlistId !== watchlistId) {
       if (!allowRebind) return { conflict: true, kind };
+    }
+    const needsWebPushVerification = kind === 'web_push' &&
+      (existing?.verifiedAt === null || existing?.verifiedAt === undefined) &&
+      !this.hasActiveEndpointVerification(id);
+    if (needsWebPushVerification) {
+      this.assertPrivateEventLimits({
+        type: 'notification_channel_verification',
+        now,
+        watchlistId,
+        limits: admissionLimits,
+        code: 'web_push_enrollment_rate_limited',
+        message: 'Too many Web Push connections were requested; try again later',
+      });
+    }
+    if (existing && existing.watchlistId !== watchlistId) {
       // A Telegram chat or Web Push endpoint can only belong to one watchlist.
       // Never let delivery history from its previous owner cross that boundary.
       this.db.prepare('DELETE FROM deliveries WHERE endpoint_id = ?').run(existing.id);
@@ -1612,7 +1676,7 @@ export class OffenseRepository {
       severity: 'info',
       title: 'Slashmon wire connected',
       body: 'This private channel passed its delivery check. Alerts are armed.',
-      data: { verification: true },
+      data: { verification: true, watchlistId },
       observedAt: now,
     };
     return this.insertEvent(event, [], [endpointId]).queued;
@@ -1901,7 +1965,10 @@ export class OffenseRepository {
     watchlistId,
     event,
     now = Date.now(),
-    { cooldownMs = NOTIFICATION_TEST_COOLDOWN_MS } = {},
+    {
+      cooldownMs = NOTIFICATION_TEST_COOLDOWN_MS,
+      admissionLimits,
+    } = {},
   ) {
     return this.transaction(() => {
       const endpoints = this.db.prepare(`
@@ -1909,6 +1976,14 @@ export class OffenseRepository {
         WHERE endpoint.watchlist_id = ? AND endpoint.enabled = 1
       `).all(watchlistId).map((row) => row.id);
       if (endpoints.length === 0) return 0;
+
+      this.assertPrivateEventLimits({
+        type: 'notification_test',
+        now,
+        limits: admissionLimits,
+        code: 'notification_test_capacity_limited',
+        message: 'The notification test budget is busy; try again later',
+      });
 
       // Claim the watchlist's test slot under the same write lock as the event
       // and outbox rows. Two API processes therefore cannot race past the
@@ -1928,8 +2003,52 @@ export class OffenseRepository {
         return 0;
       }
 
-      return this.insertEvent({ ...event, observedAt: event.observedAt ?? now }, [], endpoints).queued;
+      return this.insertEvent({
+        ...event,
+        data: { ...event.data, watchlistId },
+        observedAt: event.observedAt ?? now,
+      }, [], endpoints).queued;
     });
+  }
+
+  assertPrivateEventLimits({
+    type,
+    now,
+    watchlistId,
+    limits,
+    code,
+    message,
+  }) {
+    if (!limits) return;
+    const checks = [
+      [HOUR_MS, limits.maxPerHourGlobal, false],
+      [DAY_MS, limits.maxPerDayGlobal, false],
+      [HOUR_MS, limits.maxPerHourPerWatchlist, true],
+      [DAY_MS, limits.maxPerDayPerWatchlist, true],
+    ];
+    for (const [windowMs, max, perWatchlist] of checks) {
+      if (!Number.isSafeInteger(max) || max < 1) continue;
+      if (perWatchlist && !watchlistId) continue;
+      const row = perWatchlist
+        ? this.db.prepare(`
+          SELECT COUNT(*) AS count, MIN(created_at) AS oldestAt
+          FROM events
+          WHERE source = 'test' AND type = ? AND created_at > ?
+            AND json_extract(data_json, '$.watchlistId') = ?
+        `).get(type, now - windowMs, watchlistId)
+        : this.db.prepare(`
+          SELECT COUNT(*) AS count, MIN(created_at) AS oldestAt
+          FROM events
+          WHERE source = 'test' AND type = ? AND created_at > ?
+        `).get(type, now - windowMs);
+      if (Number(row.count) >= max) {
+        throw new NotificationRateLimitError(
+          code,
+          message,
+          Number(row.oldestAt) + windowMs - now,
+        );
+      }
+    }
   }
 
   recoverStuckDeliveries(cutoff) {

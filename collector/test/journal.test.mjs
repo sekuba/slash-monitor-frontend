@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   NOTIFICATION_TEST_COOLDOWN_MS,
   NotificationTestCooldownError,
+  NotificationRateLimitError,
   OffenseRepository,
 } from '../src/database.mjs';
 import { OFFENSE_A, OFFENSE_B, SEQUENCER_A, SEQUENCER_B } from './helpers.mjs';
@@ -417,6 +418,167 @@ test('notification tests have an atomic per-watchlist cooldown', () => {
       notificationTestEvent('test-after-cooldown'),
       100 + NOTIFICATION_TEST_COOLDOWN_MS,
     ), 1);
+  } finally {
+    repository.close();
+  }
+});
+
+test('durable admission budgets bound Web Push rotation and notification tests', () => {
+  const repository = new OffenseRepository(':memory:');
+  const otherWatchlistId = '22222222-2222-4222-8222-222222222222';
+  try {
+    for (const [id, destination] of [[WATCHLIST_ID, '42'], [otherWatchlistId, '43']]) {
+      repository.createWatchlist({
+        id,
+        managementTokenHash: 'a'.repeat(64),
+        network: 'mainnet',
+        addresses: [SEQUENCER_A],
+        now: 1,
+      });
+      repository.upsertEndpoint({ watchlistId: id, kind: 'telegram', destination, now: 2 });
+    }
+
+    const pushLimits = {
+      maxPerHourPerWatchlist: 2,
+      maxPerDayPerWatchlist: 10,
+      maxPerHourGlobal: 10,
+      maxPerDayGlobal: 10,
+    };
+    for (const [index, destination] of ['push-one', 'push-two'].entries()) {
+      assert.equal(repository.upsertEndpoint({
+        watchlistId: WATCHLIST_ID,
+        kind: 'web_push',
+        destination,
+        now: 100 + index,
+        admissionLimits: pushLimits,
+      }).verificationQueued, 1);
+    }
+    assert.throws(
+      () => repository.upsertEndpoint({
+        watchlistId: WATCHLIST_ID,
+        kind: 'web_push',
+        destination: 'push-three',
+        now: 102,
+        admissionLimits: pushLimits,
+      }),
+      (error) => {
+        assert.equal(error instanceof NotificationRateLimitError, true);
+        assert.equal(error.code, 'web_push_enrollment_rate_limited');
+        return true;
+      },
+    );
+    assert.equal(repository.db.prepare(`
+      SELECT COUNT(*) AS count FROM events
+      WHERE source = 'test' AND type = 'notification_channel_verification'
+    `).get().count, 2);
+    assert.equal(repository.db.prepare(`
+      SELECT COUNT(*) AS count FROM delivery_endpoints WHERE kind = 'web_push'
+    `).get().count, 1);
+
+    const testLimits = { maxPerHourGlobal: 1, maxPerDayGlobal: 10 };
+    assert.equal(repository.enqueueWatchlistTest(
+      WATCHLIST_ID,
+      notificationTestEvent('budget-test-one'),
+      200,
+      { cooldownMs: 1, admissionLimits: testLimits },
+    ), 2);
+    assert.throws(
+      () => repository.enqueueWatchlistTest(
+        otherWatchlistId,
+        notificationTestEvent('budget-test-two'),
+        201,
+        { cooldownMs: 1, admissionLimits: testLimits },
+      ),
+      (error) => {
+        assert.equal(error instanceof NotificationRateLimitError, true);
+        assert.equal(error.code, 'notification_test_capacity_limited');
+        return true;
+      },
+    );
+  } finally {
+    repository.close();
+  }
+});
+
+test('global watch-list admission survives deletion of the admitted watch list', () => {
+  const repository = new OffenseRepository(':memory:');
+  const limits = { maxPerHourGlobal: 1, maxPerDayGlobal: 10 };
+  try {
+    assert.ok(repository.createWatchlist({
+      id: WATCHLIST_ID,
+      managementTokenHash: 'a'.repeat(64),
+      network: 'mainnet',
+      addresses: [SEQUENCER_A],
+      now: 100,
+      admissionLimits: limits,
+    }));
+    assert.equal(repository.deleteWatchlist(WATCHLIST_ID), true);
+    assert.throws(
+      () => repository.createWatchlist({
+        id: '22222222-2222-4222-8222-222222222222',
+        managementTokenHash: 'b'.repeat(64),
+        network: 'mainnet',
+        addresses: [SEQUENCER_A],
+        now: 101,
+        admissionLimits: limits,
+      }),
+      (error) => {
+        assert.equal(error instanceof NotificationRateLimitError, true);
+        assert.equal(error.code, 'subscription_capacity_limited');
+        return true;
+      },
+    );
+  } finally {
+    repository.close();
+  }
+});
+
+test('retrying a failed Web Push verification consumes the enrollment budget', () => {
+  const repository = new OffenseRepository(':memory:');
+  const limits = {
+    maxPerHourPerWatchlist: 1,
+    maxPerDayPerWatchlist: 10,
+    maxPerHourGlobal: 10,
+    maxPerDayGlobal: 10,
+  };
+  try {
+    repository.createWatchlist({
+      id: WATCHLIST_ID,
+      managementTokenHash: 'a'.repeat(64),
+      network: 'mainnet',
+      addresses: [SEQUENCER_A],
+      now: 1,
+    });
+    repository.upsertEndpoint({
+      watchlistId: WATCHLIST_ID,
+      kind: 'web_push',
+      destination: 'failed-push',
+      now: 100,
+      admissionLimits: limits,
+    });
+    const [verification] = repository.claimDeliveries({ now: 100 });
+    assert.ok(verification);
+    repository.failDeliveryAndDisableEndpoint(
+      verification.id,
+      verification.endpointId,
+      'Web Push returned HTTP 410',
+      101,
+    );
+
+    assert.throws(
+      () => repository.upsertEndpoint({
+        watchlistId: WATCHLIST_ID,
+        kind: 'web_push',
+        destination: 'failed-push',
+        now: 102,
+        admissionLimits: limits,
+      }),
+      (error) => {
+        assert.equal(error instanceof NotificationRateLimitError, true);
+        assert.equal(error.code, 'web_push_enrollment_rate_limited');
+        return true;
+      },
+    );
   } finally {
     repository.close();
   }

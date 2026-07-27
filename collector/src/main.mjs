@@ -1,6 +1,11 @@
 import { AztecAdminClient } from './admin-client.mjs';
 import { CollectorApiServer } from './api-server.mjs';
-import { WebPushChannel, TelegramChannel, TelegramClient } from './channels.mjs';
+import {
+  WebPushChannel,
+  TelegramChannel,
+  TelegramClient,
+  TelegramSendScheduler,
+} from './channels.mjs';
 import { OffenseCollector } from './collector.mjs';
 import { loadConfig } from './config.mjs';
 import { OffenseRepository } from './database.mjs';
@@ -107,6 +112,11 @@ async function main() {
     const telegramClient = new TelegramClient({
       token: config.telegram.token,
       timeoutMs: config.deliveryRequestTimeoutMs,
+      sendScheduler: new TelegramSendScheduler({
+        maxPerSecond: config.telegramSendMaxPerSecond,
+        lowPriorityMaxPerSecond: config.telegramLowPrioritySendMaxPerSecond,
+        perChatIntervalMs: config.telegramChatSendIntervalMs,
+      }),
     });
     channels.telegram = new TelegramChannel({
       client: telegramClient,
@@ -150,6 +160,22 @@ async function main() {
     maxRequestBodyBytes: config.maxRequestBodyBytes,
     rateLimitWindowMs: config.rateLimitWindowMs,
     rateLimitMaxMutations: config.rateLimitMaxMutations,
+    readRateLimitWindowMs: config.readRateLimitWindowMs,
+    readRateLimitMax: config.readRateLimitMax,
+    readRateLimitMaxGlobal: config.readRateLimitMaxGlobal,
+    watchlistMutationRateLimitWindowMs: config.watchlistMutationRateLimitWindowMs,
+    watchlistMutationRateLimitMax: config.watchlistMutationRateLimitMax,
+    subscriptionCreateMaxPerClient: config.subscriptionCreateMaxPerHourPerClient,
+    subscriptionCreateMaxPerDayPerClient: config.subscriptionCreateMaxPerDayPerClient,
+    subscriptionCreateMaxPerHourGlobal: config.subscriptionCreateMaxPerHourGlobal,
+    subscriptionCreateMaxPerDayGlobal: config.subscriptionCreateMaxPerDayGlobal,
+    notificationTestCooldownMs: config.notificationTestCooldownMs,
+    notificationTestMaxPerHourGlobal: config.notificationTestMaxPerHourGlobal,
+    notificationTestMaxPerDayGlobal: config.notificationTestMaxPerDayGlobal,
+    webPushEnrollmentMaxPerHourPerWatchlist: config.webPushEnrollmentMaxPerHourPerWatchlist,
+    webPushEnrollmentMaxPerDayPerWatchlist: config.webPushEnrollmentMaxPerDayPerWatchlist,
+    webPushEnrollmentMaxPerHourGlobal: config.webPushEnrollmentMaxPerHourGlobal,
+    webPushEnrollmentMaxPerDayGlobal: config.webPushEnrollmentMaxPerDayGlobal,
     trustLoopbackProxy: config.trustLoopbackProxy,
     linkTokenTtlMs: config.linkTokenTtlMs,
     logger,

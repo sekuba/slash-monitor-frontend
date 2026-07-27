@@ -109,11 +109,140 @@ export function parseRetryAfterMs(value, now = Date.now()) {
   return Math.min(MAX_RETRY_AFTER_MS, Math.max(MIN_RETRY_AFTER_MS, Math.ceil(delayMs)));
 }
 
+export class TelegramSendScheduler {
+  constructor({
+    maxPerSecond = 20,
+    lowPriorityMaxPerSecond = 5,
+    perChatIntervalMs = 1_000,
+    rateWindowMs = 1_000,
+    now = Date.now,
+  } = {}) {
+    for (const [name, value] of Object.entries({
+      maxPerSecond,
+      lowPriorityMaxPerSecond,
+      perChatIntervalMs,
+      rateWindowMs,
+    })) {
+      if (!Number.isSafeInteger(value) || value < 1) {
+        throw new RangeError(`${name} must be a positive integer`);
+      }
+    }
+    this.maxPerSecond = maxPerSecond;
+    this.lowPriorityMaxPerSecond = Math.min(lowPriorityMaxPerSecond, maxPerSecond);
+    this.perChatIntervalMs = perChatIntervalMs;
+    this.rateWindowMs = rateWindowMs;
+    this.now = now;
+    this.alertQueue = [];
+    this.lowQueue = [];
+    this.sentAt = [];
+    this.lowSentAt = [];
+    this.chatAvailableAt = new Map();
+    this.timer = null;
+    this.draining = false;
+  }
+
+  acquire(chatId, { priority = 'alert', signal } = {}) {
+    if (signal?.aborted) {
+      return Promise.reject(signal.reason ?? new Error('Telegram send scheduling aborted'));
+    }
+    return new Promise((resolve, reject) => {
+      const queue = priority === 'low' ? this.lowQueue : this.alertQueue;
+      const entry = {
+        chatId: String(chatId),
+        priority: priority === 'low' ? 'low' : 'alert',
+        resolve,
+        reject,
+        signal,
+        onAbort: null,
+      };
+      if (signal) {
+        entry.onAbort = () => {
+          const index = queue.indexOf(entry);
+          if (index >= 0) queue.splice(index, 1);
+          reject(signal.reason ?? new Error('Telegram send scheduling aborted'));
+          this.drain();
+        };
+        signal.addEventListener('abort', entry.onAbort, { once: true });
+      }
+      queue.push(entry);
+      this.drain();
+    });
+  }
+
+  drain() {
+    if (this.draining) return;
+    this.draining = true;
+    try {
+      if (this.timer) {
+        clearTimeout(this.timer);
+        this.timer = null;
+      }
+      while (this.alertQueue.length > 0 || this.lowQueue.length > 0) {
+        const now = this.now();
+        this.sentAt = this.sentAt.filter((sentAt) => sentAt > now - this.rateWindowMs);
+        this.lowSentAt = this.lowSentAt.filter((sentAt) => sentAt > now - this.rateWindowMs);
+        if (this.chatAvailableAt.size > 10_000) {
+          for (const [chatId, availableAt] of this.chatAvailableAt) {
+            if (availableAt <= now) this.chatAvailableAt.delete(chatId);
+          }
+        }
+
+        const alertIndex = this.alertQueue.findIndex((entry) => this.readyAt(entry, now) <= now);
+        const lowIndex = alertIndex < 0
+          ? this.lowQueue.findIndex((entry) => this.readyAt(entry, now) <= now)
+          : -1;
+        const queue = alertIndex >= 0 ? this.alertQueue : lowIndex >= 0 ? this.lowQueue : null;
+        const index = alertIndex >= 0 ? alertIndex : lowIndex;
+        if (!queue || index < 0) {
+          const waiting = [...this.alertQueue, ...this.lowQueue];
+          const wakeAt = Math.min(...waiting.map((entry) => this.readyAt(entry, now)));
+          this.timer = setTimeout(
+            () => {
+              this.timer = null;
+              this.drain();
+            },
+            Math.max(1, Math.ceil(wakeAt - now)),
+          );
+          return;
+        }
+
+        const [entry] = queue.splice(index, 1);
+        if (entry.signal && entry.onAbort) {
+          entry.signal.removeEventListener('abort', entry.onAbort);
+        }
+        this.sentAt.push(now);
+        if (entry.priority === 'low') this.lowSentAt.push(now);
+        this.chatAvailableAt.set(entry.chatId, now + this.perChatIntervalMs);
+        entry.resolve();
+      }
+    } finally {
+      this.draining = false;
+    }
+  }
+
+  readyAt(entry, now) {
+    let readyAt = this.chatAvailableAt.get(entry.chatId) ?? now;
+    if (this.sentAt.length >= this.maxPerSecond) {
+      readyAt = Math.max(readyAt, this.sentAt[0] + this.rateWindowMs);
+    }
+    if (entry.priority === 'low' && this.lowSentAt.length >= this.lowPriorityMaxPerSecond) {
+      readyAt = Math.max(readyAt, this.lowSentAt[0] + this.rateWindowMs);
+    }
+    return readyAt;
+  }
+}
+
 export class TelegramClient {
-  constructor({ token, timeoutMs = 15_000, fetchImpl = fetch }) {
+  constructor({
+    token,
+    timeoutMs = 15_000,
+    fetchImpl = fetch,
+    sendScheduler = new TelegramSendScheduler(),
+  }) {
     this.baseUrl = `https://api.telegram.org/bot${token}/`;
     this.timeoutMs = timeoutMs;
     this.fetchImpl = fetchImpl;
+    this.sendScheduler = sendScheduler;
   }
 
   async getMe(signal) {
@@ -133,7 +262,8 @@ export class TelegramClient {
     }, signal, (timeout + 5) * 1_000);
   }
 
-  async sendMessage(chatId, text, signal) {
+  async sendMessage(chatId, text, signal, { priority = 'alert' } = {}) {
+    await this.sendScheduler.acquire(chatId, { priority, signal });
     return this.call('sendMessage', {
       chat_id: String(chatId),
       text: String(text).slice(0, 4_096),
@@ -200,7 +330,8 @@ export class TelegramChannel {
     const icon = event.severity === 'critical' ? '🚨' : event.severity === 'warning' ? '⚠️' : '🛰️';
     const url = new URL(notificationPath(event), this.publicUrl).toString();
     const message = `${icon} ${event.title}\n\n${event.body}\n\n${url}`;
-    const result = await this.client.sendMessage(delivery.destination, message, signal);
+    const priority = event.source === 'test' ? 'low' : 'alert';
+    const result = await this.client.sendMessage(delivery.destination, message, signal, { priority });
     return { providerMessageId: result?.message_id === undefined ? null : String(result.message_id) };
   }
 }

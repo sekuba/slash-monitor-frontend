@@ -2,7 +2,7 @@ import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { isIP } from 'node:net';
 
-import { NotificationTestCooldownError } from './database.mjs';
+import { NotificationRateLimitError } from './database.mjs';
 import { errorMessage } from './logger.mjs';
 import {
   InputError,
@@ -34,13 +34,25 @@ export class CollectorApiServer {
     maxSequencers = 100,
     maxRequestBodyBytes = 64 * 1024,
     rateLimitWindowMs = 60_000,
-    rateLimitMaxMutations = 60,
+    rateLimitMaxMutations = 20,
     readRateLimitWindowMs = 60_000,
-    readRateLimitMax = 300,
-    readRateLimitMaxGlobal = 3_000,
+    readRateLimitMax = 180,
+    readRateLimitMaxGlobal = 600,
+    watchlistMutationRateLimitWindowMs = 60_000,
+    watchlistMutationRateLimitMax = 20,
     subscriptionCreateWindowMs = 60 * 60_000,
-    subscriptionCreateMaxPerClient = 5,
-    subscriptionCreateMaxGlobal = 100,
+    subscriptionCreateMaxPerClient = 3,
+    subscriptionCreateDailyWindowMs = 24 * 60 * 60_000,
+    subscriptionCreateMaxPerDayPerClient = 10,
+    subscriptionCreateMaxPerHourGlobal = 10,
+    subscriptionCreateMaxPerDayGlobal = 50,
+    notificationTestCooldownMs = 5 * 60_000,
+    notificationTestMaxPerHourGlobal = 30,
+    notificationTestMaxPerDayGlobal = 100,
+    webPushEnrollmentMaxPerHourPerWatchlist = 3,
+    webPushEnrollmentMaxPerDayPerWatchlist = 10,
+    webPushEnrollmentMaxPerHourGlobal = 20,
+    webPushEnrollmentMaxPerDayGlobal = 100,
     requestTimeoutMs = 10_000,
     headersTimeoutMs = 5_000,
     keepAliveTimeoutMs = 5_000,
@@ -65,16 +77,36 @@ export class CollectorApiServer {
     this.rateLimiter = new MutationRateLimiter(rateLimitWindowMs, rateLimitMaxMutations, now);
     this.readRateLimiter = new MutationRateLimiter(readRateLimitWindowMs, readRateLimitMax, now);
     this.globalReadRateLimiter = new MutationRateLimiter(readRateLimitWindowMs, readRateLimitMaxGlobal, now);
+    this.watchlistMutationRateLimiter = new MutationRateLimiter(
+      watchlistMutationRateLimitWindowMs,
+      watchlistMutationRateLimitMax,
+      now,
+    );
     this.subscriptionCreateRateLimiter = new MutationRateLimiter(
       subscriptionCreateWindowMs,
       subscriptionCreateMaxPerClient,
       now,
     );
-    this.globalSubscriptionCreateRateLimiter = new MutationRateLimiter(
-      subscriptionCreateWindowMs,
-      subscriptionCreateMaxGlobal,
+    this.subscriptionCreateDailyRateLimiter = new MutationRateLimiter(
+      subscriptionCreateDailyWindowMs,
+      subscriptionCreateMaxPerDayPerClient,
       now,
     );
+    this.subscriptionAdmissionLimits = {
+      maxPerHourGlobal: subscriptionCreateMaxPerHourGlobal,
+      maxPerDayGlobal: subscriptionCreateMaxPerDayGlobal,
+    };
+    this.notificationTestCooldownMs = notificationTestCooldownMs;
+    this.notificationTestAdmissionLimits = {
+      maxPerHourGlobal: notificationTestMaxPerHourGlobal,
+      maxPerDayGlobal: notificationTestMaxPerDayGlobal,
+    };
+    this.webPushEnrollmentAdmissionLimits = {
+      maxPerHourPerWatchlist: webPushEnrollmentMaxPerHourPerWatchlist,
+      maxPerDayPerWatchlist: webPushEnrollmentMaxPerDayPerWatchlist,
+      maxPerHourGlobal: webPushEnrollmentMaxPerHourGlobal,
+      maxPerDayGlobal: webPushEnrollmentMaxPerDayGlobal,
+    };
     this.trustLoopbackProxy = trustLoopbackProxy;
     this.linkTokenTtlMs = linkTokenTtlMs;
     this.logger = logger;
@@ -154,14 +186,17 @@ export class CollectorApiServer {
       }
       throw new HttpError(404, 'not_found', 'Route not found');
     } catch (error) {
-      if (error instanceof NotificationTestCooldownError) {
+      if (error instanceof NotificationRateLimitError) {
         response.setHeader('retry-after', String(Math.max(1, Math.ceil(error.retryAfterMs / 1_000))));
         return writeJson(response, 429, {
-          error: { code: 'notification_test_cooldown', message: error.message },
+          error: { code: error.code, message: error.message },
           retryAfterMs: error.retryAfterMs,
         });
       }
       if (error instanceof HttpError || error instanceof InputError) {
+        if (error.status === 429 && error.retryAfterMs) {
+          response.setHeader('retry-after', String(Math.max(1, Math.ceil(error.retryAfterMs / 1_000))));
+        }
         return writeJson(response, error.status, { error: { code: error.code, message: error.message } });
       }
       this.logger.error('Slashmon API request failed', {
@@ -249,17 +284,15 @@ export class CollectorApiServer {
         'subscription_rate_limited',
         'Too many watch lists created from this client; try again later',
       );
+      this.subscriptionCreateDailyRateLimiter.take(
+        clientKey,
+        'subscription_daily_rate_limited',
+        'The daily watch-list creation limit for this client was reached',
+      );
       const body = await readJsonBody(request, this.maxRequestBodyBytes);
       assertBodyFields(body, ['network', 'addresses']);
       const network = normalizeNetwork(body.network ?? this.network, this.network);
       const addresses = normalizeAddresses(body.addresses, this.maxSequencers);
-      // Malformed traffic pays the per-client parsing quota, but it must not
-      // burn the scarce global admission quota without creating anything.
-      this.globalSubscriptionCreateRateLimiter.check(
-        'global',
-        'subscription_capacity_limited',
-        'Watch-list creation is temporarily busy; try again later',
-      );
       const managementToken = createOpaqueToken();
       const watchlist = this.repository.createWatchlist({
         id: randomUUID(),
@@ -267,15 +300,11 @@ export class CollectorApiServer {
         network,
         addresses,
         now: this.now(),
+        admissionLimits: this.subscriptionAdmissionLimits,
       });
       if (!watchlist) {
         throw new HttpError(503, 'subscription_capacity', 'Too many unconnected watch lists; try again later');
       }
-      this.globalSubscriptionCreateRateLimiter.take(
-        'global',
-        'subscription_capacity_limited',
-        'Watch-list creation is temporarily busy; try again later',
-      );
       return writeJson(response, 201, {
         schemaVersion: 2,
         data: { ...toPublicWatchlist(watchlist), managementToken },
@@ -288,6 +317,13 @@ export class CollectorApiServer {
     if (!WATCHLIST_ID_PATTERN.test(id)) throw new HttpError(404, 'subscription_not_found', 'Subscription not found');
     const watchlist = this.authorizeWatchlist(id, request);
     const suffix = match[2];
+    if (method !== 'GET' && method !== 'HEAD') {
+      this.watchlistMutationRateLimiter.take(
+        id,
+        'subscription_mutation_rate_limited',
+        'Too many changes were requested for this watch list; try again shortly',
+      );
+    }
 
     if (suffix === '' && method === 'GET') {
       return writeJson(response, 200, { schemaVersion: 2, data: toPublicWatchlist(watchlist) });
@@ -350,6 +386,7 @@ export class CollectorApiServer {
         destination: subscription.endpoint,
         configJson: JSON.stringify(subscription),
         now: this.now(),
+        admissionLimits: this.webPushEnrollmentAdmissionLimits,
       });
       if (result?.conflict) {
         throw new HttpError(
@@ -409,7 +446,10 @@ export class CollectorApiServer {
         body: 'The wire is live. Real alerts will name the offense and affected sequencer.',
         data: {},
         observedAt: now,
-      }, now);
+      }, now, {
+        cooldownMs: this.notificationTestCooldownMs,
+        admissionLimits: this.notificationTestAdmissionLimits,
+      });
       if (!queued) {
         throw new HttpError(409, 'no_active_channels', 'No active notification channel is connected');
       }
@@ -735,10 +775,11 @@ function toIso(value) {
 }
 
 class HttpError extends Error {
-  constructor(status, code, message) {
+  constructor(status, code, message, retryAfterMs) {
     super(message);
     this.status = status;
     this.code = code;
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
@@ -755,14 +796,14 @@ class MutationRateLimiter {
     const now = this.now();
     const bucket = this.getBucket(key, now);
     bucket.count += 1;
-    if (bucket.count > this.max) throw new HttpError(429, code, message);
+    if (bucket.count > this.max) throw new HttpError(429, code, message, bucket.resetAt - now);
   }
 
   check(key, code = 'rate_limited', message = 'Too many requests; try again shortly') {
     const now = this.now();
     const bucket = this.buckets.get(key);
     if (bucket && bucket.resetAt > now && bucket.count >= this.max) {
-      throw new HttpError(429, code, message);
+      throw new HttpError(429, code, message, bucket.resetAt - now);
     }
   }
 

@@ -352,7 +352,10 @@ test('notification channels validate endpoints and queue test deliveries', async
     body: {},
   });
   assert.equal(throttledTest.response.status, 429);
-  assert.equal(throttledTest.response.headers.get('retry-after'), '60');
+  assert.equal(
+    throttledTest.response.headers.get('retry-after'),
+    String(NOTIFICATION_TEST_COOLDOWN_MS / 1_000),
+  );
   assert.equal(throttledTest.body.error.code, 'notification_test_cooldown');
   assert.equal(throttledTest.body.retryAfterMs, NOTIFICATION_TEST_COOLDOWN_MS);
 
@@ -579,7 +582,7 @@ test('anonymous reads and watch-list creation have tighter independent limits', 
   const { baseUrl } = await startApi(t, repository, {
     readRateLimitMax: 1,
     subscriptionCreateMaxPerClient: 1,
-    subscriptionCreateMaxGlobal: 10,
+    subscriptionCreateMaxPerHourGlobal: 10,
   });
 
   const firstRead = await fetch(`${baseUrl}/api/v2/config`);
@@ -593,6 +596,87 @@ test('anonymous reads and watch-list creation have tighter independent limits', 
   assert.equal(firstCreate.response.status, 201);
   assert.equal(secondCreate.response.status, 429);
   assert.equal(secondCreate.body.error.code, 'subscription_rate_limited');
+});
+
+test('watch-list mutations and Web Push endpoint rotation have independent budgets', async (t) => {
+  const repository = healthyRepository();
+  const { baseUrl } = await startApi(t, repository, {
+    watchlistMutationRateLimitMax: 3,
+    webPushEnrollmentMaxPerHourPerWatchlist: 2,
+  });
+  const created = await createSubscription(baseUrl, [SEQUENCER_A]);
+  const { id, managementToken } = created.body.data;
+
+  for (const suffix of ['one', 'two']) {
+    const admitted = await authenticatedJson(baseUrl, id, managementToken, {
+      path: '/channels/web-push',
+      method: 'PUT',
+      body: {
+        subscription: {
+          ...PUSH_SUBSCRIPTION,
+          endpoint: `${PUSH_SUBSCRIPTION.endpoint}-${suffix}`,
+        },
+      },
+    });
+    assert.equal(admitted.response.status, 200);
+  }
+  const blocked = await authenticatedJson(baseUrl, id, managementToken, {
+    path: '/channels/web-push',
+    method: 'PUT',
+    body: {
+      subscription: {
+        ...PUSH_SUBSCRIPTION,
+        endpoint: `${PUSH_SUBSCRIPTION.endpoint}-three`,
+      },
+    },
+  });
+  assert.equal(blocked.response.status, 429);
+  assert.equal(blocked.body.error.code, 'web_push_enrollment_rate_limited');
+  assert.ok(Number(blocked.response.headers.get('retry-after')) > 0);
+
+  const mutationBlocked = await authenticatedJson(baseUrl, id, managementToken, {
+    method: 'PATCH',
+    body: { addresses: [SEQUENCER_B] },
+  });
+  assert.equal(mutationBlocked.response.status, 429);
+  assert.equal(mutationBlocked.body.error.code, 'subscription_mutation_rate_limited');
+});
+
+test('notification tests share a durable global budget across watch lists', async (t) => {
+  const repository = healthyRepository();
+  const { baseUrl } = await startApi(t, repository, {
+    notificationTestMaxPerHourGlobal: 1,
+  });
+  const first = await createSubscription(baseUrl, [SEQUENCER_A]);
+  const second = await createSubscription(baseUrl, [SEQUENCER_B]);
+  repository.upsertEndpoint({
+    watchlistId: first.body.data.id,
+    kind: 'telegram',
+    destination: 'budget-chat-one',
+    now: NOW,
+  });
+  repository.upsertEndpoint({
+    watchlistId: second.body.data.id,
+    kind: 'telegram',
+    destination: 'budget-chat-two',
+    now: NOW,
+  });
+
+  const admitted = await authenticatedJson(
+    baseUrl,
+    first.body.data.id,
+    first.body.data.managementToken,
+    { path: '/test', method: 'POST', body: {} },
+  );
+  const blocked = await authenticatedJson(
+    baseUrl,
+    second.body.data.id,
+    second.body.data.managementToken,
+    { path: '/test', method: 'POST', body: {} },
+  );
+  assert.equal(admitted.response.status, 202);
+  assert.equal(blocked.response.status, 429);
+  assert.equal(blocked.body.error.code, 'notification_test_capacity_limited');
 });
 
 test('public journal exposes Sentinel precursor feed and detail', async (t) => {

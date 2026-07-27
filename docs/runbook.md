@@ -94,6 +94,26 @@ If the proxy overwrites `X-Real-IP` or `X-Forwarded-For` and connects over
 loopback, set `BACKEND_TRUST_PROXY=true`. Leave it false for any remote proxy
 hop.
 
+### Abuse-control defaults
+
+The backend defaults to 180 API reads per minute per client and 600 globally,
+plus 20 mutations per minute per client and per managed watch list. Anonymous
+watch-list creation is limited to 3/hour and 10/day per client, with durable
+global limits of 10/hour and 50/day. Notification tests have a five-minute
+per-watch-list cooldown and durable global limits of 30/hour and 100/day.
+
+New Web Push endpoints are limited to 3/hour and 10/day per watch list, and
+20/hour and 100/day globally. These admission budgets use private SQLite
+journal entries, so endpoint rotation, process restarts, and watch-list deletion
+cannot reset them. The entries are removed by the normal seven-day notification
+maintenance pass. Telegram starts at 20 sends/second globally, five
+low-priority test or command sends/second, and one send/second per chat; real
+alerts are scheduled first.
+
+Every value is configurable in `collector/.env.example`. At the current small
+traffic level, treat repeated 429 responses as an abuse or integration signal
+before increasing a limit.
+
 Use a restrictive browser policy. A same-origin baseline is:
 
 ```text

@@ -5,6 +5,7 @@ import {
   DeliveryError,
   TelegramChannel,
   TelegramClient,
+  TelegramSendScheduler,
   WebPushChannel,
   notificationPath,
   parseRetryAfterMs,
@@ -215,6 +216,33 @@ test('TelegramClient classifies permanent chat errors and honors retry_after', a
   });
 });
 
+test('Telegram send scheduling prioritizes alerts and paces each chat', async () => {
+  const scheduler = new TelegramSendScheduler({
+    maxPerSecond: 1,
+    lowPriorityMaxPerSecond: 1,
+    perChatIntervalMs: 10,
+    rateWindowMs: 20,
+  });
+  await scheduler.acquire('seed');
+
+  const order = [];
+  const low = scheduler.acquire('low-chat', { priority: 'low' }).then(() => order.push('low'));
+  const alert = scheduler.acquire('alert-chat').then(() => order.push('alert'));
+  await Promise.all([low, alert]);
+  assert.deepEqual(order, ['alert', 'low']);
+
+  const chatScheduler = new TelegramSendScheduler({
+    maxPerSecond: 10,
+    lowPriorityMaxPerSecond: 10,
+    perChatIntervalMs: 20,
+    rateWindowMs: 5,
+  });
+  await chatScheduler.acquire('same-chat');
+  const startedAt = Date.now();
+  await chatScheduler.acquire('same-chat');
+  assert.ok(Date.now() - startedAt >= 15);
+});
+
 test('TelegramClient long polling and TelegramChannel preserve routing semantics', async () => {
   let requestBody;
   const client = new TelegramClient({
@@ -236,8 +264,8 @@ test('TelegramClient long polling and TelegramChannel preserve routing semantics
   const channel = new TelegramChannel({
     publicUrl: 'https://slashmon.example/base/',
     client: {
-      async sendMessage(chatId, text) {
-        message = { chatId, text };
+      async sendMessage(chatId, text, _signal, options) {
+        message = { chatId, text, options };
         return { message_id: 99 };
       },
     },
@@ -245,6 +273,7 @@ test('TelegramClient long polling and TelegramChannel preserve routing semantics
   const result = await channel.send({ destination: '-100123', event: EVENT });
   assert.deepEqual(result, { providerMessageId: '99' });
   assert.equal(message.chatId, '-100123');
+  assert.deepEqual(message.options, { priority: 'alert' });
   assert.match(message.text, /^🚨 Sequencer targeted/);
   assert.match(message.text, /https:\/\/slashmon\.example\/base\/\?view=pingme&network=mainnet&event=event%2Fwith\+spaces$/);
 });

@@ -32,6 +32,7 @@ Configuration is intentionally small:
 | Telegram | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME` |
 | Web Push | `VAPID_SUBJECT`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` |
 | Process | `BACKEND_DATABASE_PATH`, `BACKEND_BIND_HOST`, `BACKEND_PORT`, `BACKEND_CORS_ORIGIN`, `BACKEND_TRUST_PROXY`, `BACKEND_LOG_LEVEL` |
+| Abuse controls | `BACKEND_*_RATE_LIMIT_*`, `BACKEND_SUBSCRIPTION_CREATE_*`, `BACKEND_NOTIFICATION_TEST_*`, `BACKEND_WEB_PUSH_ENROLLMENT_*`, `TELEGRAM_SEND_MAX_PER_SECOND`, `TELEGRAM_LOW_PRIORITY_SEND_MAX_PER_SECOND`, `TELEGRAM_CHAT_SEND_INTERVAL_MS` |
 
 `L1_RPC_URL` accepts comma-separated HTTP(S) URLs for whole-scan failover. The
 selected network fixes the expected chain and default Registry. The backend
@@ -90,6 +91,12 @@ The current contract is rooted at `/api/v2`:
 Subscription creation returns a management token once. All later subscription
 requests require it as `Authorization: Bearer …`. A PATCH replaces the address
 list; deleting a subscription removes the watch and its channels.
+
+The checked-in environment example documents every abuse-control default.
+Client and watch-list request buckets are in memory. Global watch-list,
+notification-test, and new Web Push enrollment budgets are journal-backed and
+therefore survive restarts. Re-registering the same Push endpoint does not
+consume another enrollment slot.
 
 `GET /live` reports process liveness. `GET /health` reports operational source
 and delivery health. Public events include node-local, Sentinel, and L1
