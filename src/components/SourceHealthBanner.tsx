@@ -6,7 +6,7 @@ interface SourceHealthBannerProps {
     error: string | null;
     isLoading: boolean;
     lastReceivedAt: number | null;
-    onRefresh: () => void;
+    onRetry: () => void;
 }
 
 export function SourceHealthBanner({
@@ -14,7 +14,7 @@ export function SourceHealthBanner({
     error,
     isLoading,
     lastReceivedAt,
-    onRefresh,
+    onRetry,
 }: SourceHealthBannerProps) {
     const [clock, setClock] = useState(0);
     useEffect(() => {
@@ -40,7 +40,7 @@ export function SourceHealthBanner({
                     {!isLoading && (
                         <button
                             type="button"
-                            onClick={onRefresh}
+                            onClick={onRetry}
                             className="brutal-button brutal-button--orchid brutal-button--lg shrink-0"
                         >
                             Retry
@@ -72,7 +72,7 @@ export function SourceHealthBanner({
 
     return (
         <section className={`mb-6 border-5 p-5 ${palette}`} aria-live="polite">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:grid-rows-[auto_auto] lg:items-center">
                 <div>
                     <h2 className={`text-xl font-black ${accent}`}>
                         {heading}
@@ -82,23 +82,16 @@ export function SourceHealthBanner({
                     </p>
                     {error && <p className="mt-2 text-xs font-bold text-vermillion">Latest refresh: {error}</p>}
                 </div>
-                <div className="flex flex-wrap items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3 self-center lg:col-start-2 lg:row-span-2 lg:row-start-1">
                     <SourceBadge label="L1" status={status.sources.l1.status} />
                     <SourceBadge label="Aztec Node" status={status.sources.aztec.status} />
                     <SourceBadge label="Delivery" status={status.delivery.status} />
-                    <button
-                        type="button"
-                        onClick={onRefresh}
-                        className="brutal-button brutal-button--sm"
-                    >
-                        Refresh
-                    </button>
                 </div>
+                <p className="text-xs font-bold text-whisper-white/60 lg:col-start-1 lg:row-start-2">
+                    Snapshot {formatRelativeTime(status.generatedAt)}
+                    {lastReceivedAt ? ` · received ${new Date(lastReceivedAt).toLocaleTimeString()}` : ''}
+                </p>
             </div>
-            <p className="mt-3 text-xs font-bold text-whisper-white/60">
-                Snapshot {formatRelativeTime(status.generatedAt)}
-                {lastReceivedAt ? ` · received ${new Date(lastReceivedAt).toLocaleTimeString()}` : ''}
-            </p>
         </section>
     );
 }
@@ -106,7 +99,7 @@ export function SourceHealthBanner({
 function SourceBadge({ label, status }: { label: string; status: string }) {
     const healthy = status === 'healthy';
     return (
-        <span className={`border-3 border-brand-black px-3 py-2 text-xs font-black uppercase text-brand-black ${healthy ? 'bg-aqua' : 'bg-vermillion'}`}>
+        <span className={`inline-flex items-center justify-center border-3 border-brand-black px-3 py-2 text-xs font-black uppercase text-brand-black ${healthy ? 'bg-aqua' : 'bg-vermillion'}`}>
             {label}: {status}
         </span>
     );

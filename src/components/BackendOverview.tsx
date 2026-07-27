@@ -35,27 +35,26 @@ export function BackendOverview({
             error={monitor.error}
             isLoading={monitor.isLoading}
             lastReceivedAt={monitor.lastReceivedAt}
-            onRefresh={() => void monitor.refresh()}
+            onRetry={() => void monitor.refresh()}
         />
     );
 
     if (configuredNetwork && configuredNetwork !== network) {
         return (
             <>
-                {health}
                 <section className="mb-8 border-5 border-vermillion bg-oxblood p-6 shadow-brutal-vermillion" role="alert">
                     <h2 className="text-2xl font-black text-vermillion">Sequencer Watches Unavailable</h2>
                     <p className="mt-2 text-sm font-bold text-whisper-white">
                         This notification backend watches {configuredNetwork}, not {network}. Switch networks to manage sequencer watches.
                     </p>
                 </section>
+                {health}
             </>
         );
     }
 
     return (
         <>
-            {health}
             <SequencerRecord
                 network={network}
                 sequencer={selectedSequencer}
@@ -80,6 +79,7 @@ export function BackendOverview({
                     </details>
                 ) : networkFeed}
             </div>
+            {health}
         </>
     );
 }
