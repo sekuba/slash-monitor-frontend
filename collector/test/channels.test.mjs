@@ -14,9 +14,16 @@ import {
 const EVENT = {
   id: 'event/with spaces',
   network: 'mainnet',
+  type: 'onchain_targeted',
   severity: 'critical',
   title: 'Sequencer targeted',
   body: 'A confirmed payload targets 0x1111…1111.',
+  targets: ['0x1111111111111111111111111111111111111111'],
+  data: {
+    chainId: 1,
+    blockNumber: '25587802',
+    payloadAddress: '0x2222222222222222222222222222222222222222',
+  },
 };
 
 test('WebPushChannel builds a scoped high-urgency payload and returns the provider id', async () => {
@@ -45,6 +52,10 @@ test('WebPushChannel builds a scoped high-urgency payload and returns the provid
   assert.deepEqual(captured[0], subscription);
   const payload = JSON.parse(captured[1]);
   assert.equal(payload.title, EVENT.title);
+  assert.equal(
+    payload.body,
+    'Sequencer: 0x1111…1111\nA confirmed payload targets 0x1111…1111.',
+  );
   assert.equal(payload.data.eventId, EVENT.id);
   assert.equal(payload.data.url, notificationPath(EVENT));
   assert.equal(payload.data.url, '?view=pingme&network=mainnet&event=event%2Fwith+spaces');
@@ -275,7 +286,11 @@ test('TelegramClient long polling and TelegramChannel preserve routing semantics
   assert.equal(message.chatId, '-100123');
   assert.deepEqual(message.options, { priority: 'alert' });
   assert.match(message.text, /^🚨 Sequencer targeted/);
-  assert.match(message.text, /https:\/\/slashmon\.example\/base\/\?view=pingme&network=mainnet&event=event%2Fwith\+spaces$/);
+  assert.match(message.text, /Sequencer: 0x1111…1111/);
+  assert.match(message.text, /Slashmon event: https:\/\/slashmon\.example\/base\/\?view=pingme&network=mainnet&event=event%2Fwith\+spaces/);
+  assert.match(message.text, /Dashtec: https:\/\/dashtec\.xyz\/sequencers\/0x1111111111111111111111111111111111111111/);
+  assert.match(message.text, /Etherscan block: https:\/\/etherscan\.io\/block\/25587802/);
+  assert.match(message.text, /Etherscan slash payload: https:\/\/etherscan\.io\/address\/0x2222222222222222222222222222222222222222$/);
 });
 
 test('TelegramChannel keeps queued alerts retryable until the bot identity is validated', async () => {

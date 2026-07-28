@@ -65,7 +65,23 @@ describe('sequencer record presentation', () => {
                 offenseRound: '243',
                 proposalRound: '245',
             },
-        }))).toContain('No L1 action yet');
+        }))).toContain('node-local offense, not an L1 vote or slash payload');
+        expect(recordEventSummary(event({
+            type: 'pending_offense_detected',
+            source: 'aztec_node',
+            certainty: 'pending',
+            offense: {
+                type: 3,
+                reason: 'inactivity',
+                epochOrSlot: '972',
+                timeUnit: 'epoch',
+                amount: '2000000000000000000000',
+                epoch: '972',
+                slot: '31104',
+                offenseRound: '243',
+                proposalRound: '245',
+            },
+        }))).toContain('Proposed slash: 2,000 AZTEC');
 
         expect(recordEventSummary(event({
             type: 'onchain_executable_after_pause',
@@ -97,7 +113,7 @@ describe('sequencer record presentation', () => {
                 pauseEndsAtSlot: '31291',
                 actions: [],
             },
-        }))).toContain('expiry is unchanged');
+        }))).toContain('expiry at slot 31872 is unchanged');
 
         expect(recordEventSummary(event({
             type: 'l1_slash_confirmed',
@@ -129,7 +145,7 @@ describe('sequencer record presentation', () => {
                 pauseEndsAtSlot: null,
                 actions: [],
             },
-        }))).toBe('2,000 AZTEC removed in a confirmed L1 block.');
+        }))).toBe('2,000 AZTEC was removed in confirmed L1 block 1.');
     });
 });
 

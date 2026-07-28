@@ -1,5 +1,6 @@
 import { useSlashingStore } from '@/store/slashingStore';
-import { formatEther, formatNumber, formatSlotDuration, formatEpochDuration, formatRoundDuration } from '@/lib/utils';
+import { formatNumber, formatSlotDuration, formatEpochDuration, formatRoundDuration } from '@/lib/utils';
+import { formatAztec } from '@/lib/formatToken';
 export function StatsPanel() {
     const { stats, config } = useSlashingStore();
 
@@ -81,7 +82,7 @@ export function StatsPanel() {
         },
         {
             label: 'AZTEC SLASHED',
-            value: `${parseInt(formatEther(stats.totalSlashAmount), 10)}`,
+            value: formatAztec(stats.totalSlashAmount),
             bgColor: 'bg-oxblood',
             textColor: 'text-vermillion',
             borderColor: 'border-vermillion',

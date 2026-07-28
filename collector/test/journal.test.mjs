@@ -70,6 +70,9 @@ test('pending offense transitions and matching delivery fanout are atomic and de
       'Inactivity offense changed',
       'Inactivity offense returned',
     ]);
+    assert.match(events[0].body, /registered an inactivity offense/);
+    assert.match(events[0].body, /Proposed slash: 2,000 AZTEC/);
+    assert.match(events[0].body, /node-local offense, not an L1 vote or slash payload/);
     assert.equal(repository.getDeliveryCounts().pending, 3);
     const deliveries = [];
     while (deliveries.length < 3) {
@@ -81,6 +84,8 @@ test('pending offense transitions and matching delivery fanout are atomic and de
     assert.equal(deliveries.length, 3);
     assert.equal(new Set(deliveries.map((delivery) => delivery.event.id)).size, 3);
     assert.equal(deliveries.every((delivery) => delivery.destination === '9007199254740991'), true);
+    assert.equal(deliveries.every((delivery) =>
+      delivery.event.targets.includes(SEQUENCER_A)), true);
   } finally {
     repository.close();
   }
@@ -132,6 +137,9 @@ test('pending offenses connect their epoch or slot to offense and proposal round
       offenseRound: '70',
       proposalRound: '72',
     });
+    assert.match(epochEvent.body, /epoch 42 \(starts at slot 1344\)/);
+    assert.match(epochEvent.body, /Offense round 10; expected vote round 12/);
+    assert.match(slotEvent.body, /slot 9001 \(epoch 281\)/);
   } finally {
     repository.close();
   }
@@ -1026,7 +1034,7 @@ test('rotating a failed Push endpoint does not replay a superseded L1 round view
     });
     verifyWebPushEndpoint(repository, 10);
     const round = {
-      actions: [{ sequencer: SEQUENCER_A, amount: '1000' }],
+      actions: [{ sequencer: SEQUENCER_A, amount: '2000000000000000000000' }],
       payloadAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     };
     repository.recordSuccessfulL1Snapshot('mainnet', snapshot({
@@ -1384,7 +1392,7 @@ test('L1 payload events count only tally actions and expose epoch, slot, and UTC
     repository.recordSuccessfulL1Snapshot('mainnet', snapshot({
       block: 100,
       earlyTargets: [earlyTarget(SEQUENCER_A, 100), earlyTarget(SEQUENCER_B, 1)],
-      actions: [{ sequencer: SEQUENCER_A, amount: '1000' }],
+      actions: [{ sequencer: SEQUENCER_A, amount: '2000000000000000000000' }],
       payloadAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       status: 'quorum-reached',
       targetEpochs: ['38', '39'],
@@ -1396,8 +1404,10 @@ test('L1 payload events count only tally actions and expose epoch, slot, and UTC
       .find((candidate) => candidate.type === 'onchain_targeted');
     assert.ok(event);
     assert.deepEqual(event.targets, [SEQUENCER_A]);
-    assert.match(event.body, /1 sequencer/i);
-    assert.doesNotMatch(event.body, /2 sequencers/i);
+    assert.match(event.body, /active round 7 for target epochs 38–39/i);
+    assert.match(event.body, /Proposed slash: 2,000 AZTEC/);
+    assert.match(event.body, /Execution window: slots 1100–1200/);
+    assert.match(event.body, /Observed at epoch 10, slot 1000/);
     assert.deepEqual({
       targetEpochs: event.data.targetEpochs,
       currentEpoch: event.data.currentEpoch,
@@ -1426,8 +1436,8 @@ test('L1 payload changes alert only sequencers whose own slash amount changed', 
     repository.recordSuccessfulL1Snapshot('mainnet', snapshot({
       block: 100,
       actions: [
-        { sequencer: SEQUENCER_A, amount: '1000' },
-        { sequencer: SEQUENCER_B, amount: '1000' },
+        { sequencer: SEQUENCER_A, amount: '2000000000000000000000' },
+        { sequencer: SEQUENCER_B, amount: '2000000000000000000000' },
       ],
       payloadAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       status: 'quorum-reached',
@@ -1435,8 +1445,8 @@ test('L1 payload changes alert only sequencers whose own slash amount changed', 
     repository.recordSuccessfulL1Snapshot('mainnet', snapshot({
       block: 101,
       actions: [
-        { sequencer: SEQUENCER_A, amount: '1000' },
-        { sequencer: SEQUENCER_B, amount: '2000' },
+        { sequencer: SEQUENCER_A, amount: '2000000000000000000000' },
+        { sequencer: SEQUENCER_B, amount: '5000000000000000000000' },
       ],
       payloadAddress: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
       status: 'quorum-reached',
@@ -1445,14 +1455,22 @@ test('L1 payload changes alert only sequencers whose own slash amount changed', 
     const changed = repository.listEvents({ network: 'mainnet' }).data
       .find((event) => event.type === 'onchain_payload_changed');
     assert.deepEqual(changed.targets, [SEQUENCER_B]);
-    assert.match(changed.body, new RegExp(`${SEQUENCER_B.slice(0, 6)}.*${SEQUENCER_B.slice(-4)}`, 'i'));
+    assert.equal(changed.title, 'Proposed slash amount changed');
+    assert.match(changed.body, /changed from 2,000 to 5,000 AZTEC/);
+    assert.doesNotMatch(changed.body, /veto/i);
+    assert.deepEqual(changed.data.actionChanges, [{
+      sequencer: SEQUENCER_B,
+      kind: 'amount_changed',
+      previousAmount: '2000000000000000000000',
+      currentAmount: '5000000000000000000000',
+    }]);
 
     // Action ordering and changes affecting no address must not create another alert.
     repository.recordSuccessfulL1Snapshot('mainnet', snapshot({
       block: 102,
       actions: [
-        { sequencer: SEQUENCER_B, amount: '2000' },
-        { sequencer: SEQUENCER_A, amount: '1000' },
+        { sequencer: SEQUENCER_B, amount: '5000000000000000000000' },
+        { sequencer: SEQUENCER_A, amount: '2000000000000000000000' },
       ],
       payloadAddress: '0xcccccccccccccccccccccccccccccccccccccccc',
       status: 'quorum-reached',
@@ -1463,6 +1481,99 @@ test('L1 payload changes alert only sequencers whose own slash amount changed', 
         .filter((event) => event.type === 'onchain_payload_changed').length,
       1,
     );
+  } finally {
+    repository.close();
+  }
+});
+
+test('payload changes describe a newly added sequencer without implying a prior veto', () => {
+  const repository = new OffenseRepository(':memory:');
+  try {
+    repository.recordSuccessfulL1Snapshot('mainnet', snapshot({
+      block: 100,
+      actions: [{ sequencer: SEQUENCER_B, amount: '2000000000000000000000' }],
+      payloadAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      status: 'quorum-reached',
+      targetEpochs: ['1020', '1021', '1022', '1023'],
+      executableSlot: '36608',
+      expirySlot: '37376',
+    }), { observedAt: 100 });
+    repository.recordSuccessfulL1Snapshot('mainnet', snapshot({
+      block: 101,
+      actions: [
+        { sequencer: SEQUENCER_B, amount: '2000000000000000000000' },
+        { sequencer: SEQUENCER_A, amount: '2000000000000000000000' },
+      ],
+      payloadAddress: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      status: 'quorum-reached',
+      targetEpochs: ['1020', '1021', '1022', '1023'],
+      executableSlot: '36608',
+      expirySlot: '37376',
+    }), { observedAt: 200 });
+
+    const changed = repository.listEvents({ network: 'mainnet' }).data
+      .find((event) => event.type === 'onchain_payload_changed');
+    assert.ok(changed);
+    assert.deepEqual(changed.targets, [SEQUENCER_A]);
+    assert.equal(changed.title, 'Sequencer added to slash payload');
+    assert.match(
+      changed.body,
+      /This sequencer was added to the slash payload in active round 7 for target epochs 1020–1023/,
+    );
+    assert.match(changed.body, /Proposed slash: 2,000 AZTEC/);
+    assert.match(changed.body, /Execution window: slots 36608–37376/);
+    assert.doesNotMatch(changed.body, /veto/i);
+    assert.deepEqual(changed.data.actionChanges, [{
+      sequencer: SEQUENCER_A,
+      kind: 'added',
+      previousAmount: null,
+      currentAmount: '2000000000000000000000',
+    }]);
+    assert.equal(changed.data.previousPayloadWasVetoed, false);
+  } finally {
+    repository.close();
+  }
+});
+
+test('payload replacement mentions veto protection only for the exact vetoed prior payload', () => {
+  const repository = new OffenseRepository(':memory:');
+  try {
+    repository.recordSuccessfulL1Snapshot('mainnet', snapshot({
+      block: 100,
+      actions: [{ sequencer: SEQUENCER_B, amount: '2000000000000000000000' }],
+      payloadAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      status: 'quorum-reached',
+      isVetoed: true,
+    }), { observedAt: 100 });
+    repository.recordSuccessfulL1Snapshot('mainnet', snapshot({
+      block: 101,
+      actions: [
+        { sequencer: SEQUENCER_B, amount: '2000000000000000000000' },
+        { sequencer: SEQUENCER_A, amount: '2000000000000000000000' },
+      ],
+      payloadAddress: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      status: 'quorum-reached',
+      isVetoed: false,
+    }), { observedAt: 200 });
+
+    const changed = repository.listEvents({ network: 'mainnet' }).data
+      .find((event) => event.type === 'onchain_payload_changed');
+    assert.ok(changed);
+    assert.deepEqual(changed.targets, [SEQUENCER_A, SEQUENCER_B]);
+    assert.equal(changed.title, 'Sequencer added to slash payload');
+    assert.match(changed.body, /previous payload \(0xaaaa…aaaa\) was vetoed/i);
+    assert.match(changed.body, /new payload \(0xbbbb…bbbb\) is not vetoed/i);
+    assert.deepEqual(changed.data.actionChanges, [{
+      sequencer: SEQUENCER_A,
+      kind: 'added',
+      previousAmount: null,
+      currentAmount: '2000000000000000000000',
+    }]);
+    assert.equal(
+      changed.data.previousPayloadAddress,
+      '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    );
+    assert.equal(changed.data.previousPayloadWasVetoed, true);
   } finally {
     repository.close();
   }
@@ -1778,7 +1889,7 @@ test('L1 pause transitions distinguish protection, temporary blocking, and actua
       'onchain_execution_paused',
       'onchain_executable',
     ]);
-    assert.equal(events[0].title, 'Round protected through expiry');
+    assert.equal(events[0].title, 'Slash payload protected through expiry');
     assert.equal(events[1].severity, 'critical');
     assert.equal(events[2].data.isExecutionPaused, true);
     assert.equal(repository.getDeliveryCounts().pending, 4);

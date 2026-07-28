@@ -18,6 +18,7 @@ import type {
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const HASH_PATTERN = /^0x[0-9a-fA-F]{64}$/;
 const HEALTH_STATUSES = new Set<BackendHealthStatus>(['healthy', 'degraded', 'stale', 'unavailable']);
+const ACTION_CHANGE_KINDS = new Set(['added', 'removed', 'amount_changed']);
 
 export class ApiContractError extends Error {
     constructor(message: string) {
@@ -292,6 +293,28 @@ function decodeEventL1(
         ? []
         : expectArray(data.targetEpochs, `${path}.targetEpochs`).map((epoch, index) =>
             decimalString(epoch, `${path}.targetEpochs[${index}]`));
+    const actionChanges = data.actionChanges === undefined
+        ? []
+        : expectArray(data.actionChanges, `${path}.actionChanges`).map((item, index) => {
+            const changePath = `${path}.actionChanges[${index}]`;
+            const change = expectObject(item, changePath);
+            const kind = expectString(change.kind, `${changePath}.kind`);
+            if (!ACTION_CHANGE_KINDS.has(kind)) {
+                throw new ApiContractError(`${changePath}.kind is invalid`);
+            }
+            return {
+                sequencer: address(change.sequencer, `${changePath}.sequencer`),
+                kind: kind as 'added' | 'removed' | 'amount_changed',
+                previousAmount: optionalDecimalString(
+                    change.previousAmount,
+                    `${changePath}.previousAmount`,
+                ),
+                currentAmount: optionalDecimalString(
+                    change.currentAmount,
+                    `${changePath}.currentAmount`,
+                ),
+            };
+        });
 
     return {
         chainId: data.chainId === undefined || data.chainId === null
@@ -311,6 +334,15 @@ function decodeEventL1(
         blockHash: optionalHash(data.blockHash, `${path}.blockHash`),
         transactionHash: optionalHash(data.transactionHash, `${path}.transactionHash`),
         payloadAddress: optionalAddress(data.payloadAddress, `${path}.payloadAddress`),
+        slasherAddress: optionalAddress(data.slasherAddress, `${path}.slasherAddress`),
+        previousPayloadAddress: optionalAddress(
+            data.previousPayloadAddress,
+            `${path}.previousPayloadAddress`,
+        ),
+        previousPayloadWasVetoed: optionalBoolean(
+            data.previousPayloadWasVetoed,
+            `${path}.previousPayloadWasVetoed`,
+        ),
         amount: optionalDecimalString(data.amount, `${path}.amount`),
         isVetoed: optionalBoolean(data.isVetoed, `${path}.isVetoed`),
         isExecuted: optionalBoolean(data.isExecuted, `${path}.isExecuted`),
@@ -323,6 +355,7 @@ function decodeEventL1(
         ),
         pauseEndsAtSlot: optionalDecimalString(data.pauseEndsAtSlot, `${path}.pauseEndsAtSlot`),
         actions,
+        actionChanges,
     };
 }
 

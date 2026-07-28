@@ -18,4 +18,13 @@ describe('SequencerAddressControl', () => {
         expect(markup).toContain('text-orchid');
         expect(markup).not.toContain('>Open record</button>');
     });
+
+    it('links testnet sequencers to the testnet Dashtec dashboard', () => {
+        const address = '0x1111111111111111111111111111111111111111';
+        const markup = renderToStaticMarkup(
+            <SequencerAddressControl address={address} network="testnet" />,
+        );
+
+        expect(markup).toContain(`href="https://testnet.dashtec.xyz/sequencers/${address}"`);
+    });
 });

@@ -150,7 +150,7 @@ export function useNotificationSubscription(network: MonitorNetwork, config: Bac
                 await inspectPush();
             }
             if (result === 'created' || result === 'replaced') {
-                setNotice('Web Push endpoint repaired. The wire is live again.');
+                setNotice('Web Push endpoint repaired. Alerts are live again.');
             }
         }).catch((caught: unknown) => {
             setError(`Web Push needs reconnecting: ${toErrorMessage(caught)}`);

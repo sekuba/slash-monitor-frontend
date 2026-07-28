@@ -442,8 +442,9 @@ export class CollectorApiServer {
         source: 'test',
         type: 'notification_test',
         severity: 'info',
-        title: 'Slashmon test signal',
-        body: 'The wire is live. Real alerts will name the offense and affected sequencer.',
+        title: 'Slashmon test successful',
+        body: 'Delivery is working. Real alerts will identify the affected sequencer and clearly ' +
+          'separate node evidence, L1 votes, slash payloads, and confirmed slashes.',
         data: {},
         observedAt: now,
       }, now, {

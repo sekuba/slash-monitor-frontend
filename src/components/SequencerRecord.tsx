@@ -2,8 +2,10 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { getAddress, isAddress, type Address } from 'viem';
 import { SequencerAddressControl } from './SequencerAddressControl';
 import { SlashingProcess, type SlashingProcessTiming } from './SlashingProcess';
-import { formatJournalTime } from './EventHistory';
+import { formatJournalTime, L1Links } from './EventHistory';
 import { useSequencerRecord } from '@/hooks/useSequencerRecord';
+import { describeMonitorEvent } from '@/lib/eventDescription';
+import { formatAztec } from '@/lib/formatToken';
 import { getEventTitle, getEventVisual } from '@/lib/presentation';
 import type {
     MonitorEvent,
@@ -93,6 +95,7 @@ export function SequencerRecord({ network, sequencer, onSelect }: SequencerRecor
 
             {sequencer && (
                 <RecordBody
+                    network={network}
                     sequencer={sequencer}
                     monitor={monitor}
                 />
@@ -102,9 +105,11 @@ export function SequencerRecord({ network, sequencer, onSelect }: SequencerRecor
 }
 
 function RecordBody({
+    network,
     sequencer,
     monitor,
 }: {
+    network: MonitorNetwork;
     sequencer: Address;
     monitor: ReturnType<typeof useSequencerRecord>;
 }) {
@@ -141,6 +146,7 @@ function RecordBody({
                         <div className="text-xs font-black uppercase tracking-[0.18em] text-chartreuse">Sequencer</div>
                         <SequencerAddressControl
                             address={sequencer}
+                            network={network}
                             full
                             showCopy
                             className="font-mono text-sm font-black text-whisper-white sm:text-base"
@@ -269,6 +275,11 @@ function RecordTimeline({ events }: { events: MonitorEvent[] }) {
                                         ))}
                                     </div>
                                 )}
+                                {event.l1 && (
+                                    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs font-bold text-whisper-white/60">
+                                        <L1Links l1={event.l1} eventType={event.type} />
+                                    </div>
+                                )}
                             </article>
                         </li>
                     );
@@ -337,52 +348,7 @@ function summarizeRecord(events: MonitorEvent[]) {
 }
 
 export function recordEventSummary(event: MonitorEvent): string {
-    const offense = event.offense;
-    if (event.type === 'inactivity_first_miss') {
-        return `Missed duty${offense?.slot ? ` at slot ${offense.slot}` : ''}. This is precursor evidence only.`;
-    }
-    if (event.type === 'inactivity_epoch_completed') {
-        return event.body || 'The inactivity threshold was evaluated for this epoch.';
-    }
-    if (event.type.startsWith('pending_offense_')) {
-        const position = offense?.epoch
-            ? `epoch ${offense.epoch}`
-            : offense?.epochOrSlot
-                ? `${offense.timeUnit ?? 'position'} ${offense.epochOrSlot}`
-                : 'this position';
-        return `Node registered ${humanize(offense?.reason ?? 'an offense')} for ${position}. No L1 action yet.`;
-    }
-    if (event.type === 'onchain_vote_targeted') {
-        return 'At least one L1 vote named this address. Quorum has not created a payload yet.';
-    }
-    if (event.type === 'onchain_targeted') {
-        return `This address entered the round’s quorum payload${event.l1?.executableAt ? `; execution opens ${formatJournalTime(event.l1.executableAt)}` : ''}.`;
-    }
-    if (event.type === 'onchain_payload_changed') {
-        return 'The payload changed. Any veto on its prior address does not carry over.';
-    }
-    if (event.type === 'onchain_executable') {
-        return `Execution is open${event.l1?.expiryAt ? ` until ${formatJournalTime(event.l1.expiryAt)}` : ''}.`;
-    }
-    if (event.type === 'onchain_executable_after_pause' || event.type === 'onchain_execution_paused') {
-        return `The global pause blocks execution; the ${event.l1?.expiryAt ? `${formatJournalTime(event.l1.expiryAt)} ` : ''}expiry is unchanged.`;
-    }
-    if (event.type === 'onchain_pause_protected') {
-        return 'The scheduled pause lasts through this payload’s expiry.';
-    }
-    if (event.type === 'onchain_vetoed') return 'The vetoer blocked this payload.';
-    if (event.type === 'onchain_veto_reverted') return 'The current payload is no longer vetoed.';
-    if (event.type === 'onchain_expired') return 'The execution window closed without execution.';
-    if (event.type === 'onchain_executed') {
-        return 'The round executed. A Slashed log separately proves how much stake was removed.';
-    }
-    if (event.type === 'l1_slash_confirmed' || event.type === 'l1_slash_reconfirmed') {
-        return `${formatAztec(event.l1?.amount)} AZTEC removed in a confirmed L1 block.`;
-    }
-    if (event.type === 'l1_slash_reorged') {
-        return 'The earlier slash log is no longer on the canonical L1 chain.';
-    }
-    return event.body || humanize(event.type);
+    return describeMonitorEvent(event);
 }
 
 function recordEventFacts(event: MonitorEvent): string[] {
@@ -400,24 +366,4 @@ function recordEventFacts(event: MonitorEvent): string[] {
         event.targets.some((target) => target.toLowerCase() === action.sequencer.toLowerCase()))?.amount;
     if (proposed) facts.push(`${formatAztec(proposed)} AZTEC proposed`);
     return facts;
-}
-
-function formatAztec(value: string | null | undefined): string {
-    if (!value) return 'Unknown';
-    try {
-        const amount = BigInt(value);
-        const whole = amount / 10n ** 18n;
-        const fraction = (amount % 10n ** 18n)
-            .toString()
-            .padStart(18, '0')
-            .slice(0, 3)
-            .replace(/0+$/, '');
-        return fraction ? `${whole.toLocaleString()}.${fraction}` : whole.toLocaleString();
-    } catch {
-        return value;
-    }
-}
-
-function humanize(value: string): string {
-    return value.replace(/[_-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }

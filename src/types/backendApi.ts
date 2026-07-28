@@ -98,6 +98,9 @@ export interface EventL1Context {
     blockHash: string | null;
     transactionHash: string | null;
     payloadAddress: Address | null;
+    slasherAddress?: Address | null;
+    previousPayloadAddress?: Address | null;
+    previousPayloadWasVetoed?: boolean | null;
     amount: string | null;
     isVetoed: boolean | null;
     isExecuted: boolean | null;
@@ -107,11 +110,19 @@ export interface EventL1Context {
     pauseStartedAtSlot: string | null;
     pauseEndsAtSlot: string | null;
     actions: EventL1Action[];
+    actionChanges?: EventL1ActionChange[];
 }
 
 export interface EventL1Action {
     sequencer: Address;
     amount: string;
+}
+
+export interface EventL1ActionChange {
+    sequencer: Address;
+    kind: 'added' | 'removed' | 'amount_changed';
+    previousAmount: string | null;
+    currentAmount: string | null;
 }
 
 export interface EventPage {

@@ -49,7 +49,7 @@ export function SubscriptionPanel({
                     <h2 className="mt-1 text-3xl font-black text-whisper-white">Watch sequencers</h2>
                 </div>
                 <span className={`self-start border-3 border-brand-black px-3 py-2 text-xs font-black uppercase text-brand-black ${hasChannel ? 'bg-aqua' : hasPendingChannel || !hasAddresses ? 'bg-chartreuse' : 'bg-vermillion'}`}>
-                    {hasChannel ? 'Armed' : hasPendingChannel ? 'Checking' : hasAddresses ? 'Choose a channel' : 'Add addresses'}
+                    {hasChannel ? 'Alerts live' : hasPendingChannel ? 'Checking' : hasAddresses ? 'Choose a channel' : 'Add addresses'}
                 </span>
             </div>
 
@@ -75,6 +75,7 @@ export function SubscriptionPanel({
                         <SequencerAddressControl
                             key={sequencer}
                             address={sequencer}
+                            network={network}
                             chars={6}
                             showCopy
                             onOpenRecord={onSelectSequencer}

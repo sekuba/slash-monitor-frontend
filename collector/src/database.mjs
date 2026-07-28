@@ -7,6 +7,11 @@ import {
   CRITICAL_DELIVERY_LIFETIME_MS,
   WARNING_DELIVERY_LIFETIME_MS,
 } from './delivery-policy.mjs';
+import {
+  formatAztecAmount,
+  formatEpochRange,
+  shortAddress,
+} from './notification-content.mjs';
 
 const SCHEMA_VERSION = 3;
 
@@ -1666,7 +1671,7 @@ export class OffenseRepository {
   }
 
   enqueueEndpointVerification(watchlistId, endpointId, now = Date.now()) {
-    const watchlist = this.db.prepare('SELECT network FROM watchlists WHERE id = ?').get(watchlistId);
+    const watchlist = this.getWatchlist(watchlistId);
     if (!watchlist) return 0;
     const event = {
       id: stableId('channel-verification', endpointId, now),
@@ -1674,9 +1679,10 @@ export class OffenseRepository {
       source: 'test',
       type: 'notification_channel_verification',
       severity: 'info',
-      title: 'Slashmon wire connected',
-      body: 'This private channel passed its delivery check. Alerts are armed.',
-      data: { verification: true, watchlistId },
+      title: 'Slashmon alerts connected',
+      body: `Delivery check passed. Alerts are active for ${watchlist.addresses.length} watched ` +
+        `sequencer${watchlist.addresses.length === 1 ? '' : 's'}.`,
+      data: { verification: true, watchlistId, sequencers: watchlist.addresses },
       observedAt: now,
     };
     return this.insertEvent(event, [], [endpointId]).queued;
@@ -2003,9 +2009,12 @@ export class OffenseRepository {
         return 0;
       }
 
+      const sequencers = this.db.prepare(`
+        SELECT sequencer FROM watchlist_addresses WHERE watchlist_id = ? ORDER BY sequencer
+      `).all(watchlistId).map((row) => row.sequencer);
       return this.insertEvent({
         ...event,
-        data: { ...event.data, watchlistId },
+        data: { ...event.data, watchlistId, sequencers },
         observedAt: event.observedAt ?? now,
       }, [], endpoints).queued;
     });
@@ -2117,6 +2126,7 @@ export class OffenseRepository {
     const row = this.db.prepare(`
       SELECT delivery.id, delivery.endpoint_id AS endpointId, delivery.attempts,
         endpoint.kind, endpoint.destination, endpoint.config_json AS endpointConfig,
+        endpoint.watchlist_id AS watchlistId,
         event.id AS eventId, event.network, event.source, event.type, event.severity,
         event.title, event.body, event.data_json AS eventDataJson,
         event.observed_at AS eventObservedAt
@@ -2126,6 +2136,14 @@ export class OffenseRepository {
       WHERE delivery.id = ?
     `).get(id);
     if (!row) return undefined;
+    const targets = this.db.prepare(`
+      SELECT target.sequencer
+      FROM event_targets target
+      JOIN watchlist_addresses watched
+        ON watched.watchlist_id = ? AND watched.sequencer = target.sequencer
+      WHERE target.event_id = ?
+      ORDER BY target.sequencer
+    `).all(row.watchlistId, row.eventId).map((item) => item.sequencer);
     return {
       id: row.id,
       endpointId: row.endpointId,
@@ -2142,6 +2160,7 @@ export class OffenseRepository {
         title: row.title,
         body: row.body,
         data: parseJson(row.eventDataJson, {}),
+        targets,
         observedAt: row.eventObservedAt,
       },
     };
@@ -2472,10 +2491,18 @@ export class OffenseRepository {
           observedAt,
         );
         if (eventType && targets.length > 0) {
+          const previousActions = existing ? parseJson(existing.actions_json, []) : [];
           const insertion = this.insertEvent(
             onchainEvent(
               eventType,
-              { ...item.round, ...item.stack, transitionGeneration },
+              {
+                ...item.round,
+                ...item.stack,
+                transitionGeneration,
+                previousActions,
+                previousPayloadAddress: existing?.payload_address ?? null,
+                previousPayloadWasVetoed: existing ? Boolean(existing.is_vetoed) : false,
+              },
               network,
               observedAt,
               snapshot,
@@ -2882,7 +2909,7 @@ function buildOffenseFilters(status, sequencers) {
 }
 
 function pendingEvent(type, offense, network, observedAt, explicitId, timing = {}) {
-  const copy = pendingEventCopy(type, offense);
+  const copy = pendingEventCopy(type, offense, timing);
   return {
     id: explicitId ?? stableId('event', network, type, offense.id, observedAt, offense.amount),
     network,
@@ -2914,7 +2941,8 @@ function inactivityFirstMissEvent(miss, network, observedAt) {
     type: 'inactivity_first_miss',
     severity: 'warning',
     title: 'Missed duty observed',
-    body: `${shortAddress(miss.sequencer)} missed a duty in epoch ${miss.epoch}; this is precursor evidence, not a registered slash offense.`,
+    body: `A duty was missed at slot ${miss.slot} in epoch ${miss.epoch}. ` +
+      'This is early Sentinel evidence, not a registered slash offense or an L1 vote.',
     data: {
       certainty: 'pending',
       sequencer: miss.sequencer,
@@ -2932,6 +2960,14 @@ function inactivityFirstMissEvent(miss, network, observedAt) {
 
 function inactivityEpochEvent(performance, network, observedAt) {
   const thresholdReached = performance.inactiveStreak >= performance.threshold;
+  const missedSlots = performance.firstMissedSlot === null
+    ? ''
+    : performance.firstMissedSlot === performance.lastMissedSlot
+      ? ` Missed slot: ${performance.firstMissedSlot}.`
+      : ` Missed slots: ${performance.firstMissedSlot}–${performance.lastMissedSlot}.`;
+  const threshold = thresholdReached
+    ? ` Inactivity threshold reached: ${performance.inactiveStreak}/${performance.threshold} required epochs.`
+    : ` Inactivity streak: ${performance.inactiveStreak}/${performance.threshold} required epochs.`;
   return {
     id: stableId(
       'event',
@@ -2945,9 +2981,10 @@ function inactivityEpochEvent(performance, network, observedAt) {
     type: 'inactivity_epoch_completed',
     severity: 'warning',
     title: thresholdReached
-      ? 'Inactivity streak reached threshold'
-      : 'Inactive duty epoch completed',
-    body: `${shortAddress(performance.sequencer)} missed ${performance.missed}/${performance.total} observed duties in epoch ${performance.epoch}; inactive streak ${performance.inactiveStreak}/${performance.threshold}.`,
+      ? 'Inactivity threshold reached'
+      : 'Inactive epoch recorded',
+    body: `${performance.missed}/${performance.total} observed duties were missed in epoch ${performance.epoch}.` +
+      `${missedSlots}${threshold} This is Sentinel evidence, not a registered slash offense or an L1 vote.`,
     data: {
       certainty: 'pending',
       sequencer: performance.sequencer,
@@ -2973,24 +3010,27 @@ function inactivityEpochEvent(performance, network, observedAt) {
   };
 }
 
-function pendingEventCopy(type, offense) {
+function pendingEventCopy(type, offense, timing) {
   const label = String(offense.offenseTypeName ?? 'unknown').replaceAll('_', ' ');
-  const position = offense.timeUnit && offense.epochOrSlot !== undefined
-    ? `${offense.timeUnit} ${offense.epochOrSlot}`
-    : 'an unknown position';
-  const address = shortAddress(offense.sequencer);
+  const position = offensePosition(offense, timing);
+  const amount = formatAztecAmount(offense.amount);
+  const rounds = pendingRoundContext(timing);
+  const stage = 'This is a node-local offense, not an L1 vote or slash payload.';
   return {
     pending_offense_detected: {
       title: `${capitalize(label)} offense detected`,
-      body: `Aztec node reported ${address} for ${position}; this is not yet an L1 action.`,
+      body: `Aztec node registered ${indefiniteArticle(label)} ${label} offense for ${position}. ` +
+        `Proposed slash: ${amount} AZTEC.${rounds} ${stage}`,
     },
     pending_offense_reactivated: {
       title: `${capitalize(label)} offense returned`,
-      body: `Aztec node reported ${address} again for ${position}; this is not yet an L1 action.`,
+      body: `Aztec node reported its ${label} offense again for ${position}. ` +
+        `Proposed slash: ${amount} AZTEC.${rounds} ${stage}`,
     },
     pending_offense_updated: {
       title: `${capitalize(label)} offense changed`,
-      body: `Aztec node changed its ${label} signal for ${address} at ${position}.`,
+      body: `Aztec node updated its ${label} offense for ${position}. ` +
+        `Current proposed slash: ${amount} AZTEC.${rounds} ${stage}`,
     },
   }[type];
 }
@@ -2998,29 +3038,236 @@ function pendingEventCopy(type, offense) {
 function onchainEventCopy(type, round, targets) {
   const role = round.role ?? round.stackRole ?? 'active';
   const roundNumber = String(round.round);
-  const targetText = targets.length === 1
-    ? `1 sequencer (${shortAddress(targets[0])})`
-    : `${targets.length} sequencers`;
-  const execution = round.executableSlot === null || round.executableSlot === undefined
+  const roundContext = `${role} round ${roundNumber}${targetEpochClause(round.targetEpochs)}`;
+  const proposalAmount = onchainAmountContext(round.actions, targets, 'Proposed slash');
+  const executedAmount = onchainAmountContext(round.actions, targets, 'Executed slash');
+  const currentAmount = onchainAmountContext(round.actions, targets, 'Current slash');
+  const executionWindow = slotWindow(
+    round.executableSlot,
+    round.expirySlot,
+    round.executableAt,
+    round.expiryAt,
+  );
+  const expiry = round.expirySlot === null || round.expirySlot === undefined
     ? ''
-    : ` Execution window opens at slot ${round.executableSlot}${round.executableAt ? ` (${round.executableAt})` : ''}.`;
+    : ` Expiry remains slot ${round.expirySlot}${round.expiryAt ? ` (${round.expiryAt})` : ''}.`;
+  const pause = round.pauseEndsAtSlot === null || round.pauseEndsAtSlot === undefined
+    ? ''
+    : ` The pause is scheduled to end at slot ${round.pauseEndsAtSlot}.`;
+  const observed = observationContext(round);
+  const replacedVeto = replacedVetoContext(round);
+  if (type === 'onchain_payload_changed') {
+    return payloadChangeCopy(round, targets, roundContext, executionWindow, observed, replacedVeto);
+  }
   const config = {
-    onchain_vote_targeted: ['warning', 'L1 slash vote observed', `${targetText} received at least one vote in ${role} round ${roundNumber}; no slash payload is implied.`],
-    onchain_targeted: ['warning', 'Slashing payload proposed', `${targetText} entered the payload for ${role} round ${roundNumber}.${execution}`],
-    onchain_payload_changed: ['critical', 'Slashing payload changed', `The slash action changed for ${targetText} in ${role} round ${roundNumber}; prior veto state does not carry over.${execution}`],
-    onchain_executable: ['critical', 'Slashing is executable', `${targetText} can now be slashed from ${role} round ${roundNumber}.`],
-    onchain_executable_after_pause: ['critical', 'Slashing queued behind global pause', `${targetText} is in round ${roundNumber}'s execution window, but the global pause currently blocks it.`],
-    onchain_execution_paused: ['warning', 'Slashing temporarily paused', `${role} round ${roundNumber} remains live, but the global pause currently blocks execution.`],
-    onchain_pause_protected: ['info', 'Round protected through expiry', `${targetText} is in ${role} round ${roundNumber}, but the scheduled pause lasts through its expiry.`],
-    onchain_vetoed: ['info', 'Slashing payload vetoed', `The current payload for ${role} round ${roundNumber} was vetoed.`],
-    onchain_veto_reverted: ['critical', 'Slashing veto no longer applies', `The current payload for ${role} round ${roundNumber} is not vetoed.`],
-    onchain_executed: ['critical', 'Slashing executed', `${targetText} was included in executed ${role} round ${roundNumber}.`],
-    onchain_execution_target_cleared: ['info', 'Executed tally cleared prior target', `${targetText} was targeted earlier in ${role} round ${roundNumber}, but not in its executed tally.`],
-    onchain_expired: ['info', 'Slashing round expired', `${role} round ${roundNumber} expired without executing.`],
-    onchain_reorg_correction: ['warning', 'L1 slashing view corrected', `An L1 reorg removed or changed prior targeting in ${role} round ${roundNumber}.`],
-    onchain_reorg_restored: ['critical', 'L1 slashing target restored', `${targetText} returned to ${role} round ${roundNumber}'s canonical L1 view.`],
+    onchain_vote_targeted: [
+      'warning',
+      'L1 slash vote observed',
+      `At least one L1 slash vote was recorded in ${roundContext}. ` +
+        `This is vote evidence only; no slash payload exists yet.${observed}`,
+    ],
+    onchain_targeted: [
+      'warning',
+      'Slash payload proposed',
+      `A slash payload was proposed in ${roundContext}.${proposalAmount}${executionWindow}${observed}`,
+    ],
+    onchain_executable: [
+      'critical',
+      'Slash payload is executable',
+      `The slash payload from ${roundContext} is now executable.${currentAmount}` +
+        `${replacedVeto}${expiry}${observed}`,
+    ],
+    onchain_executable_after_pause: [
+      'critical',
+      'Slash payload blocked by global pause',
+      `The slash payload from ${roundContext} reached its execution window, but the global slashing ` +
+        `pause blocks execution.${currentAmount}${pause}${expiry}${observed}`,
+    ],
+    onchain_execution_paused: [
+      'warning',
+      'Slash execution paused',
+      `The global slashing pause now blocks execution of the payload from ${roundContext}.` +
+        `${currentAmount}${pause}${expiry}${observed}`,
+    ],
+    onchain_pause_protected: [
+      'info',
+      'Slash payload protected through expiry',
+      `The global slashing pause protects the payload from ${roundContext} through its expiry.` +
+        `${currentAmount}${pause}${expiry}${observed}`,
+    ],
+    onchain_vetoed: [
+      'info',
+      'Slash payload vetoed',
+      `The slash payload from ${roundContext} was vetoed.${currentAmount}${expiry}${observed}`,
+    ],
+    onchain_veto_reverted: [
+      'critical',
+      'Slash payload no longer reported vetoed',
+      `The same slash payload from ${roundContext} is no longer reported as vetoed.` +
+        `${currentAmount}${expiry}${observed}`,
+    ],
+    onchain_executed: [
+      'critical',
+      'Slashing round executed',
+      `The slash payload from ${roundContext} was executed.${executedAmount}` +
+        `${replacedVeto}${observed}`,
+    ],
+    onchain_execution_target_cleared: [
+      'info',
+      'Executed tally cleared prior target',
+      `The executed tally for ${roundContext} did not include a sequencer targeted by an earlier ` +
+        `view of the round.${observed}`,
+    ],
+    onchain_expired: [
+      'info',
+      'Slash payload expired',
+      `The execution window for ${roundContext} closed without execution.${observed}`,
+    ],
+    onchain_reorg_correction: [
+      'warning',
+      'L1 slashing view corrected',
+      `An L1 reorganization removed or changed prior targeting in ${roundContext}.${observed}`,
+    ],
+    onchain_reorg_restored: [
+      'critical',
+      'L1 slashing target restored',
+      `Targeting in ${roundContext} returned to the canonical L1 view.${currentAmount}${observed}`,
+    ],
   }[type];
   return { severity: config[0], title: config[1], body: config[2] };
+}
+
+function payloadChangeCopy(round, targets, roundContext, executionWindow, observed, replacedVeto) {
+  const targetSet = new Set(targets.map((target) => String(target).toLowerCase()));
+  const changes = (round.actionChanges ?? [])
+    .filter((change) => targetSet.has(change.sequencer));
+  let title = 'Slash payload changed';
+  let body = `Slash actions changed in ${roundContext}.`;
+  if (changes.length === 1) {
+    const [change] = changes;
+    const sequencer = targets.length === 1 ? 'This sequencer' : shortAddress(change.sequencer);
+    if (change.kind === 'added') {
+      title = 'Sequencer added to slash payload';
+      body = `${sequencer} was added to the slash payload in ${roundContext}. ` +
+        `Proposed slash: ${formatAztecAmount(change.currentAmount)} AZTEC.`;
+    } else if (change.kind === 'removed') {
+      title = 'Sequencer removed from slash payload';
+      body = `${sequencer} was removed from the slash payload in ${roundContext}. ` +
+        'No slash is currently proposed for this sequencer in this round.';
+    } else {
+      title = 'Proposed slash amount changed';
+      const subject = sequencer === 'This sequencer'
+        ? 'The proposed slash for this sequencer'
+        : `The proposed slash for ${sequencer}`;
+      body = `${subject} changed from ` +
+        `${formatAztecAmount(change.previousAmount)} to ` +
+        `${formatAztecAmount(change.currentAmount)} AZTEC in ${roundContext}.`;
+    }
+  } else if (changes.length > 1) {
+    body = `Slash actions changed for ${changes.length} sequencers in ${roundContext}.` +
+      onchainAmountContext(round.actions, targets, 'Current proposed slash');
+  } else {
+    body = `The payload address changed in ${roundContext}; the proposed slash actions are unchanged.`;
+  }
+  const raisesRisk = changes.some((change) => {
+    if (change.kind === 'added') return true;
+    if (change.kind !== 'amount_changed') return false;
+    try {
+      return BigInt(change.currentAmount) > BigInt(change.previousAmount);
+    } catch {
+      return true;
+    }
+  });
+  return {
+    severity: replacedVeto || raisesRisk
+      ? 'critical'
+      : changes.length > 0
+        ? 'info'
+        : 'warning',
+    title,
+    body: `${body}${replacedVeto}${executionWindow}${observed}`,
+  };
+}
+
+function replacedVetoContext(round) {
+  const previousPayload = String(round.previousPayloadAddress ?? '');
+  const currentPayload = String(round.payloadAddress ?? '');
+  if (
+    round.previousPayloadWasVetoed !== true ||
+    !/^0x[0-9a-f]{40}$/i.test(previousPayload) ||
+    !/^0x[0-9a-f]{40}$/i.test(currentPayload) ||
+    previousPayload.toLowerCase() === currentPayload.toLowerCase() ||
+    round.isVetoed
+  ) {
+    return '';
+  }
+  return ` The previous payload (${shortAddress(previousPayload)}) was vetoed. ` +
+    `The new payload (${shortAddress(currentPayload)}) is not vetoed.`;
+}
+
+function offensePosition(offense, timing) {
+  if (!offense.timeUnit || offense.epochOrSlot === undefined) return 'an unknown position';
+  if (offense.timeUnit === 'epoch' && timing?.slot !== undefined) {
+    return `epoch ${offense.epochOrSlot} (starts at slot ${timing.slot})`;
+  }
+  if (offense.timeUnit === 'slot' && timing?.epoch !== undefined) {
+    return `slot ${offense.epochOrSlot} (epoch ${timing.epoch})`;
+  }
+  return `${offense.timeUnit} ${offense.epochOrSlot}`;
+}
+
+function pendingRoundContext(timing) {
+  const facts = [];
+  if (timing?.offenseRound !== undefined) facts.push(`offense round ${timing.offenseRound}`);
+  if (timing?.proposalRound !== undefined) facts.push(`expected vote round ${timing.proposalRound}`);
+  return facts.length > 0 ? ` ${capitalize(facts.join('; '))}.` : '';
+}
+
+function indefiniteArticle(value) {
+  return /^[aeiou]/i.test(String(value)) ? 'an' : 'a';
+}
+
+function targetEpochClause(targetEpochs) {
+  const formatted = formatEpochRange(targetEpochs);
+  return formatted ? ` for target ${formatted}` : '';
+}
+
+function onchainAmountContext(actions, targets, label) {
+  const byTarget = new Map((actions ?? []).map((action) => [
+    String(action.sequencer ?? action.validator ?? '').toLowerCase(),
+    String(action.amount ?? action.slashAmount ?? ''),
+  ]));
+  const amounts = targets
+    .map((target) => byTarget.get(String(target).toLowerCase()))
+    .filter((amount) => amount !== undefined);
+  if (amounts.length !== targets.length || amounts.length === 0) return '';
+  const unique = [...new Set(amounts)];
+  if (unique.length === 1) {
+    return ` ${label}: ${formatAztecAmount(unique[0])} AZTEC${targets.length > 1 ? ' each' : ''}.`;
+  }
+  const sorted = unique.map(BigInt).sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
+  return ` Slash amounts: ${formatAztecAmount(sorted[0])}–` +
+    `${formatAztecAmount(sorted[sorted.length - 1])} AZTEC.`;
+}
+
+function slotWindow(executableSlot, expirySlot, executableAt, expiryAt) {
+  if (executableSlot === null || executableSlot === undefined) return '';
+  if (expirySlot === null || expirySlot === undefined) {
+    return ` Execution opens at slot ${executableSlot}${executableAt ? ` (${executableAt})` : ''}.`;
+  }
+  const timestamps = executableAt && expiryAt ? ` (${executableAt} to ${expiryAt})` : '';
+  return ` Execution window: slots ${executableSlot}–${expirySlot}${timestamps}.`;
+}
+
+function observationContext(round) {
+  const epoch = round.currentEpoch;
+  const slot = round.currentSlot;
+  if (epoch !== null && epoch !== undefined && slot !== null && slot !== undefined) {
+    return ` Observed at epoch ${epoch}, slot ${slot}.`;
+  }
+  if (epoch !== null && epoch !== undefined) return ` Observed at epoch ${epoch}.`;
+  if (slot !== null && slot !== undefined) return ` Observed at slot ${slot}.`;
+  return '';
 }
 
 function pendingOffenseTiming(offense, l1Metadata) {
@@ -3125,7 +3372,11 @@ function l1Transition(existing, round, snapshot) {
     return 'onchain_reorg_correction';
   }
   if (round.isVetoed && !existing.is_vetoed) return 'onchain_vetoed';
-  if (!round.isVetoed && existing.is_vetoed) return 'onchain_veto_reverted';
+  // Vetoes are permanent flags on exact payload addresses. A non-vetoed,
+  // different payload is a payload replacement, not a removed veto.
+  if (!round.isVetoed && existing.is_vetoed && !payloadChanged) {
+    return 'onchain_veto_reverted';
+  }
   // A scheduled pause and permanent protection-through-expiry are different.
   // Warn immediately when a round survives the pause, then escalate again when
   // execution actually becomes possible. A veto always wins over these states.
@@ -3161,10 +3412,19 @@ function l1TransitionTargets(existing, round, type) {
     return [...new Set(added)];
   }
   if (existing && type === 'onchain_payload_changed') {
-    return changedActionTargets(
-      parseJson(existing.actions_json, []),
-      round.actions ?? [],
-    );
+    const previousActions = parseJson(existing.actions_json, []);
+    const changedTargets = changedActionTargets(previousActions, round.actions ?? []);
+    const payloadChanged = (round.payloadAddress?.toLowerCase() ?? null) !== existing.payload_address;
+    if (
+      Boolean(existing.is_vetoed) &&
+      !round.isVetoed &&
+      payloadChanged
+    ) {
+      // The old veto protected every action in that exact payload, including
+      // actions whose amount did not change in the replacement.
+      return actionTargets([...previousActions, ...(round.actions ?? [])]);
+    }
+    return changedTargets;
   }
   if (existing && type === 'onchain_reorg_correction') {
     return roundTargets(
@@ -3188,6 +3448,28 @@ function changedActionTargets(previousActions, nextActions) {
   return [...new Set([...previousAmounts.keys(), ...nextAmounts.keys()])]
     .filter((target) => previousAmounts.get(target) !== nextAmounts.get(target))
     .sort();
+}
+
+function describeActionChanges(previousActions, nextActions) {
+  const previousAmounts = actionAmountsByTarget(previousActions);
+  const nextAmounts = actionAmountsByTarget(nextActions);
+  return [...new Set([...previousAmounts.keys(), ...nextAmounts.keys()])]
+    .filter((sequencer) => previousAmounts.get(sequencer) !== nextAmounts.get(sequencer))
+    .sort()
+    .map((sequencer) => {
+      const previousAmount = previousAmounts.get(sequencer) ?? null;
+      const currentAmount = nextAmounts.get(sequencer) ?? null;
+      return {
+        sequencer,
+        kind: previousAmount === null
+          ? 'added'
+          : currentAmount === null
+            ? 'removed'
+            : 'amount_changed',
+        previousAmount,
+        currentAmount,
+      };
+    });
 }
 
 function actionAmountsByTarget(actions) {
@@ -3233,9 +3515,15 @@ function onchainEvent(type, round, network, observedAt, snapshot, explicitId, ex
   const expirySlot = round.expirySlot ?? null;
   const executableAt = slotTimestamp(executableSlot, round, snapshot);
   const expiryAt = slotTimestamp(expirySlot, round, snapshot);
+  const actionChanges = type === 'onchain_payload_changed'
+    ? describeActionChanges(round.previousActions ?? [], round.actions ?? [])
+    : [];
   const copy = onchainEventCopy(type, {
     ...round,
+    actionChanges,
     role,
+    currentSlot: snapshot.currentSlot ?? round.currentSlot ?? null,
+    currentEpoch: snapshot.currentEpoch ?? round.currentEpoch ?? null,
     executableSlot,
     executableAt,
     expirySlot,
@@ -3266,6 +3554,8 @@ function onchainEvent(type, round, network, observedAt, snapshot, explicitId, ex
       proposerAddress: round.proposerAddress,
       slasherAddress: round.slasherAddress,
       payloadAddress: payload,
+      previousPayloadAddress: round.previousPayloadAddress ?? null,
+      previousPayloadWasVetoed: round.previousPayloadWasVetoed === true,
       status: round.status,
       isVetoed: Boolean(round.isVetoed),
       isExecuted: Boolean(round.isExecuted),
@@ -3275,6 +3565,7 @@ function onchainEvent(type, round, network, observedAt, snapshot, explicitId, ex
       pauseStartedAtSlot: round.pauseStartedAtSlot ?? null,
       pauseEndsAtSlot: round.pauseEndsAtSlot ?? null,
       actions: round.actions ?? [],
+      actionChanges,
       earlyTargets: round.earlyTargets ?? [],
       forkGeneration: round.transitionGeneration ?? null,
       blockNumber: snapshot.blockNumber,
@@ -3285,6 +3576,7 @@ function onchainEvent(type, round, network, observedAt, snapshot, explicitId, ex
 }
 
 function confirmedSlashEvent(id, network, slash, observedAt, backfilled = false, chainId = null) {
+  const amount = formatAztecAmount(slash.amount);
   return {
     id,
     network,
@@ -3293,8 +3585,8 @@ function confirmedSlashEvent(id, network, slash, observedAt, backfilled = false,
     severity: 'critical',
     title: backfilled ? 'Historical L1 slash found' : 'Sequencer slashed on L1',
     body: backfilled
-      ? `Historical scan found that ${shortAddress(slash.sequencer)} was slashed for ${slash.amount} stake base units in a confirmed L1 block.`
-      : `${shortAddress(slash.sequencer)} was slashed for ${slash.amount} stake base units in a confirmed L1 block.`,
+      ? `A historical scan found a confirmed slash of ${amount} AZTEC in L1 block ${slash.blockNumber}.`
+      : `A slash of ${amount} AZTEC was confirmed in L1 block ${slash.blockNumber}.`,
     data: {
       certainty: 'confirmed',
       chainId,
@@ -3313,6 +3605,7 @@ function confirmedSlashEvent(id, network, slash, observedAt, backfilled = false,
 }
 
 function slashReorgCorrectionEvent(slash, network, observedAt, chunk, generation) {
+  const amount = formatAztecAmount(slash.amount);
   return {
     id: slashReorgCorrectionEventId(network, slash.id, generation),
     network,
@@ -3320,7 +3613,8 @@ function slashReorgCorrectionEvent(slash, network, observedAt, chunk, generation
     type: 'l1_slash_reorged',
     severity: 'warning',
     title: 'L1 slash confirmation reorged out',
-    body: `The earlier confirmed slash log for ${shortAddress(slash.sequencer)} is no longer on the canonical L1 chain.`,
+    body: `The ${amount} AZTEC slash previously confirmed in L1 block ${slash.block_number} ` +
+      'was removed by a chain reorganization and is no longer canonical.',
     data: {
       certainty: 'confirmed',
       chainId: slash.chain_id,
@@ -3349,6 +3643,7 @@ function slashReorgCorrectionEventId(network, slashId, generation) {
 }
 
 function slashReconfirmedEvent(slash, network, observedAt, chunk, generation) {
+  const amount = formatAztecAmount(slash.amount);
   return {
     id: stableId('event', network, 'l1_slash_reconfirmed', slash.id, generation),
     network,
@@ -3356,7 +3651,8 @@ function slashReconfirmedEvent(slash, network, observedAt, chunk, generation) {
     type: 'l1_slash_reconfirmed',
     severity: 'critical',
     title: 'L1 slash confirmation restored',
-    body: `The slash log for ${shortAddress(slash.sequencer)} returned to the canonical L1 chain after a reorg correction.`,
+    body: `The ${amount} AZTEC slash in L1 block ${slash.block_number} is canonical again after ` +
+      'the reorganization correction.',
     data: {
       certainty: 'confirmed',
       chainId: slash.chain_id,
@@ -3437,11 +3733,6 @@ function stableId(...parts) {
 
 function roundTransitionEventId(network, type, roundId, generation) {
   return stableId('event', network, type, roundId, 'reorg-generation', generation);
-}
-
-function shortAddress(address) {
-  const value = String(address);
-  return `${value.slice(0, 6)}…${value.slice(-4)}`;
 }
 
 function truncateError(error) {

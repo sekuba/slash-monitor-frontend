@@ -2,18 +2,22 @@ import type { DetectedSlashing } from '@/types/slashing';
 import type { ReactNode } from 'react';
 import { CopyButton } from './CopyButton';
 import { SequencerAddressControl } from './SequencerAddressControl';
-import { formatAddress, formatEther } from '@/lib/utils';
+import { formatAddress } from '@/lib/utils';
+import { formatAztec } from '@/lib/formatToken';
+import type { MonitorNetwork } from '@/types/backendApi';
 
 interface RoundCardDetailsProps {
     slashing: DetectedSlashing;
     sequencerOccurrences?: Map<string, number>;
     quorum?: number;
+    network: MonitorNetwork;
 }
 
 export function RoundCardDetails({
     slashing,
     sequencerOccurrences,
     quorum,
+    network,
 }: RoundCardDetailsProps) {
     return (
         <div className="space-y-4 border-t-5 border-brand-black bg-brand-black/30 p-4 sm:p-6">
@@ -51,6 +55,7 @@ export function RoundCardDetails({
                                     <div className="flex min-w-0 flex-1 items-center gap-3">
                                         <SequencerAddressControl
                                             address={action.validator}
+                                            network={network}
                                             chars={9}
                                             showCopy
                                             className="font-mono text-sm font-bold text-whisper-white"
@@ -65,7 +70,7 @@ export function RoundCardDetails({
                                         )}
                                     </div>
                                     <span className="whitespace-nowrap text-lg font-black text-vermillion">
-                                        {parseInt(formatEther(action.slashAmount), 10)} AZTEC
+                                        {formatAztec(action.slashAmount)} AZTEC
                                     </span>
                                 </div>
                             );

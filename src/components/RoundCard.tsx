@@ -6,15 +6,18 @@ import { getRoundVisual } from '@/lib/presentation';
 import { RoundCardDetails } from './RoundCardDetails';
 import { RoundCardSummary } from './RoundCardSummary';
 import { RoundCardTimers } from './RoundCardTimers';
+import type { MonitorNetwork } from '@/types/backendApi';
 
 interface RoundCardProps {
     slashing: DetectedSlashing;
     sequencerOccurrences?: Map<string, number>;
+    network: MonitorNetwork;
 }
 
 export function RoundCard({
     slashing,
     sequencerOccurrences,
+    network,
 }: RoundCardProps) {
     const [isExpanded, setIsExpanded] = useState(false);
     const [currentTime, setCurrentTime] = useState<number | null>(null);
@@ -59,6 +62,7 @@ export function RoundCard({
             <RoundCardTimers slashing={slashing} presentation={presentation} />
             {isExpanded && (
                 <RoundCardDetails
+                    network={network}
                     slashing={slashing}
                     sequencerOccurrences={sequencerOccurrences}
                     quorum={config?.quorum}

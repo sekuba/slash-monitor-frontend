@@ -1,6 +1,12 @@
 import { createHash } from 'node:crypto';
 import webpush from 'web-push';
 
+import {
+  dashtecReferenceLines,
+  etherscanReferenceLines,
+  formatNotificationBody,
+} from './notification-content.mjs';
+
 const MIN_RETRY_AFTER_MS = 1_000;
 const MAX_RETRY_AFTER_MS = 24 * 60 * 60_000;
 const WEB_PUSH_TTL_SECONDS = 24 * 60 * 60;
@@ -38,7 +44,7 @@ export class WebPushChannel {
     const event = delivery.event;
     const payload = JSON.stringify({
       title: event.title,
-      body: event.body,
+      body: formatNotificationBody(event).slice(0, 600),
       tag: `slashmon-${event.id}`,
       icon: './favicon.svg',
       badge: './favicon.svg',
@@ -329,7 +335,13 @@ export class TelegramChannel {
     const event = delivery.event;
     const icon = event.severity === 'critical' ? '🚨' : event.severity === 'warning' ? '⚠️' : '🛰️';
     const url = new URL(notificationPath(event), this.publicUrl).toString();
-    const message = `${icon} ${event.title}\n\n${event.body}\n\n${url}`;
+    const references = [
+      `Slashmon event: ${url}`,
+      ...dashtecReferenceLines(event),
+      ...etherscanReferenceLines(event),
+    ];
+    const message = `${icon} ${event.title}\n\n${formatNotificationBody(event)}\n\n` +
+      references.join('\n');
     const priority = event.source === 'test' ? 'low' : 'alert';
     const result = await this.client.sendMessage(delivery.destination, message, signal, { priority });
     return { providerMessageId: result?.message_id === undefined ? null : String(result.message_id) };

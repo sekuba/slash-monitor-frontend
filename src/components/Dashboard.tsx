@@ -94,6 +94,7 @@ export function Dashboard({ configInput, network, onResetRpc, onToggleNetwork, o
     }
     return (<>
       <SlashingHelpModal
+        network={network}
         isOpen={showSlashingHelpModal}
         onClose={() => setShowSlashingHelpModal(false)}
         targetedSequencers={targetedSequencers}
@@ -153,13 +154,13 @@ export function Dashboard({ configInput, network, onResetRpc, onToggleNetwork, o
                 Monitoring Round {currentRound?.toString()}
               </p>
             </div>) : (<div className="grid gap-6">
-              {activeSlashings.map((slashing) => (<RoundCard key={slashing.round.toString()} slashing={slashing} sequencerOccurrences={sequencerOccurrences}/>))}
+              {activeSlashings.map((slashing) => (<RoundCard key={slashing.round.toString()} network={network} slashing={slashing} sequencerOccurrences={sequencerOccurrences}/>))}
             </div>)}
         </div>
         {inactiveSlashings.length > 0 && (<div>
             <h2 className="text-3xl font-black text-whisper-white mb-6 uppercase">Other Rounds</h2>
             <div className="grid gap-6">
-              {inactiveSlashings.map((slashing) => (<RoundCard key={slashing.round.toString()} slashing={slashing} sequencerOccurrences={sequencerOccurrences}/>))}
+              {inactiveSlashings.map((slashing) => (<RoundCard key={slashing.round.toString()} network={network} slashing={slashing} sequencerOccurrences={sequencerOccurrences}/>))}
             </div>
           </div>)}
 

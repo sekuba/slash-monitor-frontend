@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { SequencerAddressControl } from './SequencerAddressControl';
 import type { TargetedSequencer } from '@/types/slashing';
+import type { MonitorNetwork } from '@/types/backendApi';
 
 interface SlashingHelpModalProps {
     isOpen: boolean;
     onClose: () => void;
     targetedSequencers: TargetedSequencer[];
+    network: MonitorNetwork;
 }
 
 const COUNCIL_ISSUES_URL = 'https://github.com/aztec-slash-veto/council/issues';
@@ -14,6 +16,7 @@ export function SlashingHelpModal({
     isOpen,
     onClose,
     targetedSequencers,
+    network,
 }: SlashingHelpModalProps) {
     const [filter, setFilter] = useState('');
 
@@ -105,6 +108,7 @@ export function SlashingHelpModal({
                                 >
                                     <SequencerAddressControl
                                         address={sequencer.address}
+                                        network={network}
                                         chars={9}
                                         showCopy
                                         className="font-mono text-sm font-black text-whisper-white"

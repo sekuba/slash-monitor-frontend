@@ -1,6 +1,6 @@
 import type { DetectedSlashing } from '@/types/slashing';
 import type { RoundVisual } from '@/lib/presentation';
-import { formatEther } from '@/lib/utils';
+import { formatAztec } from '@/lib/formatToken';
 
 interface RoundCardSummaryProps {
     slashing: DetectedSlashing;
@@ -40,7 +40,7 @@ export function RoundCardSummary({
                     {slashing.totalSlashAmount !== undefined && (
                         <SummaryFact
                             label="Slash total"
-                            value={`${parseInt(formatEther(slashing.totalSlashAmount), 10)} AZTEC`}
+                            value={`${formatAztec(slashing.totalSlashAmount)} AZTEC`}
                             danger
                         />
                     )}

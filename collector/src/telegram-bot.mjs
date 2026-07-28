@@ -157,7 +157,7 @@ export class TelegramBot {
         response = changed ? 'Alerts paused. Your watchlist is intact. Send /resume when ready.' : undefined;
       } else if (command === '/resume') {
         const changed = this.repository.setTelegramEndpointEnabled(chatId, true, this.now());
-        response = changed ? 'Alerts resumed. The wire is live.' : undefined;
+        response = changed ? 'Alerts resumed.' : undefined;
       } else if (command === '/delete') {
         const changed = this.repository.deleteTelegramEndpoint(chatId, this.now());
         response = changed ? 'Telegram disconnected. Slashmon kept no chat endpoint behind.' : undefined;

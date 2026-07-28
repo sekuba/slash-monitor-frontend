@@ -20,6 +20,7 @@ turns one node's opinion into L1 truth.
 - `src/` — React/Vite PWA containing Monitor and PINGME
 - `collector/` — Node backend, SQLite journal, and notification delivery
 - [`docs/architecture.md`](docs/architecture.md) — data flow and trust boundaries
+- [`docs/notifications.md`](docs/notifications.md) — notification stages, required context, and links
 - [`docs/runbook.md`](docs/runbook.md) — production deployment and operations
 - [`docs/privacy.md`](docs/privacy.md) — stored data and provider exposure
 

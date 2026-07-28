@@ -180,6 +180,9 @@ describe('Slashmon API decoders', () => {
             blockHash: `0x${'12'.repeat(32)}`,
             transactionHash: `0x${'34'.repeat(32)}`,
             payloadAddress: '0x00000000000000000000000000000000000000bb',
+            slasherAddress: null,
+            previousPayloadAddress: null,
+            previousPayloadWasVetoed: null,
             amount: null,
             isVetoed: null,
             isExecuted: null,
@@ -189,6 +192,7 @@ describe('Slashmon API decoders', () => {
             pauseStartedAtSlot: null,
             pauseEndsAtSlot: null,
             actions: [{ sequencer: address, amount: '2000000000000000000000' }],
+            actionChanges: [],
         });
     });
 

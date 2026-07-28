@@ -1,6 +1,7 @@
 import type { Address } from 'viem';
 import { CopyButton } from './CopyButton';
 import { SequencerAddressLink } from './SequencerAddressLink';
+import type { MonitorNetwork } from '@/types/backendApi';
 
 interface SequencerAddressControlProps {
     address: Address;
@@ -10,6 +11,7 @@ interface SequencerAddressControlProps {
     onOpenRecord?: (address: Address) => void;
     className?: string;
     containerClassName?: string;
+    network?: MonitorNetwork;
 }
 
 export function SequencerAddressControl({
@@ -20,6 +22,7 @@ export function SequencerAddressControl({
     onOpenRecord,
     className = '',
     containerClassName = '',
+    network = 'mainnet',
 }: SequencerAddressControlProps) {
     return (
         <div className={`flex min-w-0 flex-wrap items-center gap-2 ${containerClassName}`}>
@@ -28,6 +31,7 @@ export function SequencerAddressControl({
                 chars={chars}
                 full={full}
                 className={className}
+                network={network}
             />
             {showCopy && (
                 <CopyButton value={address} ariaLabel="Copy sequencer address" />

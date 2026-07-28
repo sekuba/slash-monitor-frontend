@@ -53,6 +53,24 @@ const ROUND_THEMES: Record<RoundTheme, Pick<RoundVisual, 'cardClass' | 'pulseCla
     },
 };
 
+const EVENT_TITLES: Record<string, string> = {
+    inactivity_first_miss: 'Missed duty observed',
+    onchain_vote_targeted: 'L1 slash vote observed',
+    onchain_targeted: 'Slash payload proposed',
+    onchain_payload_changed: 'Slash payload changed',
+    onchain_executable: 'Slash payload is executable',
+    onchain_executable_after_pause: 'Slash payload blocked by global pause',
+    onchain_execution_paused: 'Slash execution paused',
+    onchain_pause_protected: 'Slash payload protected through expiry',
+    onchain_vetoed: 'Slash payload vetoed',
+    onchain_veto_reverted: 'Slash payload no longer reported vetoed',
+    onchain_executed: 'Slashing round executed',
+    onchain_execution_target_cleared: 'Executed tally cleared prior target',
+    onchain_expired: 'Slash payload expired',
+    onchain_reorg_correction: 'L1 slashing view corrected',
+    onchain_reorg_restored: 'L1 slashing target restored',
+};
+
 export function getRoundVisual(
     status: RoundDisplayStatus,
     isProtected = false,
@@ -94,9 +112,13 @@ export function getEventVisual(type: string): EventVisual {
 }
 
 export function getEventTitle(event: MonitorEvent): string {
-    return event.type === 'inactivity_first_miss'
-        ? 'Missed duty observed'
-        : event.title;
+    if (event.type === 'onchain_payload_changed' && event.l1?.actionChanges?.length === 1) {
+        const [change] = event.l1.actionChanges;
+        if (change.kind === 'added') return 'Sequencer added to slash payload';
+        if (change.kind === 'removed') return 'Sequencer removed from slash payload';
+        return 'Proposed slash amount changed';
+    }
+    return EVENT_TITLES[event.type] ?? event.title;
 }
 
 function eventVisual(

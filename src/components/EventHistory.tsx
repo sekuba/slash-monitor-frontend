@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { SequencerAddressControl } from './SequencerAddressControl';
+import { describeMonitorEvent } from '@/lib/eventDescription';
+import { formatAztec } from '@/lib/formatToken';
 import { getEventTitle, getEventVisual } from '@/lib/presentation';
 import type { EventL1Context, MonitorEvent } from '@/types/backendApi';
 
@@ -109,12 +111,14 @@ function EventCard({
             </div>
 
             <EventFacts event={event} />
-            {event.body && <p className="mt-3 text-sm font-bold text-whisper-white/80">{event.body}</p>}
+            <p className="mt-3 text-sm font-bold text-whisper-white/80">
+                {describeMonitorEvent(event)}
+            </p>
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-bold text-whisper-white/60">
                 <time dateTime={event.occurredAt} title={`UTC: ${event.occurredAt}`}>
                     Observed {formatJournalTime(event.occurredAt)}
                 </time>
-                <L1Links l1={event.l1} />
+                <L1Links l1={event.l1} eventType={event.type} />
             </div>
         </article>
     );
@@ -198,6 +202,7 @@ function EventTarget({
         <div className="min-w-0">
             <SequencerAddressControl
                 address={target}
+                network={event.network}
                 chars={full ? undefined : 6}
                 full={full}
                 showCopy
@@ -275,7 +280,13 @@ function EventFacts({ event }: { event: MonitorEvent }) {
     );
 }
 
-function L1Links({ l1 }: { l1: EventL1Context | null }) {
+export function L1Links({
+    l1,
+    eventType,
+}: {
+    l1: EventL1Context | null;
+    eventType?: string;
+}) {
     if (!l1) return null;
     const explorer = etherscanOrigin(l1.chainId);
     if (!explorer) return null;
@@ -283,10 +294,10 @@ function L1Links({ l1 }: { l1: EventL1Context | null }) {
         <>
             {l1.transactionHash && (
                 <a className="text-aqua underline underline-offset-4 hover:text-chartreuse" href={`${explorer}/tx/${l1.transactionHash}`} target="_blank" rel="noreferrer">
-                    Etherscan tx ↗
+                    {eventType === 'l1_slash_reorged' ? 'Original Etherscan tx ↗' : 'Etherscan tx ↗'}
                 </a>
             )}
-            {l1.blockNumber && (
+            {l1.blockNumber && eventType !== 'l1_slash_reorged' && (
                 <a className="text-aqua underline underline-offset-4 hover:text-chartreuse" href={`${explorer}/block/${l1.blockNumber}`} target="_blank" rel="noreferrer">
                     L1 block {l1.blockNumber} ↗
                 </a>
@@ -294,6 +305,21 @@ function L1Links({ l1 }: { l1: EventL1Context | null }) {
             {l1.payloadAddress && (
                 <a className="text-aqua underline underline-offset-4 hover:text-chartreuse" href={`${explorer}/address/${l1.payloadAddress}`} target="_blank" rel="noreferrer">
                     Payload ↗
+                </a>
+            )}
+            {l1.previousPayloadWasVetoed === true &&
+                l1.previousPayloadAddress &&
+                l1.previousPayloadAddress.toLowerCase() !== l1.payloadAddress?.toLowerCase() && (
+                <a className="text-aqua underline underline-offset-4 hover:text-chartreuse" href={`${explorer}/address/${l1.previousPayloadAddress}`} target="_blank" rel="noreferrer">
+                    Previous vetoed payload ↗
+                </a>
+            )}
+            {(eventType === 'onchain_vetoed' ||
+                eventType === 'onchain_veto_reverted' ||
+                l1.previousPayloadWasVetoed === true) &&
+                l1.slasherAddress && (
+                <a className="text-aqua underline underline-offset-4 hover:text-chartreuse" href={`${explorer}/address/${l1.slasherAddress}`} target="_blank" rel="noreferrer">
+                    Slasher contract ↗
                 </a>
             )}
         </>
@@ -335,17 +361,4 @@ function etherscanOrigin(chainId: number): string | null {
     if (chainId === 1) return 'https://etherscan.io';
     if (chainId === 11_155_111) return 'https://sepolia.etherscan.io';
     return null;
-}
-
-function formatAztec(value: string): string {
-    try {
-        const amount = BigInt(value);
-        const whole = amount / 10n ** 18n;
-        const fraction = (amount % 10n ** 18n).toString().padStart(18, '0').slice(0, 4).replace(/0+$/, '');
-        const formattedWhole = whole.toLocaleString();
-        return fraction ? `${formattedWhole}.${fraction}` : formattedWhole;
-    }
-    catch {
-        return value;
-    }
 }

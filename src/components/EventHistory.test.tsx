@@ -82,6 +82,10 @@ describe('Pingme journal cards', () => {
         );
 
         expect(markup).toContain('L1 · confirmed');
+        expect(markup).toContain('Slash payload proposed');
+        expect(markup).not.toContain('Slashing payload proposed');
+        expect(markup).toContain('This address entered the slash payload in active round 195');
+        expect(markup).not.toContain('4 sequencers entered the payload');
         expect(markup).toContain('Show 1 more target');
         expect(markup).not.toContain('Show all 4 targets');
         for (const target of targets) {
@@ -134,6 +138,9 @@ describe('Pingme journal cards', () => {
         expect(markup).toContain('Node · pending');
         expect(markup).toContain('Expected vote round 210');
         expect(markup).toContain('Epoch starts at slot 26688');
+        expect(markup).toContain('Proposed slash: 2,000 AZTEC');
+        expect(markup).toContain('node-local offense, not an L1 vote or slash payload');
+        expect(markup).not.toContain('Node-local signal');
         expect(markup).not.toContain('Pending Offense Detected');
         expect(markup).not.toContain('aztec_node');
     });
@@ -172,6 +179,8 @@ describe('Pingme journal cards', () => {
 
         expect(markup).toContain('Missed slot 26690');
         expect(markup).toContain('Missed duty observed');
+        expect(markup).toContain('early Sentinel evidence');
+        expect(markup).not.toContain('This is precursor evidence');
         expect(markup).not.toContain('First missed slot');
         expect(markup).not.toContain('First missed duty observed');
         expect(markup).not.toContain('Epoch starts at slot 26690');
