@@ -3,7 +3,7 @@ import type { CurrentChainState, RoundInfo, RuntimeMonitorConfig, SlashAction, S
 import { slashingProposerAbi } from './contracts/slashingProposerAbi';
 import { rollupAbi } from './contracts/rollupAbi';
 import { slasherAbi } from './contracts/slasherAbi';
-import { assertFreshL1Head, deploymentsMatch, resolveDeploymentWithClient } from './deployment';
+import { assertFreshL1Head } from './deployment';
 import { createCall, multicall, type MulticallResult } from './multicall';
 import { createPublicRpcTransport } from './rpc';
 
@@ -20,19 +20,6 @@ export class L1Monitor {
         });
         this.snapshotBlockNumber = config.deploymentBlockNumber;
         this.snapshotTimestamp = config.deploymentTimestamp;
-    }
-
-    async hasDeploymentChanged(): Promise<boolean> {
-        this.snapshotBlockNumber = undefined;
-        this.snapshotTimestamp = undefined;
-        const currentDeployment = await resolveDeploymentWithClient(
-            this.publicClient,
-            this.config.registryAddress,
-            this.config.chainId
-        );
-        this.snapshotBlockNumber = currentDeployment.deploymentBlockNumber;
-        this.snapshotTimestamp = currentDeployment.deploymentTimestamp;
-        return !deploymentsMatch(this.config, currentDeployment);
     }
 
     async getCurrentState(): Promise<CurrentChainState> {
@@ -69,6 +56,13 @@ export class L1Monitor {
             ], blockNumber);
             pauseStartedAtSlot = requireResult(pauseSlots[0], 'getSlotAt(pause start)');
             pauseEndsAtSlot = requireResult(pauseSlots[1], 'getSlotAt(pause end)');
+        }
+        const verifiedBlock = await this.publicClient.getBlock({ blockNumber });
+        if (
+            !verifiedBlock.hash ||
+            verifiedBlock.hash.toLowerCase() !== this.config.deploymentBlockHash.toLowerCase()
+        ) {
+            throw new Error(`Confirmed L1 block ${blockNumber} changed during stack scan`);
         }
 
         return {
@@ -203,7 +197,7 @@ export class L1Monitor {
             : await multicall(
                 this.publicClient,
                 vetoInputs.map((address) =>
-                    createCall(this.config.slasherAddress, slasherAbi, 'vetoedPayloads', [address])
+            createCall(this.config.slasherAddress, slasherAbi, 'vetoedPayloads', [address])
                 ),
                 this.snapshotBlockNumber
             );
@@ -242,9 +236,11 @@ export class L1Monitor {
             createCall(this.config.slashingProposerAddress, slashingProposerAbi, 'COMMITTEE_SIZE'),
             createCall(this.config.rollupAddress, rollupAbi, 'getSlotDuration'),
             createCall(this.config.rollupAddress, rollupAbi, 'getEpochDuration'),
+            createCall(this.config.rollupAddress, rollupAbi, 'getGenesisTime'),
         ], this.snapshotBlockNumber);
 
         return {
+            l1GenesisTime: requireResult(results[9], 'getGenesisTime'),
             quorum: Number(requireResult(results[0], 'QUORUM')),
             slashingRoundSize: Number(requireResult(results[1], 'ROUND_SIZE')),
             slashingRoundSizeInEpochs: Number(requireResult(results[2], 'ROUND_SIZE_IN_EPOCHS')),

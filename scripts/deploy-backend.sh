@@ -2,8 +2,7 @@
 
 set -Eeuo pipefail
 
-readonly new_service='slashmon-backend.service'
-readonly old_service='slashmon-offense-collector.service'
+readonly service='slashmon-backend.service'
 readonly environment_file='/etc/slashmon-backend.env'
 readonly release_root='/opt/slashmon/releases'
 readonly current_link='/opt/slashmon/current'
@@ -21,16 +20,13 @@ Deploy the checked-out Slashmon backend from a clean commit.
 
 --fresh permanently deletes:
   /var/lib/slashmon
-  /var/lib/private/slashmon
-  /var/lib/slashmon-offense-collector
-  /var/lib/private/slashmon-offense-collector
   /var/backups/slashmon
 
 --upgrade verifies and backs up the current database, installs an immutable
 release, and preserves all state and earlier releases.
 
 --reset-db verifies and backs up the current database, installs an immutable
-release, then removes only the live database. Watches, event history, and
+release, then removes only the live database. Watches, monitor history, and
 delivery state start empty; the timestamped backup and earlier releases remain.
 
 All modes reduce /etc/slashmon-backend.env to settings supported by the
@@ -95,8 +91,8 @@ if ! sudo test -f "$environment_file"; then
   exit 1
 fi
 if [[ "$mode" == '--upgrade' || "$mode" == '--reset-db' ]]; then
-  if ! sudo systemctl cat "$new_service" >/dev/null 2>&1; then
-    echo "$new_service is not installed; use --fresh for the first deployment." >&2
+  if ! sudo systemctl cat "$service" >/dev/null 2>&1; then
+    echo "$service is not installed; use --fresh for the first deployment." >&2
     exit 1
   fi
   if ! sudo test -f "$database"; then
@@ -117,48 +113,57 @@ cleanup() {
 }
 trap cleanup EXIT
 
+environment_order=(
+  SLASHMON_NETWORK
+  SLASHMON_PUBLIC_URL
+  BACKEND_CORS_ORIGIN
+  AZTEC_NODE_URL
+  AZTEC_NODE_API_KEY
+  AZTEC_ADMIN_URL
+  AZTEC_ADMIN_API_KEY
+  L1_RPC_URL
+  L1_REGISTRY_ADDRESS
+  L1_SLASH_LOG_LOOKBACK_BLOCKS
+  TELEGRAM_BOT_TOKEN
+  TELEGRAM_BOT_USERNAME
+  VAPID_SUBJECT
+  VAPID_PUBLIC_KEY
+  VAPID_PRIVATE_KEY
+  BACKEND_BIND_HOST
+  BACKEND_PORT
+  BACKEND_TRUST_PROXY
+  BACKEND_READ_RATE_LIMIT_MAX_PER_MINUTE
+  BACKEND_READ_RATE_LIMIT_MAX_PER_MINUTE_GLOBAL
+  BACKEND_MUTATION_RATE_LIMIT_MAX_PER_MINUTE
+  BACKEND_WATCHLIST_MUTATION_RATE_LIMIT_MAX_PER_MINUTE
+  BACKEND_WATCHLIST_CREATE_MAX_PER_HOUR_PER_IP
+  BACKEND_WATCHLIST_CREATE_MAX_PER_DAY_PER_IP
+  BACKEND_WATCHLIST_CREATE_MAX_PER_HOUR_GLOBAL
+  BACKEND_WATCHLIST_CREATE_MAX_PER_DAY_GLOBAL
+  BACKEND_NOTIFICATION_TEST_COOLDOWN_MS
+  BACKEND_NOTIFICATION_TEST_MAX_PER_HOUR_GLOBAL
+  BACKEND_NOTIFICATION_TEST_MAX_PER_DAY_GLOBAL
+  BACKEND_WEB_PUSH_ENROLLMENT_MAX_PER_HOUR_PER_WATCHLIST
+  BACKEND_WEB_PUSH_ENROLLMENT_MAX_PER_DAY_PER_WATCHLIST
+  BACKEND_WEB_PUSH_ENROLLMENT_MAX_PER_HOUR_GLOBAL
+  BACKEND_WEB_PUSH_ENROLLMENT_MAX_PER_DAY_GLOBAL
+  TELEGRAM_SEND_MAX_PER_SECOND
+  TELEGRAM_LOW_PRIORITY_SEND_MAX_PER_SECOND
+  TELEGRAM_CHAT_SEND_INTERVAL_MS
+  BACKEND_LOG_LEVEL
+)
+declare -A supported_settings=()
+for key in "${environment_order[@]}"; do
+  supported_settings["$key"]=true
+done
+
 declare -A settings=()
 while IFS= read -r line; do
   if [[ "$line" =~ ^([A-Z][A-Z0-9_]*)=(.*)$ ]]; then
     key="${BASH_REMATCH[1]}"
-    value="${BASH_REMATCH[2]}"
-    case "$key" in
-      COLLECTOR_CORS_ORIGIN) key='BACKEND_CORS_ORIGIN' ;;
-      COLLECTOR_BIND_HOST) key='BACKEND_BIND_HOST' ;;
-      COLLECTOR_PORT) key='BACKEND_PORT' ;;
-      API_TRUST_LOOPBACK_PROXY) key='BACKEND_TRUST_PROXY' ;;
-      COLLECTOR_LOG_LEVEL) key='BACKEND_LOG_LEVEL' ;;
-    esac
-    case "$key" in
-      SLASHMON_NETWORK|SLASHMON_PUBLIC_URL|BACKEND_CORS_ORIGIN|\
-      AZTEC_NODE_URL|AZTEC_NODE_API_KEY|AZTEC_ADMIN_URL|AZTEC_ADMIN_API_KEY|\
-      AZTEC_SENTINEL_POLL_INTERVAL_MS|AZTEC_SENTINEL_LOOKBACK_EPOCHS|\
-      AZTEC_SENTINEL_EPOCH_END_BUFFER_SLOTS|\
-      AZTEC_SENTINEL_VALIDATOR_CONCURRENCY|AZTEC_SENTINEL_VALIDATOR_MAX_RESPONSE_BYTES|\
-      L1_RPC_URL|L1_REGISTRY_ADDRESS|L1_SLASH_LOG_LOOKBACK_BLOCKS|\
-      TELEGRAM_BOT_TOKEN|TELEGRAM_BOT_USERNAME|\
-      VAPID_SUBJECT|VAPID_PUBLIC_KEY|VAPID_PRIVATE_KEY|\
-      BACKEND_BIND_HOST|BACKEND_PORT|BACKEND_TRUST_PROXY|BACKEND_LOG_LEVEL|\
-      BACKEND_READ_RATE_LIMIT_MAX_PER_MINUTE|\
-      BACKEND_READ_RATE_LIMIT_MAX_PER_MINUTE_GLOBAL|\
-      BACKEND_MUTATION_RATE_LIMIT_MAX_PER_MINUTE|\
-      BACKEND_WATCHLIST_MUTATION_RATE_LIMIT_MAX_PER_MINUTE|\
-      BACKEND_SUBSCRIPTION_CREATE_MAX_PER_HOUR_PER_IP|\
-      BACKEND_SUBSCRIPTION_CREATE_MAX_PER_DAY_PER_IP|\
-      BACKEND_SUBSCRIPTION_CREATE_MAX_PER_HOUR_GLOBAL|\
-      BACKEND_SUBSCRIPTION_CREATE_MAX_PER_DAY_GLOBAL|\
-      BACKEND_NOTIFICATION_TEST_COOLDOWN_MS|\
-      BACKEND_NOTIFICATION_TEST_MAX_PER_HOUR_GLOBAL|\
-      BACKEND_NOTIFICATION_TEST_MAX_PER_DAY_GLOBAL|\
-      BACKEND_WEB_PUSH_ENROLLMENT_MAX_PER_HOUR_PER_WATCHLIST|\
-      BACKEND_WEB_PUSH_ENROLLMENT_MAX_PER_DAY_PER_WATCHLIST|\
-      BACKEND_WEB_PUSH_ENROLLMENT_MAX_PER_HOUR_GLOBAL|\
-      BACKEND_WEB_PUSH_ENROLLMENT_MAX_PER_DAY_GLOBAL|\
-      TELEGRAM_SEND_MAX_PER_SECOND|TELEGRAM_LOW_PRIORITY_SEND_MAX_PER_SECOND|\
-      TELEGRAM_CHAT_SEND_INTERVAL_MS)
-        settings["$key"]="$value"
-        ;;
-    esac
+    if [[ -n "${supported_settings[$key]+present}" ]]; then
+      settings["$key"]="${BASH_REMATCH[2]}"
+    fi
   fi
 done < <(sudo cat -- "$environment_file")
 
@@ -180,50 +185,6 @@ for key in "${required_settings[@]}"; do
   fi
 done
 
-environment_order=(
-  SLASHMON_NETWORK
-  SLASHMON_PUBLIC_URL
-  BACKEND_CORS_ORIGIN
-  AZTEC_NODE_URL
-  AZTEC_NODE_API_KEY
-  AZTEC_ADMIN_URL
-  AZTEC_ADMIN_API_KEY
-  AZTEC_SENTINEL_POLL_INTERVAL_MS
-  AZTEC_SENTINEL_LOOKBACK_EPOCHS
-  AZTEC_SENTINEL_EPOCH_END_BUFFER_SLOTS
-  AZTEC_SENTINEL_VALIDATOR_CONCURRENCY
-  AZTEC_SENTINEL_VALIDATOR_MAX_RESPONSE_BYTES
-  L1_RPC_URL
-  L1_REGISTRY_ADDRESS
-  L1_SLASH_LOG_LOOKBACK_BLOCKS
-  TELEGRAM_BOT_TOKEN
-  TELEGRAM_BOT_USERNAME
-  VAPID_SUBJECT
-  VAPID_PUBLIC_KEY
-  VAPID_PRIVATE_KEY
-  BACKEND_BIND_HOST
-  BACKEND_PORT
-  BACKEND_TRUST_PROXY
-  BACKEND_READ_RATE_LIMIT_MAX_PER_MINUTE
-  BACKEND_READ_RATE_LIMIT_MAX_PER_MINUTE_GLOBAL
-  BACKEND_MUTATION_RATE_LIMIT_MAX_PER_MINUTE
-  BACKEND_WATCHLIST_MUTATION_RATE_LIMIT_MAX_PER_MINUTE
-  BACKEND_SUBSCRIPTION_CREATE_MAX_PER_HOUR_PER_IP
-  BACKEND_SUBSCRIPTION_CREATE_MAX_PER_DAY_PER_IP
-  BACKEND_SUBSCRIPTION_CREATE_MAX_PER_HOUR_GLOBAL
-  BACKEND_SUBSCRIPTION_CREATE_MAX_PER_DAY_GLOBAL
-  BACKEND_NOTIFICATION_TEST_COOLDOWN_MS
-  BACKEND_NOTIFICATION_TEST_MAX_PER_HOUR_GLOBAL
-  BACKEND_NOTIFICATION_TEST_MAX_PER_DAY_GLOBAL
-  BACKEND_WEB_PUSH_ENROLLMENT_MAX_PER_HOUR_PER_WATCHLIST
-  BACKEND_WEB_PUSH_ENROLLMENT_MAX_PER_DAY_PER_WATCHLIST
-  BACKEND_WEB_PUSH_ENROLLMENT_MAX_PER_HOUR_GLOBAL
-  BACKEND_WEB_PUSH_ENROLLMENT_MAX_PER_DAY_GLOBAL
-  TELEGRAM_SEND_MAX_PER_SECOND
-  TELEGRAM_LOW_PRIORITY_SEND_MAX_PER_SECOND
-  TELEGRAM_CHAT_SEND_INTERVAL_MS
-  BACKEND_LOG_LEVEL
-)
 for key in "${environment_order[@]}"; do
   if [[ -n "${settings[$key]+present}" ]]; then
     printf '%s=%s\n' "$key" "${settings[$key]}" >> "$environment_tmp"
@@ -281,11 +242,11 @@ if [[ "$mode" == '--upgrade' || "$mode" == '--reset-db' ]]; then
   fi
 fi
 
-echo "Stopping $new_service..."
+echo "Stopping $service..."
 if [[ "$mode" == '--upgrade' || "$mode" == '--reset-db' ]]; then
-  sudo systemctl stop "$new_service"
-elif sudo systemctl cat "$new_service" >/dev/null 2>&1; then
-  sudo systemctl stop "$new_service"
+  sudo systemctl stop "$service"
+elif sudo systemctl cat "$service" >/dev/null 2>&1; then
+  sudo systemctl stop "$service"
 fi
 
 if [[ "$mode" == '--upgrade' || "$mode" == '--reset-db' ]]; then
@@ -311,50 +272,36 @@ if [[ "$mode" == '--upgrade' || "$mode" == '--reset-db' ]]; then
   fi
 else
   echo 'Permanently removing Slashmon state...'
-  if sudo systemctl cat "$old_service" >/dev/null 2>&1; then
-    sudo systemctl stop "$old_service"
-    sudo systemctl disable "$old_service" >/dev/null 2>&1 || true
-  fi
 fi
 
 sudo install -o root -g root -m 0600 "$environment_tmp" "$environment_file"
 sudo install -m 0644 \
   "$release_path/collector/deploy/slashmon-backend.service" \
-  "/etc/systemd/system/$new_service"
-if [[ "$mode" == '--fresh' ]]; then
-  sudo rm -f -- "/etc/systemd/system/$old_service"
-fi
+  "/etc/systemd/system/$service"
 sudo systemctl daemon-reload
 
 if [[ "$mode" == '--fresh' ]]; then
-  state_paths=(
-    /var/lib/slashmon
-    /var/lib/private/slashmon
-    /var/lib/slashmon-offense-collector
-    /var/lib/private/slashmon-offense-collector
-    "$backup_root"
-  )
-  for state_path in "${state_paths[@]}"; do
-    sudo rm -rf -- "$state_path"
-  done
+  sudo systemctl clean --what=state "$service"
+  sudo rm -rf -- "$backup_root"
 fi
 
 sudo ln -sfn "$release_path" "$current_link"
-sudo systemctl enable --now "$new_service"
+sudo systemctl enable --now "$service"
 
-live=false
+ready=false
 for _attempt in {1..30}; do
-  if curl --fail --silent "$local_api/live" >/dev/null; then
-    live=true
+  if curl --fail --silent "$local_api/api/status" >/dev/null &&
+    curl --fail --silent "$local_api/api/monitor" >/dev/null; then
+    ready=true
     break
   fi
   sleep 1
 done
 
-if [[ "$live" != true ]]; then
-  echo 'The new backend did not become live. No automatic rollback is available.' >&2
-  sudo systemctl status "$new_service" --no-pager >&2 || true
-  sudo journalctl -u "$new_service" --since '10 minutes ago' --no-pager >&2 || true
+if [[ "$ready" != true ]]; then
+  echo 'The new backend did not become ready. No automatic rollback is available.' >&2
+  sudo systemctl status "$service" --no-pager >&2 || true
+  sudo journalctl -u "$service" --since '10 minutes ago' --no-pager >&2 || true
   exit 1
 fi
 
@@ -365,7 +312,7 @@ elif [[ "$mode" == '--reset-db' ]]; then
 else
   echo "Slashmon backend $revision is live with a fresh database."
 fi
-curl --fail --silent "$local_api/live"
+curl --fail --silent "$local_api/api/status"
 echo
-curl --silent "$local_api/health"
+curl --fail --silent "$local_api/api/monitor"
 echo

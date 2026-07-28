@@ -1,4 +1,4 @@
-import type { Address } from 'viem';
+import type { Address, Hash } from 'viem';
 
 export interface MonitorConfigInput {
     l1RpcUrl: string | string[];
@@ -8,14 +8,12 @@ export interface MonitorConfigInput {
 
 export interface DeploymentAddresses {
     deploymentBlockNumber: bigint;
+    deploymentBlockHash: Hash;
     deploymentTimestamp: bigint;
     rollupAddress: Address;
     slasherAddress: Address;
     slashingProposerAddress: Address;
     rollupVersion: bigint;
-    pendingSlasherAddress: Address;
-    pendingSlashingProposerAddress: Address;
-    pendingSlasherReadyAt: bigint;
     legacySlasherAddress: Address;
     legacySlashingProposerAddress: Address;
     legacySlasherAuthorizedUntil: bigint;
@@ -24,6 +22,7 @@ export interface DeploymentAddresses {
 export type RuntimeMonitorConfig = MonitorConfigInput & DeploymentAddresses;
 
 export interface SlashingContractParameters {
+    l1GenesisTime: bigint;
     slashingRoundSize: number;
     slashingRoundSizeInEpochs: number;
     executionDelayInRounds: number;
@@ -55,66 +54,26 @@ export interface SlashAction {
     slashAmount: bigint;
 }
 
-export interface TargetedSequencer {
-    address: Address;
-    appearances: number;
-    rounds: bigint[];
-}
-
 export interface RoundInfo {
     round: bigint;
     ballotCount: bigint;
     isExecuted: boolean;
 }
-export type RoundStatus = 'below-quorum' | 'quorum-reached' | 'newly-executable' | 'executable' | 'executed' | 'expired';
-export type VerificationStatus = 'verified' | 'partial';
-export interface DetectedSlashing {
-    round: bigint; // The voting round (payload/committees indexed by this number on-chain)
-    status: RoundStatus;
+export interface DetectedL1Round {
+    round: bigint;
     ballotCount: bigint;
     isExecuted: boolean;
     isVetoed: boolean;
-    verificationStatus: VerificationStatus;
-    issues?: string[];
-    committees?: Address[][];
-    slashActions?: SlashAction[];
+    slashActions: SlashAction[];
     payloadAddress?: Address;
-    slotWhenExecutable?: bigint;
-    slotWhenExpires?: bigint;
-    secondsUntilExecutable?: number;
-    secondsUntilExpires?: number;
-    lastUpdatedTimestamp?: number;
-    targetEpochs?: bigint[]; // Epochs from the target round (for reference)
-    totalSlashAmount?: bigint;
-    affectedValidatorCount?: number;
+    slotWhenExecutable: bigint;
+    slotWhenExpires: bigint;
+    targetEpochs: bigint[];
 }
-export interface SlashingStats {
-    currentRound: bigint;
-    totalRoundsMonitored: number;
-    activeSlashings: number;
-    vetoedPayloads: number;
-    executedRounds: number;
-    totalValidatorsSlashed: number;
-    totalSlashAmount: bigint;
-}
-
 export interface MonitorIssue {
     source: 'l1-rpc' | 'deployment';
     scope: 'deployment' | 'chain-state' | 'rounds' | 'round-details';
     severity?: 'warning' | 'error';
     message: string;
     round?: bigint;
-}
-
-export interface MonitorAudit {
-    status: 'ok' | 'partial' | 'stale' | 'fatal';
-    issues: MonitorIssue[];
-    updatedAt: number | null;
-    lastSuccessfulAt: number | null;
-}
-
-export interface MonitorSnapshot extends CurrentChainState {
-    detectedSlashings: Map<bigint, DetectedSlashing>;
-    stats: SlashingStats;
-    audit: MonitorAudit;
 }

@@ -5,14 +5,14 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
-import { OffenseRepository } from '../src/database.mjs';
+import { SlashmonRepository } from '../src/database.mjs';
 import { parseOffenseSnapshot } from '../src/offenses.mjs';
-import { OFFENSE_A, OFFENSE_B, SEQUENCER_A } from './helpers.mjs';
+import { OFFENSE_A, OFFENSE_B, VALIDATOR_A } from './helpers.mjs';
 
-test('successful snapshots persist, withdraw after a grace count, and reactivate', (t) => {
+test('successful snapshots persist, resolve after a grace count, and reactivate', (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'slashmon-collector-'));
   const databasePath = path.join(directory, 'slashmon.sqlite');
-  const repository = new OffenseRepository(databasePath);
+  const repository = new SlashmonRepository(databasePath);
   t.after(() => {
     repository.close();
     fs.rmSync(directory, { recursive: true, force: true });
@@ -20,33 +20,36 @@ test('successful snapshots persist, withdraw after a grace count, and reactivate
   const [offenseA, offenseB] = parseOffenseSnapshot([OFFENSE_A, OFFENSE_B]);
 
   assert.deepEqual(
-    repository.recordSuccessfulPoll([offenseA, offenseB], { observedAt: 1_000, withdrawAfterMissedPolls: 2 }),
-    { sequence: 1, observed: 2, inserted: 2, updated: 0, reactivated: 0, withdrawn: 0, events: 2 },
+    repository.recordSuccessfulPoll([offenseA, offenseB], { observedAt: 1_000, resolveAfterMissedPolls: 2 }),
+    { sequence: 1, observed: 2, inserted: 2, updated: 0, reactivated: 0, resolved: 0, events: 2 },
   );
   repository.recordSuccessfulPoll([offenseA], {
     observedAt: 2_000,
-    withdrawAfterMissedPolls: 2,
+    resolveAfterMissedPolls: 2,
     absenceEvidence: advancingEvidence(),
   });
-  assert.equal(repository.getOffense(offenseB.id).status, 'active');
-  assert.equal(repository.getOffense(offenseB.id).missedPolls, 1);
+  assert.equal(offenseById(repository, offenseB.id).status, 'active');
+  assert.equal(offenseById(repository, offenseB.id).missedPolls, 1);
 
   const third = repository.recordSuccessfulPoll([offenseA], {
     observedAt: 3_000,
-    withdrawAfterMissedPolls: 2,
+    resolveAfterMissedPolls: 2,
     absenceEvidence: advancingEvidence(),
   });
-  assert.equal(third.withdrawn, 1);
-  assert.equal(repository.getOffense(offenseB.id).status, 'withdrawn');
-  assert.equal(repository.getOffense(offenseB.id).withdrawnAt, new Date(3_000).toISOString());
+  assert.equal(third.resolved, 1);
+  assert.equal(offenseById(repository, offenseB.id).status, 'resolved');
+  assert.equal(offenseById(repository, offenseB.id).resolvedAt, new Date(3_000).toISOString());
 
-  const fourth = repository.recordSuccessfulPoll([offenseA, offenseB], { observedAt: 4_000, withdrawAfterMissedPolls: 2 });
+  const fourth = repository.recordSuccessfulPoll([offenseA, offenseB], { observedAt: 4_000, resolveAfterMissedPolls: 2 });
   assert.equal(fourth.reactivated, 1);
-  assert.equal(repository.getOffense(offenseB.id).status, 'active');
-  assert.equal(repository.getOffense(offenseB.id).reactivationCount, 1);
-  assert.equal(repository.getCounts().active, 2);
-  assert.deepEqual(repository.listOffenses({ status: 'all', sequencers: [offenseB.sequencer] }).map(item => item.id), [offenseB.id]);
-  assert.equal(repository.countOffenses({ status: 'active', sequencers: [offenseB.sequencer] }), 1);
+  assert.equal(offenseById(repository, offenseB.id).status, 'active');
+  assert.equal(offenseById(repository, offenseB.id).reactivationCount, 1);
+  assert.equal(repository.listOffenses({ status: 'active' }).length, 2);
+  assert.deepEqual(repository.listOffenses({ status: 'all', validators: [offenseB.validator] }).map(item => item.id), [offenseB.id]);
+  assert.equal(repository.listOffenses({
+    status: 'active',
+    validators: [offenseB.validator],
+  }).length, 1);
 });
 
 function advancingEvidence() {
@@ -61,14 +64,14 @@ test('database state survives reopening and failures do not mutate offense snaps
   const databasePath = path.join(directory, 'slashmon.sqlite');
   const [offense] = parseOffenseSnapshot([OFFENSE_A]);
 
-  let repository = new OffenseRepository(databasePath);
+  let repository = new SlashmonRepository(databasePath);
   repository.recordSuccessfulPoll([offense], { observedAt: 1_000 });
   repository.recordFailure('node restarting', 2_000);
-  assert.equal(repository.getOffense(offense.id).missedPolls, 0);
+  assert.equal(offenseById(repository, offense.id).missedPolls, 0);
   repository.close();
 
-  repository = new OffenseRepository(databasePath);
-  assert.equal(repository.getOffense(offense.id).status, 'active');
+  repository = new SlashmonRepository(databasePath);
+  assert.equal(offenseById(repository, offense.id).status, 'active');
   assert.equal(repository.getSyncState().consecutiveFailures, 1);
   assert.equal(repository.getSyncState().lastError, 'node restarting');
   repository.close();
@@ -84,7 +87,7 @@ test('database runtime identity persists and refuses network, chain, or Registry
     registryAddress: '0xA000000000000000000000000000000000000001',
   };
 
-  let repository = new OffenseRepository(databasePath);
+  let repository = new SlashmonRepository(databasePath);
   assert.deepEqual(repository.bindRuntimeIdentity(identity), {
     ...identity,
     registryAddress: identity.registryAddress.toLowerCase(),
@@ -95,7 +98,7 @@ test('database runtime identity persists and refuses network, chain, or Registry
   });
   repository.close();
 
-  repository = new OffenseRepository(databasePath);
+  repository = new SlashmonRepository(databasePath);
   assert.deepEqual(repository.bindRuntimeIdentity(identity), {
     ...identity,
     registryAddress: identity.registryAddress.toLowerCase(),
@@ -152,7 +155,7 @@ test('legacy and nonempty databases are rejected instead of migrated', () => {
     );
     INSERT INTO sync_state(singleton) VALUES (1);
     INSERT INTO offenses VALUES (
-      'legacy-id', '${SEQUENCER_A}', '${OFFENSE_A.amount}', 3, 'inactivity', '42', 'epoch',
+      'legacy-id', '${VALIDATOR_A}', '${OFFENSE_A.amount}', 3, 'inactivity', '42', 'epoch',
       'active', 1000, 1000, NULL, 1, 0, 0, 1
     );
     PRAGMA user_version = 1;
@@ -160,8 +163,13 @@ test('legacy and nonempty databases are rejected instead of migrated', () => {
   database.close();
 
   assert.throws(
-    () => new OffenseRepository(databasePath),
+    () => new SlashmonRepository(databasePath),
     /requires an empty database; found unsupported schema 1/,
   );
   fs.rmSync(directory, { recursive: true, force: true });
 });
+
+function offenseById(repository, id) {
+  return repository.listOffenses({ status: 'all', limit: 1_000 })
+    .find((offense) => offense.id === id);
+}

@@ -8,18 +8,17 @@ import {
 } from './channels.mjs';
 import { OffenseCollector } from './collector.mjs';
 import { loadConfig } from './config.mjs';
-import { OffenseRepository } from './database.mjs';
+import { SlashmonRepository } from './database.mjs';
 import { DeliveryWorker } from './delivery-worker.mjs';
 import { L1Collector } from './l1-collector.mjs';
 import { L1Scanner } from './l1-scanner.mjs';
 import { Logger, errorMessage } from './logger.mjs';
-import { SentinelCollector } from './sentinel-collector.mjs';
 import { TelegramBot } from './telegram-bot.mjs';
 
 async function main() {
   const config = loadConfig();
   const logger = new Logger(config.logLevel);
-  const repository = new OffenseRepository(config.databasePath);
+  const repository = new SlashmonRepository(config.databasePath);
   try {
     repository.bindRuntimeIdentity({
       network: config.network,
@@ -38,7 +37,6 @@ async function main() {
     nodeApiKey: config.nodeApiKey,
     timeoutMs: config.requestTimeoutMs,
     maxResponseBytes: config.maxResponseBytes,
-    maxSingleValidatorStatsResponseBytes: config.maxSingleValidatorStatsResponseBytes,
     maxOffenses: config.maxOffensesPerPoll,
   });
   const offenseCollector = new OffenseCollector({
@@ -52,7 +50,7 @@ async function main() {
     syncMaxFutureSkewMs: config.l1MaxFutureSkewMs,
     pollIntervalMs: config.pollIntervalMs,
     maxBackoffMs: config.maxBackoffMs,
-    withdrawAfterMissedPolls: config.withdrawAfterMissedPolls,
+    resolveAfterMissedPolls: config.resolveAfterMissedPolls,
     logger,
   });
   const l1Scanner = new L1Scanner({
@@ -71,22 +69,6 @@ async function main() {
     slashLogReorgRewindBlocks: config.l1SlashLogReorgRewindBlocks,
     slashLogProviderTimeoutMs: config.l1SlashLogProviderTimeoutMs,
   });
-  const sentinelCollector = new SentinelCollector({
-    client: adminClient,
-    committeeScanner: l1Scanner,
-    repository,
-    network: config.network,
-    expectedChainId: config.l1ChainId,
-    expectedRegistryAddress: config.l1RegistryAddress,
-    pollIntervalMs: config.sentinelPollIntervalMs,
-    maxBackoffMs: config.maxBackoffMs,
-    lookbackEpochs: config.sentinelLookbackEpochs,
-    epochEndBufferSlots: config.sentinelEpochEndBufferSlots,
-    validatorConcurrency: config.sentinelValidatorConcurrency,
-    maxStallMs: config.syncMaxL2StallMs,
-    logger,
-  });
-
   const l1Collector = new L1Collector({
     scanner: l1Scanner,
     repository,
@@ -156,7 +138,7 @@ async function main() {
     vapidPublicKey: config.vapid?.publicKey,
     telegramBotUsername: config.telegram?.username,
     isTelegramReady: () => telegramReady,
-    maxSequencers: config.maxSequencersPerWatchlist,
+    maxWatchlistAddresses: config.maxWatchlistAddresses,
     maxRequestBodyBytes: config.maxRequestBodyBytes,
     rateLimitWindowMs: config.rateLimitWindowMs,
     rateLimitMaxMutations: config.rateLimitMaxMutations,
@@ -165,10 +147,10 @@ async function main() {
     readRateLimitMaxGlobal: config.readRateLimitMaxGlobal,
     watchlistMutationRateLimitWindowMs: config.watchlistMutationRateLimitWindowMs,
     watchlistMutationRateLimitMax: config.watchlistMutationRateLimitMax,
-    subscriptionCreateMaxPerClient: config.subscriptionCreateMaxPerHourPerClient,
-    subscriptionCreateMaxPerDayPerClient: config.subscriptionCreateMaxPerDayPerClient,
-    subscriptionCreateMaxPerHourGlobal: config.subscriptionCreateMaxPerHourGlobal,
-    subscriptionCreateMaxPerDayGlobal: config.subscriptionCreateMaxPerDayGlobal,
+    watchlistCreateMaxPerClient: config.watchlistCreateMaxPerHourPerClient,
+    watchlistCreateMaxPerDayPerClient: config.watchlistCreateMaxPerDayPerClient,
+    watchlistCreateMaxPerHourGlobal: config.watchlistCreateMaxPerHourGlobal,
+    watchlistCreateMaxPerDayGlobal: config.watchlistCreateMaxPerDayGlobal,
     notificationTestCooldownMs: config.notificationTestCooldownMs,
     notificationTestMaxPerHourGlobal: config.notificationTestMaxPerHourGlobal,
     notificationTestMaxPerDayGlobal: config.notificationTestMaxPerDayGlobal,
@@ -183,7 +165,6 @@ async function main() {
 
   const workers = [
     ['aztec', offenseCollector],
-    ['aztec-sentinel', sentinelCollector],
     ['l1', l1Collector],
     ['delivery', deliveryWorker],
     ...(telegramBot ? [['telegram', telegramBot]] : []),

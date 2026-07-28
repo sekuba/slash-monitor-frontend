@@ -13,14 +13,20 @@ import {
 
 const EVENT = {
   id: 'event/with spaces',
+  incidentId: 'l1-case-257',
   network: 'mainnet',
-  type: 'onchain_targeted',
+  type: 'onchain_ready',
   severity: 'critical',
-  title: 'Sequencer targeted',
-  body: 'A confirmed payload targets 0x1111…1111.',
   targets: ['0x1111111111111111111111111111111111111111'],
   data: {
     chainId: 1,
+    round: '257',
+    targetEpochs: ['1016'],
+    actions: [{
+      validator: '0x1111111111111111111111111111111111111111',
+      amount: '2000000000000000000000',
+    }],
+    expirySlot: '37376',
     blockNumber: '25587802',
     payloadAddress: '0x2222222222222222222222222222222222222222',
   },
@@ -51,14 +57,20 @@ test('WebPushChannel builds a scoped high-urgency payload and returns the provid
   assert.deepEqual(result, { providerMessageId: 'push-message-7' });
   assert.deepEqual(captured[0], subscription);
   const payload = JSON.parse(captured[1]);
-  assert.equal(payload.title, EVENT.title);
+  assert.equal(payload.title, 'Slash proposal ready to execute');
   assert.equal(
     payload.body,
-    'Sequencer: 0x1111…1111\nA confirmed payload targets 0x1111…1111.',
+    'Validator: 0x1111…1111\nRound 257 · epoch 1016 can now be executed. ' +
+      'Proposed slash: 2,000 AZTEC. Expires at slot 37376.',
   );
+  assert.equal(payload.tag, 'slashmon-l1-case-257');
   assert.equal(payload.data.eventId, EVENT.id);
+  assert.equal(payload.data.incidentId, EVENT.incidentId);
   assert.equal(payload.data.url, notificationPath(EVENT));
-  assert.equal(payload.data.url, '?view=pingme&network=mainnet&event=event%2Fwith+spaces');
+  assert.equal(
+    payload.data.url,
+    './?validator=0x1111111111111111111111111111111111111111',
+  );
   assert.equal(captured[2].vapidDetails.privateKey, 'private');
   assert.equal(captured[2].urgency, 'high');
   assert.equal(captured[2].TTL, 24 * 60 * 60);
@@ -285,12 +297,11 @@ test('TelegramClient long polling and TelegramChannel preserve routing semantics
   assert.deepEqual(result, { providerMessageId: '99' });
   assert.equal(message.chatId, '-100123');
   assert.deepEqual(message.options, { priority: 'alert' });
-  assert.match(message.text, /^🚨 Sequencer targeted/);
-  assert.match(message.text, /Sequencer: 0x1111…1111/);
-  assert.match(message.text, /Slashmon event: https:\/\/slashmon\.example\/base\/\?view=pingme&network=mainnet&event=event%2Fwith\+spaces/);
-  assert.match(message.text, /Dashtec: https:\/\/dashtec\.xyz\/sequencers\/0x1111111111111111111111111111111111111111/);
-  assert.match(message.text, /Etherscan block: https:\/\/etherscan\.io\/block\/25587802/);
-  assert.match(message.text, /Etherscan slash payload: https:\/\/etherscan\.io\/address\/0x2222222222222222222222222222222222222222$/);
+  assert.match(message.text, /^🚨 Slash proposal ready to execute/);
+  assert.match(message.text, /Validator: 0x1111…1111/);
+  assert.match(message.text, /Slashmon: https:\/\/slashmon\.example\/base\/\?validator=0x1111111111111111111111111111111111111111/);
+  assert.match(message.text, /L1 block: https:\/\/etherscan\.io\/block\/25587802/);
+  assert.match(message.text, /Slash payload: https:\/\/etherscan\.io\/address\/0x2222222222222222222222222222222222222222$/);
 });
 
 test('TelegramChannel keeps queued alerts retryable until the bot identity is validated', async () => {

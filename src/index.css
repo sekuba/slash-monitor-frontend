@@ -52,11 +52,10 @@ body {
   box-sizing: border-box;
 }
 
-/* Neo-brutalist Typography */
+/* Neo-brutalist typography: weight and contrast carry the system; case carries meaning. */
 h1, h2, h3, h4, h5, h6 {
   font-weight: 800;
   letter-spacing: -0.02em;
-  text-transform: uppercase;
 }
 
 /*
@@ -145,7 +144,7 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .brutal-button--sm {
-    min-height: 2.25rem;
+    min-height: 2.75rem;
     padding: 0.45rem 0.75rem;
     font-size: 0.6875rem;
   }
@@ -168,8 +167,8 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .brutal-button--icon-sm {
-    width: 2.25rem;
-    min-height: 2.25rem;
+    width: 2.75rem;
+    min-height: 2.75rem;
   }
 
   /* Use the dot's smooth opacity rhythm, but apply it only to the keyline. */
@@ -193,7 +192,26 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 :focus-visible {
-  outline: none;
+  outline: 3px solid var(--color-aqua);
+  outline-offset: 3px;
+}
+
+.skip-link {
+  position: fixed;
+  z-index: 100;
+  top: 0.75rem;
+  left: 0.75rem;
+  transform: translateY(-200%);
+  border: 3px solid var(--color-brand-black);
+  background: var(--color-chartreuse);
+  color: var(--color-brand-black);
+  padding: 0.75rem 1rem;
+  box-shadow: 4px 4px 0 var(--color-brand-black);
+  font-weight: 900;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
 }
 
 /* Hard shadows, no blur */

@@ -1,75 +1,56 @@
 import type { Address } from 'viem';
-import type { MonitorNetwork } from '@/types/backendApi';
+import type { MonitorNetwork } from '@/types/api';
 
-export type AppView = 'monitor' | 'pingme';
+export type AppView = 'live' | 'independent';
 
 export interface AppLocation {
     view: AppView;
     network: MonitorNetwork;
-    selectedEventId: string | null;
-    selectedSequencer: Address | null;
+    selectedValidator: Address | null;
 }
 
 export function parseAppSearch(search: string): AppLocation {
     const params = new URLSearchParams(search);
-    const requestedView = params.get('view');
-    const view = requestedView === 'pingme' ? requestedView : 'monitor';
 
     return {
-        view,
+        view: params.get('view') === 'independent' ? 'independent' : 'live',
         network: params.get('network') === 'testnet' ? 'testnet' : 'mainnet',
-        selectedEventId: view === 'pingme' ? readEventId(params.get('event')) : null,
-        selectedSequencer: view === 'pingme' ? readSequencer(params.get('sequencer')) : null,
+        selectedValidator: readAddress(params.get('validator')),
     };
 }
 
-function readSequencer(value: string | null): Address | null {
+function readAddress(value: string | null): Address | null {
     return value && /^0x[0-9a-fA-F]{40}$/.test(value) ? value as Address : null;
-}
-
-function readEventId(value: string | null): string | null {
-    return value && /^[a-zA-Z0-9:_-]{1,200}$/.test(value) ? value : null;
 }
 
 export function urlForView(currentHref: string, view: AppView): URL {
     const next = new URL(currentHref);
-    if (view === 'monitor') {
+    if (view === 'live') {
         next.searchParams.delete('view');
-    }
-    else {
+        next.searchParams.delete('network');
+    } else {
         next.searchParams.set('view', view);
-    }
-    if (view !== 'pingme') {
-        next.searchParams.delete('event');
-        next.searchParams.delete('sequencer');
     }
     return next;
 }
 
 export function urlForNetwork(currentHref: string, network: MonitorNetwork): URL {
     const next = new URL(currentHref);
-    const current = parseAppSearch(next.search).network;
+    next.searchParams.set('view', 'independent');
     if (network === 'mainnet') {
         next.searchParams.delete('network');
-    }
-    else {
-        next.searchParams.set('network', 'testnet');
-    }
-    if (network !== current) {
-        next.searchParams.delete('event');
-        next.searchParams.delete('sequencer');
+    } else {
+        next.searchParams.set('network', network);
     }
     return next;
 }
 
-export function urlForSequencer(currentHref: string, sequencer: Address | null): URL {
+export function urlForValidator(currentHref: string, validator: Address | null): URL {
     const next = new URL(currentHref);
-    next.searchParams.set('view', 'pingme');
-    next.searchParams.delete('event');
-    if (sequencer) {
-        next.searchParams.set('sequencer', sequencer.toLowerCase());
+    if (validator) {
+        next.searchParams.set('validator', validator.toLowerCase());
     } else {
-        next.searchParams.delete('sequencer');
+        next.searchParams.delete('validator');
     }
     return next;
 }

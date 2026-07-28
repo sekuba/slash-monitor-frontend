@@ -11,11 +11,10 @@ const payload = '0x00000000000000000000000000000000000000bb' as Address;
 describe('SlashingDetector quorum verification', () => {
     it('does not treat total ballot count as validator quorum', async () => {
         const fake = createFakeMonitor({ ballotCount: 65n, actions: [] });
-        const result = await new SlashingDetector(config, fake.monitor).detectExecutableRounds(100n, 12_800n);
-        const current = result.detectedSlashings.find((round) => round.round === 100n);
+        const result = await new SlashingDetector(config, fake.monitor).detectRounds(100n);
+        const current = result.detectedRounds.find((round) => round.round === 100n);
 
-        expect(current).toMatchObject({ status: 'below-quorum', ballotCount: 65n });
-        expect(current?.slashActions).toBeUndefined();
+        expect(current).toMatchObject({ ballotCount: 65n, slashActions: [] });
         expect(fake.calls.committees).toBe(1);
         expect(fake.calls.tallies).toBe(1);
         expect(fake.calls.payloads).toBe(0);
@@ -24,14 +23,11 @@ describe('SlashingDetector quorum verification', () => {
     it('uses nonempty tally output as the evidence that a target reached quorum', async () => {
         const actions: SlashAction[] = [{ validator, slashAmount: 2_000n }];
         const fake = createFakeMonitor({ ballotCount: 65n, actions });
-        const result = await new SlashingDetector(config, fake.monitor).detectExecutableRounds(100n, 12_800n);
-        const current = result.detectedSlashings.find((round) => round.round === 100n);
+        const result = await new SlashingDetector(config, fake.monitor).detectRounds(100n);
+        const current = result.detectedRounds.find((round) => round.round === 100n);
 
         expect(current).toMatchObject({
-            status: 'quorum-reached',
-            verificationStatus: 'verified',
-            affectedValidatorCount: 1,
-            totalSlashAmount: 2_000n,
+            slashActions: actions,
             payloadAddress: payload,
         });
         expect(fake.calls.payloads).toBe(1);
@@ -39,39 +35,64 @@ describe('SlashingDetector quorum verification', () => {
 
     it('skips expensive tally calls while fewer total ballots than quorum exist', async () => {
         const fake = createFakeMonitor({ ballotCount: 64n, actions: [] });
-        const result = await new SlashingDetector(config, fake.monitor).detectExecutableRounds(100n, 12_800n);
-        const current = result.detectedSlashings.find((round) => round.round === 100n);
+        const result = await new SlashingDetector(config, fake.monitor).detectRounds(100n);
+        const current = result.detectedRounds.find((round) => round.round === 100n);
 
-        expect(current?.status).toBe('below-quorum');
+        expect(current?.slashActions).toEqual([]);
         expect(fake.calls.committees).toBe(0);
         expect(fake.calls.tallies).toBe(0);
         expect(fake.calls.payloads).toBe(0);
     });
 
-    it('marks tally failures partial without asserting quorum', async () => {
+    it('withholds a case when the target tally cannot be verified', async () => {
         const fake = createFakeMonitor({ ballotCount: 65n, tallyFailure: true });
-        const result = await new SlashingDetector(config, fake.monitor).detectExecutableRounds(100n, 12_800n);
-        const current = result.detectedSlashings.find((round) => round.round === 100n);
+        const result = await new SlashingDetector(config, fake.monitor).detectRounds(100n);
+        const current = result.detectedRounds.find((round) => round.round === 100n);
 
-        expect(current).toMatchObject({
-            status: 'below-quorum',
-            verificationStatus: 'partial',
-        });
+        expect(current).toBeUndefined();
         expect(result.issues).toHaveLength(1);
         expect(fake.calls.payloads).toBe(0);
     });
 
-    it('counts validator addresses uniquely while summing all actions', async () => {
+    it('withholds a case when committees or exact payload status cannot be verified', async () => {
+        const committeeFailure = createFakeMonitor({
+            ballotCount: 65n,
+            committeeFailure: true,
+        });
+        const withoutCommittees = await new SlashingDetector(
+            config,
+            committeeFailure.monitor,
+        ).detectRounds(100n);
+        expect(withoutCommittees.detectedRounds).toEqual([]);
+        expect(withoutCommittees.issues[0]?.message).toContain(
+            'Unable to load slash committees',
+        );
+
+        const payloadFailure = createFakeMonitor({
+            ballotCount: 65n,
+            actions: [{ validator, slashAmount: 2_000n }],
+            payloadFailure: true,
+        });
+        const withoutPayload = await new SlashingDetector(
+            config,
+            payloadFailure.monitor,
+        ).detectRounds(100n);
+        expect(withoutPayload.detectedRounds).toEqual([]);
+        expect(withoutPayload.issues[0]?.message).toContain(
+            'Unable to load payload status',
+        );
+    });
+
+    it('preserves repeated tally actions for address-level aggregation', async () => {
         const actions: SlashAction[] = [
             { validator, slashAmount: 2_000n },
             { validator: validator.toUpperCase() as Address, slashAmount: 5_000n },
         ];
         const fake = createFakeMonitor({ ballotCount: 65n, actions });
-        const result = await new SlashingDetector(config, fake.monitor).detectExecutableRounds(100n, 12_800n);
-        const current = result.detectedSlashings.find((round) => round.round === 100n);
+        const result = await new SlashingDetector(config, fake.monitor).detectRounds(100n);
+        const current = result.detectedRounds.find((round) => round.round === 100n);
 
-        expect(current?.affectedValidatorCount).toBe(1);
-        expect(current?.totalSlashAmount).toBe(7_000n);
+        expect(current?.slashActions).toEqual(actions);
     });
 });
 
@@ -80,17 +101,16 @@ const config: ResolvedMonitorConfig = {
     chainId: 1,
     registryAddress: zeroAddress,
     deploymentBlockNumber: 1n,
+    deploymentBlockHash: `0x${'01'.repeat(32)}`,
     deploymentTimestamp: 1n,
     rollupAddress: zeroAddress,
     slasherAddress: zeroAddress,
     slashingProposerAddress: zeroAddress,
     rollupVersion: 5n,
-    pendingSlasherAddress: zeroAddress,
-    pendingSlashingProposerAddress: zeroAddress,
-    pendingSlasherReadyAt: 0n,
     legacySlasherAddress: zeroAddress,
     legacySlashingProposerAddress: zeroAddress,
     legacySlasherAuthorizedUntil: 0n,
+    l1GenesisTime: 1n,
     slashingRoundSize: 128,
     slashingRoundSizeInEpochs: 4,
     executionDelayInRounds: 28,
@@ -105,7 +125,9 @@ const config: ResolvedMonitorConfig = {
 function createFakeMonitor(options: {
     ballotCount: bigint;
     actions?: SlashAction[];
+    committeeFailure?: boolean;
     tallyFailure?: boolean;
+    payloadFailure?: boolean;
 }) {
     const calls = { committees: 0, tallies: 0, payloads: 0 };
     const monitor = {
@@ -121,7 +143,9 @@ function createFakeMonitor(options: {
         ),
         batchGetSlashTargetCommittees: async (rounds: bigint[]) => {
             calls.committees += 1;
-            return rounds.map(() => ({ success: true, data: [[validator], [validator], [validator], [validator]] }));
+            return rounds.map(() => options.committeeFailure
+                ? { success: false, error: new Error('committees unavailable') }
+                : { success: true, data: [[validator], [validator], [validator], [validator]] });
         },
         batchGetTally: async (rounds: Array<{ round: bigint }>) => {
             calls.tallies += 1;
@@ -131,7 +155,9 @@ function createFakeMonitor(options: {
         },
         batchGetPayloadAddressesAndVetoStatus: async (rounds: Array<{ round: bigint }>) => {
             calls.payloads += 1;
-            return rounds.map(() => ({ success: true, data: { payloadAddress: payload, isVetoed: false } }));
+            return rounds.map(() => options.payloadFailure
+                ? { success: false, error: new Error('payload unavailable') }
+                : { success: true, data: { payloadAddress: payload, isVetoed: false } });
         },
     } as unknown as L1Monitor;
 

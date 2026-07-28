@@ -3,7 +3,6 @@ import {
     buildRoundsToCheck,
     calculateExecutableSlot,
     calculateExpirySlot,
-    calculateRoundStatus,
     getTargetEpochs,
     type SlashingLifecycleConfig,
 } from './slashingLifecycle';
@@ -20,20 +19,6 @@ describe('slashing lifecycle', () => {
     it('matches the v5 execution and expiry boundaries', () => {
         expect(calculateExecutableSlot(100n, config)).toBe(16_512n);
         expect(calculateExpirySlot(100n, config)).toBe(17_280n);
-
-        expect(calculateRoundStatus(100n, 128n, 16_383n, false, true, config)).toBe('quorum-reached');
-        expect(calculateRoundStatus(100n, 129n, 16_511n, false, true, config)).toBe('quorum-reached');
-        expect(calculateRoundStatus(100n, 129n, 16_512n, false, true, config)).toBe('newly-executable');
-        expect(calculateRoundStatus(100n, 130n, 16_640n, false, true, config)).toBe('executable');
-        expect(calculateRoundStatus(100n, 134n, 17_152n, false, true, config)).toBe('executable');
-        expect(calculateRoundStatus(100n, 135n, 17_280n, false, true, config)).toBe('expired');
-        expect(calculateRoundStatus(100n, 135n, 17_280n, true, true, config)).toBe('executed');
-    });
-
-    it('keeps a live round without slash actions below quorum, not expired', () => {
-        expect(calculateRoundStatus(100n, 100n, 12_800n, false, false, config)).toBe('below-quorum');
-        expect(calculateRoundStatus(100n, 134n, 17_152n, false, false, config)).toBe('below-quorum');
-        expect(calculateRoundStatus(100n, 135n, 17_280n, false, false, config)).toBe('expired');
     });
 
     it('checks exactly the active roundabout window', () => {

@@ -12,7 +12,7 @@ export class OffenseCollector {
     syncMaxFutureSkewMs = 2 * 60_000,
     pollIntervalMs,
     maxBackoffMs,
-    withdrawAfterMissedPolls,
+    resolveAfterMissedPolls,
     logger,
     now = Date.now,
   }) {
@@ -29,7 +29,7 @@ export class OffenseCollector {
     this.syncMaxFutureSkewMs = requireNonNegativeDuration(syncMaxFutureSkewMs, 'syncMaxFutureSkewMs');
     this.pollIntervalMs = pollIntervalMs;
     this.maxBackoffMs = maxBackoffMs;
-    this.withdrawAfterMissedPolls = withdrawAfterMissedPolls;
+    this.resolveAfterMissedPolls = resolveAfterMissedPolls;
     this.logger = logger;
     this.now = now;
     this.running = false;
@@ -67,7 +67,7 @@ export class OffenseCollector {
     const previousSyncCursor = this.repository.getSourceState('aztec_sync')?.metadata;
     if (!canonicalRollupAddress) {
       return this.recordPollFailure(
-        'Canonical L1 Rollup is unavailable; pending offenses are not trusted yet',
+        'Canonical L1 Rollup is unavailable; node offenses are not trusted yet',
         attemptedAt,
       );
     }
@@ -116,7 +116,7 @@ export class OffenseCollector {
     });
     const result = this.repository.recordSuccessfulPoll(offenses, {
       observedAt: completedAt,
-      withdrawAfterMissedPolls: this.withdrawAfterMissedPolls,
+      resolveAfterMissedPolls: this.resolveAfterMissedPolls,
       network: this.network,
       absenceEvidence: syncAssessment.absenceEvidence,
       syncCursor: syncAssessment.nextCursor,
@@ -135,7 +135,7 @@ export class OffenseCollector {
       this.logger.info('Aztec offense source recovered', { previousFailures });
     }
     this.logger.debug('Offense poll completed', result);
-    if (result.inserted || result.updated || result.reactivated || result.withdrawn) {
+    if (result.inserted || result.updated || result.reactivated || result.resolved) {
       this.logger.info('Offense state changed', result);
     }
     return { ok: true, ...result };

@@ -15,16 +15,6 @@ export const rollupAbi = [
     },
     {
         type: 'function',
-        name: 'getPendingSlasher',
-        stateMutability: 'view',
-        inputs: [],
-        outputs: [
-            { name: 'slasher', type: 'address' },
-            { name: 'readyAt', type: 'uint256' },
-        ],
-    },
-    {
-        type: 'function',
         name: 'getLegacySlasher',
         stateMutability: 'view',
         inputs: [],
@@ -43,6 +33,13 @@ export const rollupAbi = [
     {
         type: 'function',
         name: 'getCurrentEpoch',
+        stateMutability: 'view',
+        inputs: [],
+        outputs: [{ name: '', type: 'uint256' }],
+    },
+    {
+        type: 'function',
+        name: 'getGenesisTime',
         stateMutability: 'view',
         inputs: [],
         outputs: [{ name: '', type: 'uint256' }],

@@ -7,13 +7,7 @@ import {
   CRITICAL_DELIVERY_LIFETIME_MS,
   WARNING_DELIVERY_LIFETIME_MS,
 } from './delivery-policy.mjs';
-import {
-  formatAztecAmount,
-  formatEpochRange,
-  shortAddress,
-} from './notification-content.mjs';
-
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 1;
 
 const HOUR_MS = 60 * 60_000;
 const DAY_MS = 24 * HOUR_MS;
@@ -21,34 +15,14 @@ const MAX_WATCHLISTS = 50_000;
 const MAX_UNCONNECTED_WATCHLISTS = 1_000;
 const MAX_DELIVERY_ENDPOINTS = 100_000;
 const MAX_UNVERIFIED_ENDPOINTS = 2_000;
-const VALIDATOR_DUTY_STATUSES = new Set([
-  'checkpoint-mined',
-  'checkpoint-valid',
-  'checkpoint-invalid',
-  'checkpoint-unvalidated',
-  'checkpoint-missed',
-  'blocks-missed',
-  'attestation-sent',
-  'attestation-missed',
-]);
-const MISSED_DUTY_STATUSES = new Set([
-  'checkpoint-invalid',
-  'checkpoint-unvalidated',
-  'checkpoint-missed',
-  'blocks-missed',
-  'attestation-missed',
-]);
-
 export const NOTIFICATION_TEST_COOLDOWN_MS = 5 * 60_000;
 export const NOTIFICATION_TEST_RETENTION_MS = 7 * DAY_MS;
-export const CATCHUP_EVENT_RETENTION_MS = 30 * DAY_MS;
 export const TERMINAL_DELIVERY_RETENTION_MS = 30 * DAY_MS;
 export const TELEGRAM_TOKEN_RETENTION_MS = DAY_MS;
 export const DELIVERY_OVERDUE_AFTER_MS = 5 * 60_000;
 export const DELIVERY_FAILURE_HEALTH_WINDOW_MS = HOUR_MS;
 export const UNVERIFIED_ENDPOINT_RETENTION_MS = DAY_MS;
-export const CATCHUP_REPLAY_COOLDOWN_MS = 60_000;
-export const CATCHUP_SCAN_COOLDOWN_MS = 5_000;
+export const FACT_RETENTION_MS = 180 * DAY_MS;
 
 export class NotificationRateLimitError extends Error {
   constructor(code, message, retryAfterMs) {
@@ -63,14 +37,14 @@ export class NotificationTestCooldownError extends NotificationRateLimitError {
   constructor(retryAfterMs) {
     super(
       'notification_test_cooldown',
-      'A notification test was already queued for this subscription; try again shortly',
+      'A notification test was already queued for this watchlist; try again shortly',
       retryAfterMs,
     );
     this.name = 'NotificationTestCooldownError';
   }
 }
 
-export class OffenseRepository {
+export class SlashmonRepository {
   constructor(databasePath, {
     maxWatchlists = MAX_WATCHLISTS,
     maxUnconnectedWatchlists = MAX_UNCONNECTED_WATCHLISTS,
@@ -105,17 +79,36 @@ export class OffenseRepository {
   initializeSchema() {
     const version = Number(this.db.prepare('PRAGMA user_version').get().user_version);
     if (version === SCHEMA_VERSION) {
-      const currentSchema = this.db.prepare(`
-        SELECT COUNT(*) AS count FROM sqlite_master
-        WHERE type = 'table' AND name IN (
-          'offenses', 'watchlists', 'events', 'deliveries',
-          'validator_duties', 'validator_epoch_performance', 'validator_indexed_epochs'
-        )
-      `).get().count === 7;
-      const offenseColumns = currentSchema
+      const expectedTables = [
+        'deliveries',
+        'delivery_endpoints',
+        'event_targets',
+        'events',
+        'l1_slash_logs',
+        'offenses',
+        'onchain_rounds',
+        'slash_outcomes',
+        'source_state',
+        'sync_state',
+        'telegram_link_tokens',
+        'telegram_state',
+        'watchlist_addresses',
+        'watchlists',
+      ];
+      const actualTables = this.db.prepare(`
+        SELECT name FROM sqlite_master
+        WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+        ORDER BY name
+      `).all().map((row) => row.name);
+      const offenseColumns = actualTables.includes('offenses')
         ? this.db.prepare('PRAGMA table_info(offenses)').all().map((column) => column.name)
         : [];
-      if (currentSchema && offenseColumns.includes('sequencer')) return;
+      if (
+        JSON.stringify(actualTables) === JSON.stringify(expectedTables) &&
+        offenseColumns.includes('validator') &&
+        offenseColumns.includes('penalty') &&
+        offenseColumns.includes('resolved_at')
+      ) return;
       throw new Error(`Slashmon requires an empty database; found unsupported schema ${version}`);
     }
     const tableCount = Number(this.db.prepare(`
@@ -129,70 +122,23 @@ export class OffenseRepository {
       BEGIN IMMEDIATE;
       CREATE TABLE offenses (
         id TEXT PRIMARY KEY,
-        sequencer TEXT NOT NULL,
-        amount TEXT NOT NULL,
+        validator TEXT NOT NULL,
+        penalty TEXT NOT NULL,
         offense_type INTEGER NOT NULL,
         offense_type_name TEXT NOT NULL,
         epoch_or_slot TEXT NOT NULL,
         time_unit TEXT NOT NULL,
-        status TEXT NOT NULL CHECK (status IN ('active', 'withdrawn')),
+        status TEXT NOT NULL CHECK (status IN ('active', 'resolved')),
         first_seen_at INTEGER NOT NULL,
         last_seen_at INTEGER NOT NULL,
-        withdrawn_at INTEGER,
+        resolved_at INTEGER,
         observation_count INTEGER NOT NULL DEFAULT 1,
         reactivation_count INTEGER NOT NULL DEFAULT 0,
         missed_polls INTEGER NOT NULL DEFAULT 0,
         last_poll_sequence INTEGER NOT NULL
       );
       CREATE INDEX offenses_status_last_seen_idx ON offenses(status, last_seen_at DESC);
-      CREATE INDEX offenses_sequencer_idx ON offenses(sequencer, last_seen_at DESC);
-
-      CREATE TABLE validator_duties (
-        sequencer TEXT NOT NULL,
-        slot INTEGER NOT NULL,
-        epoch INTEGER NOT NULL,
-        status TEXT NOT NULL CHECK (status IN (
-          'checkpoint-mined', 'checkpoint-valid', 'checkpoint-invalid',
-          'checkpoint-unvalidated', 'checkpoint-missed', 'blocks-missed',
-          'attestation-sent', 'attestation-missed'
-        )),
-        missed INTEGER NOT NULL CHECK (missed IN (0, 1)),
-        first_seen_at INTEGER NOT NULL,
-        PRIMARY KEY(sequencer, slot)
-      );
-      CREATE INDEX validator_duties_epoch_idx
-        ON validator_duties(epoch, sequencer);
-
-      CREATE TABLE validator_indexed_epochs (
-        epoch INTEGER PRIMARY KEY,
-        from_slot INTEGER NOT NULL,
-        to_slot INTEGER NOT NULL,
-        committee_json TEXT NOT NULL,
-        committee_size INTEGER NOT NULL,
-        l1_block_number TEXT NOT NULL,
-        l1_block_hash TEXT NOT NULL,
-        node_last_processed_slot INTEGER NOT NULL,
-        coverage_generation INTEGER NOT NULL,
-        indexed_at INTEGER NOT NULL
-      );
-
-      CREATE TABLE validator_epoch_performance (
-        sequencer TEXT NOT NULL,
-        epoch INTEGER NOT NULL,
-        missed INTEGER NOT NULL,
-        total INTEGER NOT NULL,
-        first_missed_slot INTEGER,
-        last_missed_slot INTEGER,
-        inactive INTEGER NOT NULL CHECK (inactive IN (0, 1)),
-        inactivity_target REAL NOT NULL,
-        inactive_streak INTEGER NOT NULL,
-        slashable_threshold INTEGER NOT NULL,
-        coverage_generation INTEGER NOT NULL DEFAULT 0,
-        finalized_at INTEGER NOT NULL,
-        PRIMARY KEY(sequencer, epoch)
-      );
-      CREATE INDEX validator_epoch_performance_epoch_idx
-        ON validator_epoch_performance(epoch, sequencer);
+      CREATE INDEX offenses_validator_idx ON offenses(validator, last_seen_at DESC);
 
       CREATE TABLE sync_state (
         singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -223,25 +169,22 @@ export class OffenseRepository {
         source TEXT NOT NULL,
         type TEXT NOT NULL,
         severity TEXT NOT NULL CHECK (severity IN ('info', 'warning', 'critical')),
-        title TEXT NOT NULL,
-        body TEXT NOT NULL,
+        incident_id TEXT NOT NULL,
         data_json TEXT NOT NULL DEFAULT '{}',
         observed_at INTEGER NOT NULL,
-        created_at INTEGER NOT NULL,
-        last_replayed_at INTEGER
+        created_at INTEGER NOT NULL
       );
       CREATE INDEX events_network_cursor_idx ON events(network, observed_at DESC, id DESC);
       CREATE TABLE event_targets (
         event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-        sequencer TEXT NOT NULL,
-        PRIMARY KEY(event_id, sequencer)
+        validator TEXT NOT NULL,
+        PRIMARY KEY(event_id, validator)
       );
-      CREATE INDEX event_targets_sequencer_idx ON event_targets(sequencer, event_id);
+      CREATE INDEX event_targets_validator_idx ON event_targets(validator, event_id);
 
       CREATE TABLE watchlists (
         id TEXT PRIMARY KEY,
         management_token_hash TEXT NOT NULL,
-        network TEXT NOT NULL,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
         last_test_at INTEGER,
@@ -250,10 +193,10 @@ export class OffenseRepository {
       CREATE INDEX watchlists_created_idx ON watchlists(created_at);
       CREATE TABLE watchlist_addresses (
         watchlist_id TEXT NOT NULL REFERENCES watchlists(id) ON DELETE CASCADE,
-        sequencer TEXT NOT NULL,
-        PRIMARY KEY(watchlist_id, sequencer)
+        validator TEXT NOT NULL,
+        PRIMARY KEY(watchlist_id, validator)
       );
-      CREATE INDEX watchlist_addresses_match_idx ON watchlist_addresses(sequencer, watchlist_id);
+      CREATE INDEX watchlist_addresses_match_idx ON watchlist_addresses(validator, watchlist_id);
 
       CREATE TABLE delivery_endpoints (
         id TEXT PRIMARY KEY,
@@ -266,7 +209,6 @@ export class OffenseRepository {
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
         verified_at INTEGER,
-        last_catchup_at INTEGER,
         UNIQUE(kind, destination)
       );
       CREATE INDEX delivery_endpoints_watchlist_idx ON delivery_endpoints(watchlist_id, kind);
@@ -324,10 +266,7 @@ export class OffenseRepository {
         is_vetoed INTEGER NOT NULL CHECK (is_vetoed IN (0, 1)),
         payload_address TEXT,
         actions_json TEXT NOT NULL,
-        committees_json TEXT NOT NULL,
-        early_targets_json TEXT NOT NULL DEFAULT '[]',
         details_json TEXT NOT NULL,
-        transition_generation INTEGER NOT NULL DEFAULT 0,
         first_seen_at INTEGER NOT NULL,
         last_seen_at INTEGER NOT NULL,
         UNIQUE(network, proposer_address, round)
@@ -336,7 +275,7 @@ export class OffenseRepository {
 
       CREATE TABLE l1_slash_logs (
         id TEXT PRIMARY KEY,
-        event_id TEXT NOT NULL UNIQUE REFERENCES events(id) ON DELETE CASCADE,
+        outcome_id TEXT NOT NULL REFERENCES slash_outcomes(id) ON DELETE CASCADE,
         network TEXT NOT NULL,
         chain_id INTEGER NOT NULL,
         rollup_address TEXT NOT NULL,
@@ -344,54 +283,77 @@ export class OffenseRepository {
         block_hash TEXT NOT NULL,
         transaction_hash TEXT NOT NULL,
         log_index INTEGER NOT NULL,
-        sequencer TEXT NOT NULL,
+        validator TEXT NOT NULL,
         amount TEXT NOT NULL,
         canonical INTEGER NOT NULL DEFAULT 1 CHECK (canonical IN (0, 1)),
-        reconfirmation_count INTEGER NOT NULL DEFAULT 0,
         first_seen_at INTEGER NOT NULL,
         last_seen_at INTEGER NOT NULL,
         UNIQUE(chain_id, block_hash, transaction_hash, log_index)
       );
       CREATE INDEX l1_slash_logs_target_idx
-        ON l1_slash_logs(network, sequencer, canonical, block_number DESC);
+        ON l1_slash_logs(network, validator, canonical, block_number DESC);
       CREATE INDEX l1_slash_logs_canonical_block_idx
         ON l1_slash_logs(network, canonical, block_number);
 
-      PRAGMA user_version = 3;
+      CREATE TABLE slash_outcomes (
+        id TEXT PRIMARY KEY,
+        network TEXT NOT NULL,
+        chain_id INTEGER NOT NULL,
+        rollup_address TEXT NOT NULL,
+        block_number INTEGER NOT NULL,
+        block_hash TEXT NOT NULL,
+        transaction_hash TEXT NOT NULL,
+        validator TEXT NOT NULL,
+        amount TEXT NOT NULL,
+        log_count INTEGER NOT NULL,
+        log_indexes_json TEXT NOT NULL,
+        canonical INTEGER NOT NULL DEFAULT 1 CHECK (canonical IN (0, 1)),
+        backfilled INTEGER NOT NULL DEFAULT 0 CHECK (backfilled IN (0, 1)),
+        correction_generation INTEGER NOT NULL DEFAULT 0,
+        first_seen_at INTEGER NOT NULL,
+        last_seen_at INTEGER NOT NULL,
+        UNIQUE(chain_id, block_hash, transaction_hash, validator)
+      );
+      CREATE INDEX slash_outcomes_target_idx
+        ON slash_outcomes(network, validator, canonical, block_number DESC);
+      CREATE INDEX slash_outcomes_canonical_block_idx
+        ON slash_outcomes(network, canonical, block_number);
+
+      PRAGMA user_version = 1;
       COMMIT;
     `);
   }
 
   prepareStatements() {
     this.findInternal = this.db.prepare(`
-      SELECT id, sequencer, amount, offense_type AS offenseType,
+      SELECT id, validator, penalty, offense_type AS offenseType,
              offense_type_name AS offenseTypeName, epoch_or_slot AS epochOrSlot,
              time_unit AS timeUnit, status, missed_polls AS missedPolls
       FROM offenses WHERE id = ?
     `);
     this.upsertOffense = this.db.prepare(`
       INSERT INTO offenses (
-        id, sequencer, amount, offense_type, offense_type_name, epoch_or_slot, time_unit,
-        status, first_seen_at, last_seen_at, withdrawn_at, observation_count,
+        id, validator, penalty, offense_type, offense_type_name, epoch_or_slot, time_unit,
+        status, first_seen_at, last_seen_at, resolved_at, observation_count,
         reactivation_count, missed_polls, last_poll_sequence
       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, NULL, 1, 0, 0, ?)
       ON CONFLICT(id) DO UPDATE SET
-        sequencer = excluded.sequencer,
-        amount = excluded.amount,
+        validator = excluded.validator,
+        penalty = excluded.penalty,
         offense_type = excluded.offense_type,
         offense_type_name = excluded.offense_type_name,
         epoch_or_slot = excluded.epoch_or_slot,
         time_unit = excluded.time_unit,
         last_seen_at = excluded.last_seen_at,
-        withdrawn_at = NULL,
+        resolved_at = NULL,
         observation_count = offenses.observation_count + 1,
-        reactivation_count = offenses.reactivation_count + CASE WHEN offenses.status = 'withdrawn' THEN 1 ELSE 0 END,
+        reactivation_count = offenses.reactivation_count + CASE WHEN offenses.status = 'resolved' THEN 1 ELSE 0 END,
         missed_polls = 0,
         last_poll_sequence = excluded.last_poll_sequence,
         status = 'active'
     `);
     this.listMissingOffenses = this.db.prepare(`
-      SELECT id, sequencer, amount, offense_type AS offenseType,
+      SELECT id, validator, penalty, offense_type AS offenseType,
         offense_type_name AS offenseTypeName, epoch_or_slot AS epochOrSlot,
         time_unit AS timeUnit, missed_polls AS missedPolls
       FROM offenses WHERE status = 'active' AND last_poll_sequence < ?
@@ -414,8 +376,6 @@ export class OffenseRepository {
         consecutive_failures AS consecutiveFailures, successful_polls AS successfulPolls,
         last_error AS lastError FROM sync_state WHERE singleton = 1
     `);
-    this.countByStatus = this.db.prepare('SELECT status, COUNT(*) AS count FROM offenses GROUP BY status');
-    this.getByIdStatement = this.db.prepare(`${PUBLIC_OFFENSE_SELECT} WHERE id = ?`);
   }
 
   transaction(action) {
@@ -440,7 +400,7 @@ export class OffenseRepository {
 
   recordSuccessfulPoll(offenses, {
     observedAt = Date.now(),
-    withdrawAfterMissedPolls = 3,
+    resolveAfterMissedPolls = 3,
     network = 'mainnet',
     absenceEvidence,
     syncCursor,
@@ -456,7 +416,7 @@ export class OffenseRepository {
         inserted: 0,
         updated: 0,
         reactivated: 0,
-        withdrawn: 0,
+        resolved: 0,
         events: 0,
       };
       for (const offense of offenses) {
@@ -464,25 +424,24 @@ export class OffenseRepository {
         let eventType;
         if (!existing) {
           result.inserted += 1;
-          eventType = 'pending_offense_detected';
-        } else if (existing.status === 'withdrawn') {
+          eventType = 'node_offense_detected';
+        } else if (existing.status === 'resolved') {
           result.reactivated += 1;
-          eventType = 'pending_offense_reactivated';
         } else if (
-          existing.amount !== offense.amount ||
+          existing.penalty !== offense.penalty ||
           existing.offenseType !== offense.offenseType ||
           existing.offenseTypeName !== offense.offenseTypeName ||
           existing.epochOrSlot !== offense.epochOrSlot ||
           existing.timeUnit !== offense.timeUnit
         ) {
           result.updated += 1;
-          eventType = 'pending_offense_updated';
+          eventType = undefined;
         }
 
         this.upsertOffense.run(
           offense.id,
-          offense.sequencer,
-          offense.amount,
+          offense.validator,
+          offense.penalty,
           offense.offenseType,
           offense.offenseTypeName,
           offense.epochOrSlot,
@@ -492,10 +451,9 @@ export class OffenseRepository {
           sequence,
         );
         if (eventType) {
-          const timing = pendingOffenseTiming(offense, this.getSourceState('l1')?.metadata);
           const insertion = this.insertEvent(
-            pendingEvent(eventType, offense, network, observedAt, undefined, timing),
-            [offense.sequencer],
+            nodeOffenseEvent(eventType, offense, network, observedAt),
+            [offense.validator],
           );
           result.events += Number(insertion.inserted);
         }
@@ -507,11 +465,11 @@ export class OffenseRepository {
       for (const offense of missing) {
         if (!canAdvanceAbsence(offense, absenceEvidence)) continue;
         this.incrementOneMissed.run(offense.id);
-        if (Number(offense.missedPolls) + 1 < withdrawAfterMissedPolls) continue;
+        if (Number(offense.missedPolls) + 1 < resolveAfterMissedPolls) continue;
         this.db.prepare(`
-          UPDATE offenses SET status = 'withdrawn', withdrawn_at = ? WHERE id = ? AND status = 'active'
+          UPDATE offenses SET status = 'resolved', resolved_at = ? WHERE id = ? AND status = 'active'
         `).run(observedAt, offense.id);
-        result.withdrawn += 1;
+        result.resolved += 1;
       }
       if (syncCursor !== undefined) {
         this.ensureSource('aztec_sync');
@@ -534,30 +492,11 @@ export class OffenseRepository {
     return this.readSyncState.get();
   }
 
-  getCounts() {
-    const counts = { active: 0, withdrawn: 0, total: 0 };
-    for (const row of this.countByStatus.all()) {
-      counts[row.status] = Number(row.count);
-      counts.total += Number(row.count);
-    }
-    return counts;
-  }
-
-  listOffenses({ status = 'active', sequencers = [], limit = 100, offset = 0 } = {}) {
-    const { where, parameters } = buildOffenseFilters(status, sequencers);
+  listOffenses({ status = 'active', validators = [], limit = 100, offset = 0 } = {}) {
+    const { where, parameters } = buildOffenseFilters(status, validators);
     return this.db.prepare(`${PUBLIC_OFFENSE_SELECT}${where} ORDER BY last_seen_at DESC, id ASC LIMIT ? OFFSET ?`)
       .all(...parameters, limit, offset)
       .map(toPublicOffense);
-  }
-
-  countOffenses({ status = 'active', sequencers = [] } = {}) {
-    const { where, parameters } = buildOffenseFilters(status, sequencers);
-    return Number(this.db.prepare(`SELECT COUNT(*) AS count FROM offenses${where}`).get(...parameters).count);
-  }
-
-  getOffense(id) {
-    const row = this.getByIdStatement.get(id);
-    return row ? toPublicOffense(row) : undefined;
   }
 
   ensureSource(source) {
@@ -680,16 +619,6 @@ export class OffenseRepository {
         throw new Error('protocol lifetime must exceed its execution delay');
       }
 
-      const sentinel = this.getSourceState('aztec_sentinel')?.metadata;
-      const targetPercentage = Number(sentinel?.targetPercentage);
-      const consecutiveEpochs = Number(sentinel?.consecutiveEpochThreshold);
-      const inactivity = Number.isFinite(targetPercentage) &&
-        targetPercentage > 0 &&
-        targetPercentage <= 1 &&
-        Number.isSafeInteger(consecutiveEpochs) &&
-        consecutiveEpochs > 0
-        ? { targetPercentage, consecutiveEpochs }
-        : null;
       const pauseDurationSeconds = activeStack.slashingDisableDuration === null ||
         activeStack.slashingDisableDuration === undefined
         ? null
@@ -736,7 +665,6 @@ export class OffenseRepository {
         ),
         pauseStartedAtSlot: optionalUnsignedBigIntString(activeStack.pauseStartedAtSlot),
         pauseEndsAtSlot: optionalUnsignedBigIntString(activeStack.pauseEndsAtSlot),
-        inactivity,
       };
     } catch {
       // A partial or older L1 metadata snapshot must not produce a plausible
@@ -745,288 +673,27 @@ export class OffenseRepository {
     }
   }
 
-  getValidatorIndexCursor() {
-    const row = this.db.prepare(`
-      SELECT epoch, coverage_generation AS coverageGeneration
-      FROM validator_indexed_epochs
-      ORDER BY epoch DESC
-      LIMIT 1
-    `).get();
-    return row ? { epoch: Number(row.epoch), coverageGeneration: Number(row.coverageGeneration) } : undefined;
-  }
-
-  /**
-   * Atomically persist one complete, L1-confirmed committee epoch. Membership
-   * comes from L1, so even members with no recorded status receive a 0/0 row.
-   * Returned node epoch aggregates are used as a completeness proof and must
-   * exactly match the bounded slot history.
-   */
-  recordValidatorEpoch(epochSnapshot, inactivityConfig, {
-    epochDuration,
-    network,
-    observedAt = Date.now(),
-    bootstrap = false,
-    coverageGeneration = 0,
-  }) {
-    const duration = safePositiveInteger(epochDuration, 'epochDuration');
-    const epoch = safeUnsignedInteger(epochSnapshot?.epoch, 'validator epoch');
-    const fromSlot = safeUnsignedInteger(epochSnapshot?.fromSlot, 'validator epoch fromSlot');
-    const toSlot = safeUnsignedInteger(epochSnapshot?.toSlot, 'validator epoch toSlot');
-    const expectedFromSlot = epoch * duration;
-    const expectedToSlot = expectedFromSlot + duration - 1;
-    if (
-      !Number.isSafeInteger(expectedFromSlot) ||
-      !Number.isSafeInteger(expectedToSlot) ||
-      fromSlot !== expectedFromSlot ||
-      toSlot !== expectedToSlot
-    ) {
-      throw new Error(`validator epoch ${epoch} does not match its exact slot range`);
-    }
-    const committee = Array.isArray(epochSnapshot?.committee)
-      ? epochSnapshot.committee.map(normalizeSequencer)
-      : [];
-    if (committee.length === 0 || committee.length > 4_096) {
-      throw new Error('validator epoch committee must contain between 1 and 4096 members');
-    }
-    if (new Set(committee).size !== committee.length) {
-      throw new Error(`validator epoch ${epoch} committee contains duplicate members`);
-    }
-    const l1BlockNumber = String(safeUnsignedBigIntString(
-      epochSnapshot?.l1BlockNumber,
-      'validator epoch L1 block number',
-    ));
-    const l1BlockHash = normalizeHash(epochSnapshot?.l1BlockHash, 'validator epoch L1 block hash');
-    const generation = safeUnsignedInteger(coverageGeneration, 'coverageGeneration');
-    const targetPercentage = Number(inactivityConfig?.targetPercentage);
-    if (!Number.isFinite(targetPercentage) || targetPercentage < 0 || targetPercentage > 1) {
-      throw new Error('inactivity target percentage must be between 0 and 1');
-    }
-    const threshold = safePositiveInteger(
-      inactivityConfig?.consecutiveEpochThreshold,
-      'inactivity consecutive epoch threshold',
-    );
-    if (!Array.isArray(epochSnapshot?.validators)) {
-      throw new Error('validator epoch snapshot must contain validator responses');
-    }
-
-    const committeeSet = new Set(committee);
-    const validators = new Map();
-    let minimumProcessedSlot;
-    let confirmedEpochPerformance = 0;
-    for (const response of epochSnapshot.validators) {
-      const sequencer = normalizeSequencer(response?.sequencer);
-      if (!committeeSet.has(sequencer)) {
-        throw new Error(`validator response ${sequencer} is not in the L1 committee`);
-      }
-      if (validators.has(sequencer)) {
-        throw new Error(`validator epoch ${epoch} contains duplicate response ${sequencer}`);
-      }
-      const processedSlot = safeUnsignedInteger(
-        response?.lastProcessedSlot,
-        `validator lastProcessedSlot for ${sequencer}`,
-      );
-      if (processedSlot < toSlot) {
-        throw new Error(`Aztec sentinel has not processed epoch ${epoch} for ${sequencer}`);
-      }
-      minimumProcessedSlot = minimumProcessedSlot === undefined
-        ? processedSlot
-        : Math.min(minimumProcessedSlot, processedSlot);
-      if (!Array.isArray(response.history) || !Array.isArray(response.allTimeEpochPerformance)) {
-        throw new Error(`validator response ${sequencer} is incomplete`);
-      }
-      const seenSlots = new Set();
-      const history = response.history.map((observation) => {
-        const slot = safeUnsignedInteger(observation?.slot, `validator duty slot for ${sequencer}`);
-        if (slot < fromSlot || slot > toSlot || seenSlots.has(slot)) {
-          throw new Error(`validator duty history for ${sequencer} is not an exact unique epoch range`);
-        }
-        seenSlots.add(slot);
-        return { slot, status: validatorDutyStatus(observation?.status) };
-      });
-      const computed = summarizeValidatorHistory(history);
-      const nodePerformance = response.allTimeEpochPerformance.find(
-        (candidate) => safeUnsignedInteger(candidate?.epoch, `validator performance epoch for ${sequencer}`) === epoch,
-      );
-      if (!nodePerformance) {
-        throw new Error(`Aztec sentinel has not evaluated epoch ${epoch} for ${sequencer}`);
-      }
-      const nodeMissed = safeUnsignedInteger(
-        nodePerformance.missed,
-        `validator missed duties for ${sequencer}`,
-      );
-      const nodeTotal = safeUnsignedInteger(
-        nodePerformance.total,
-        `validator total duties for ${sequencer}`,
-      );
-      if (nodeMissed !== computed.missed || nodeTotal !== computed.total) {
-        throw new Error(`Aztec validator history disagrees with epoch performance for ${sequencer}`);
-      }
-      confirmedEpochPerformance += 1;
-      validators.set(sequencer, { sequencer, history, ...computed });
-    }
-    // Undefined single-validator responses are legitimate for members whose
-    // entire retained history is empty. At least one defined member must prove
-    // that the node has closed this epoch before those members can become 0/0.
-    if (confirmedEpochPerformance === 0 || minimumProcessedSlot === undefined) {
-      throw new Error(`Aztec sentinel returned no evaluated validator data for epoch ${epoch}`);
-    }
-
-    return this.transaction(() => {
-      if (this.db.prepare('SELECT 1 FROM validator_indexed_epochs WHERE epoch = ?').get(epoch)) {
-        throw new Error(`validator epoch ${epoch} is already indexed`);
-      }
-      const insertDuty = this.db.prepare(`
-        INSERT INTO validator_duties (
-          sequencer, slot, epoch, status, missed, first_seen_at
-        ) VALUES (?, ?, ?, ?, ?, ?)
-      `);
-      const insertPerformance = this.db.prepare(`
-        INSERT INTO validator_epoch_performance (
-          sequencer, epoch, missed, total, first_missed_slot, last_missed_slot,
-          inactive, inactivity_target, inactive_streak, slashable_threshold,
-          coverage_generation, finalized_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      const previousPerformance = this.db.prepare(`
-        SELECT inactive, inactive_streak AS inactiveStreak
-        FROM validator_epoch_performance
-        WHERE sequencer = ? AND epoch < ? AND coverage_generation = ?
-        ORDER BY epoch DESC
-        LIMIT 1
-      `);
-      let dutiesInserted = 0;
-      let inactiveEpochs = 0;
-      let events = 0;
-      for (const sequencer of committee) {
-        const performance = validators.get(sequencer) ?? {
-          history: [],
-          missed: 0,
-          total: 0,
-          firstMissedSlot: null,
-          lastMissedSlot: null,
-        };
-        for (const observation of performance.history) {
-          const missed = Number(isMissedDuty(observation.status));
-          insertDuty.run(
-            sequencer,
-            observation.slot,
-            epoch,
-            observation.status,
-            missed,
-            observedAt,
-          );
-          dutiesInserted += 1;
-        }
-        const inactive = performance.total > 0 &&
-          performance.missed / performance.total >= targetPercentage;
-        const prior = inactive
-          ? previousPerformance.get(sequencer, epoch, generation)
-          : undefined;
-        const inactiveStreak = inactive
-          ? prior?.inactive ? Number(prior.inactiveStreak) + 1 : 1
-          : 0;
-        insertPerformance.run(
-          sequencer,
-          epoch,
-          performance.missed,
-          performance.total,
-          performance.firstMissedSlot,
-          performance.lastMissedSlot,
-          Number(inactive),
-          targetPercentage,
-          inactiveStreak,
-          threshold,
-          generation,
-          observedAt,
-        );
-        inactiveEpochs += Number(inactive);
-        if (!bootstrap && performance.firstMissedSlot !== null) {
-          events += Number(this.insertEvent(inactivityFirstMissEvent({
-            sequencer,
-            epoch,
-            slot: performance.firstMissedSlot,
-            status: performance.history.find(
-              (observation) => observation.slot === performance.firstMissedSlot,
-            )?.status,
-          }, network, observedAt), [sequencer]).inserted);
-        }
-        if (!bootstrap && inactive) {
-          events += Number(this.insertEvent(inactivityEpochEvent({
-            sequencer,
-            epoch,
-            missed: performance.missed,
-            total: performance.total,
-            firstMissedSlot: performance.firstMissedSlot,
-            lastMissedSlot: performance.lastMissedSlot,
-            inactiveStreak,
-            threshold,
-            targetPercentage,
-          }, network, observedAt), [sequencer]).inserted);
-        }
-      }
-      this.db.prepare(`
-        INSERT INTO validator_indexed_epochs (
-          epoch, from_slot, to_slot, committee_json, committee_size,
-          l1_block_number, l1_block_hash, node_last_processed_slot,
-          coverage_generation, indexed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        epoch,
-        fromSlot,
-        toSlot,
-        JSON.stringify(committee),
-        committee.length,
-        l1BlockNumber,
-        l1BlockHash,
-        minimumProcessedSlot,
-        generation,
-        observedAt,
-      );
-      return {
-        epoch: String(epoch),
-        committeeSize: committee.length,
-        validatorsWithHistory: validators.size,
-        dutiesInserted,
-        epochsFinalized: committee.length,
-        inactiveEpochs,
-        events,
-        nodeLastProcessedSlot: String(minimumProcessedSlot),
-        coverageGeneration: generation,
-      };
-    });
-  }
-
-  recordEvent(event, targets = []) {
-    return this.transaction(() => this.insertEvent(event, targets));
-  }
-
   insertEvent(event, targets = [], directEndpointIds = undefined) {
     const observedAt = Number(event.observedAt ?? Date.now());
     const normalizedTargets = [...new Set(targets.map((value) => String(value).toLowerCase()))];
-    const eventData = this.attachNodeEvidence(
-      event,
-      normalizedTargets,
-      observedAt,
-    );
     const result = this.db.prepare(`
       INSERT OR IGNORE INTO events (
-        id, network, source, type, severity, title, body, data_json, observed_at, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, network, source, type, severity, incident_id, data_json, observed_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       event.id,
       event.network,
       event.source,
       event.type,
       event.severity,
-      event.title,
-      event.body,
-      JSON.stringify(eventData),
+      event.incidentId ?? event.id,
+      JSON.stringify(event.data ?? {}),
       observedAt,
       Number(event.createdAt ?? observedAt),
     );
     if (Number(result.changes) === 0) return { inserted: false, queued: 0 };
 
-    const insertTarget = this.db.prepare('INSERT OR IGNORE INTO event_targets(event_id, sequencer) VALUES (?, ?)');
+    const insertTarget = this.db.prepare('INSERT OR IGNORE INTO event_targets(event_id, validator) VALUES (?, ?)');
     for (const target of normalizedTargets) insertTarget.run(event.id, target);
 
     let endpointRows;
@@ -1040,11 +707,10 @@ export class OffenseRepository {
       endpointRows = this.db.prepare(`
         SELECT DISTINCT endpoint.id
         FROM delivery_endpoints endpoint
-        JOIN watchlists watchlist ON watchlist.id = endpoint.watchlist_id
-        JOIN watchlist_addresses address ON address.watchlist_id = watchlist.id
-        WHERE endpoint.enabled = 1 AND watchlist.network = ?
-          AND address.sequencer IN (${normalizedTargets.map(() => '?').join(',')})
-      `).all(event.network, ...normalizedTargets);
+        JOIN watchlist_addresses address ON address.watchlist_id = endpoint.watchlist_id
+        WHERE endpoint.enabled = 1
+          AND address.validator IN (${normalizedTargets.map(() => '?').join(',')})
+      `).all(...normalizedTargets);
     } else {
       endpointRows = [];
     }
@@ -1062,198 +728,6 @@ export class OffenseRepository {
     return { inserted: true, queued };
   }
 
-  attachNodeEvidence(event, targets, observedAt) {
-    const data = event.data ?? {};
-    const isL1 = event.source === 'ethereum_l1' || data.originSource === 'ethereum_l1';
-    if (!isL1 || targets.length === 0 || !Array.isArray(data.targetEpochs)) return data;
-    let epochDuration;
-    let targetEpochs;
-    try {
-      epochDuration = safePositiveInteger(data.epochDuration, 'L1 event epochDuration');
-      targetEpochs = [...new Set(data.targetEpochs.map((epoch) =>
-        safeUnsignedInteger(epoch, 'L1 event target epoch')
-      ))];
-    } catch {
-      return data;
-    }
-    if (targetEpochs.length === 0) return data;
-
-    const targetPlaceholders = targets.map(() => '?').join(',');
-    const epochPlaceholders = targetEpochs.map(() => '?').join(',');
-    const evidence = [];
-    const offenseRows = this.db.prepare(`
-      SELECT id, sequencer, amount, offense_type AS offenseType,
-        offense_type_name AS offenseTypeName, epoch_or_slot AS epochOrSlot,
-        time_unit AS timeUnit, first_seen_at AS firstSeenAt
-      FROM offenses
-      WHERE sequencer IN (${targetPlaceholders}) AND first_seen_at <= ?
-    `).all(...targets, observedAt);
-    const targetEpochSet = new Set(targetEpochs);
-    for (const offense of offenseRows) {
-      let epoch;
-      try {
-        const position = safeUnsignedInteger(offense.epochOrSlot, 'stored offense position');
-        if (offense.timeUnit === 'epoch') epoch = position;
-        else if (offense.timeUnit === 'slot') epoch = Math.floor(position / epochDuration);
-        else continue;
-      } catch {
-        continue;
-      }
-      if (!targetEpochSet.has(epoch)) continue;
-      evidence.push({
-        kind: 'slash_offense',
-        sequencer: offense.sequencer,
-        epoch: String(epoch),
-        offenseId: offense.id,
-        offenseType: Number(offense.offenseType),
-        offenseTypeName: offense.offenseTypeName,
-        epochOrSlot: String(offense.epochOrSlot),
-        timeUnit: offense.timeUnit,
-        amount: String(offense.amount),
-        firstSeenAt: toIso(offense.firstSeenAt),
-      });
-    }
-
-    const performanceRows = this.db.prepare(`
-      SELECT sequencer, epoch, missed, total, first_missed_slot AS firstMissedSlot,
-        last_missed_slot AS lastMissedSlot, inactive_streak AS inactiveStreak,
-        slashable_threshold AS slashableThreshold, inactivity_target AS targetPercentage,
-        finalized_at AS finalizedAt
-      FROM validator_epoch_performance
-      WHERE inactive = 1 AND finalized_at <= ?
-        AND sequencer IN (${targetPlaceholders})
-        AND epoch IN (${epochPlaceholders})
-    `).all(observedAt, ...targets, ...targetEpochs);
-    for (const performance of performanceRows) {
-      evidence.push({
-        kind: 'inactivity_epoch',
-        sequencer: performance.sequencer,
-        epoch: String(performance.epoch),
-        offenseId: null,
-        offenseType: null,
-        offenseTypeName: 'inactivity precursor',
-        epochOrSlot: String(performance.epoch),
-        timeUnit: 'epoch',
-        amount: null,
-        firstSeenAt: toIso(performance.finalizedAt),
-        missed: Number(performance.missed),
-        total: Number(performance.total),
-        firstMissedSlot: performance.firstMissedSlot === null
-          ? null
-          : String(performance.firstMissedSlot),
-        lastMissedSlot: performance.lastMissedSlot === null
-          ? null
-          : String(performance.lastMissedSlot),
-        inactiveStreak: Number(performance.inactiveStreak),
-        slashableThreshold: Number(performance.slashableThreshold),
-        targetPercentage: Number(performance.targetPercentage),
-      });
-    }
-    evidence.sort((left, right) =>
-      left.sequencer.localeCompare(right.sequencer) ||
-      Number(BigInt(left.epoch) - BigInt(right.epoch)) ||
-      left.kind.localeCompare(right.kind)
-    );
-    return evidence.length > 0 ? { ...data, nodeEvidence: evidence } : data;
-  }
-
-  listEvents({ network, addresses = [], sources = [], cursor, limit = 50 } = {}) {
-    // Catch-up rows are endpoint-scoped delivery artifacts. Publishing them in
-    // a feed would create duplicate incidents and reveal when somebody linked
-    // or reconnected a channel.
-    const clauses = ["event.source NOT IN ('test', 'catchup')"];
-    const parameters = [];
-    if (network) {
-      clauses.push('event.network = ?');
-      parameters.push(network);
-    }
-    if (sources.length > 0) {
-      clauses.push(`event.source IN (${sources.map(() => '?').join(',')})`);
-      parameters.push(...sources);
-    }
-    let prefix = '';
-    let from = 'events event';
-    if (addresses.length > 0) {
-      // Drive address-scoped reads from (sequencer,event_id), not from the
-      // unbounded event timeline with a correlated target probe. A nonexistent
-      // attacker-chosen address then returns from the index immediately.
-      prefix = `WITH matched_ids AS MATERIALIZED (
-        SELECT DISTINCT event_id FROM event_targets INDEXED BY event_targets_sequencer_idx
-        WHERE sequencer IN (${addresses.map(() => '?').join(',')})
-      )`;
-      // CROSS JOIN prevents SQLite from reordering back to a full timeline
-      // scan for an address that has no events.
-      from = 'matched_ids CROSS JOIN events event ON event.id = matched_ids.event_id';
-      parameters.unshift(...addresses.map((value) => value.toLowerCase()));
-    }
-    const decodedCursor = decodeCursor(cursor);
-    if (decodedCursor) {
-      clauses.push('(event.observed_at < ? OR (event.observed_at = ? AND event.id < ?))');
-      parameters.push(decodedCursor.observedAt, decodedCursor.observedAt, decodedCursor.id);
-    }
-    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-    const rows = this.db.prepare(`
-      ${prefix}
-      SELECT event.* FROM ${from} ${where}
-      ORDER BY event.observed_at DESC, event.id DESC LIMIT ?
-    `).all(...parameters, limit + 1);
-    const hasMore = rows.length > limit;
-    const pageRows = rows.slice(0, limit);
-    const targets = this.loadEventTargets(pageRows.map((row) => row.id));
-    const selected = pageRows.map((row) => this.toPublicEvent(row, targets.get(row.id) ?? []));
-    const last = rows[Math.min(rows.length, limit) - 1];
-    return {
-      data: selected,
-      nextCursor: hasMore && last ? encodeCursor(last.observed_at, last.id) : null,
-    };
-  }
-
-  getEvent(id) {
-    const row = this.db.prepare(`
-      SELECT event.* FROM events event WHERE event.id = ? AND event.source != 'test'
-    `).get(id);
-    return row ? this.toPublicEvent(row) : undefined;
-  }
-
-  loadEventTargets(eventIds) {
-    const result = new Map();
-    if (eventIds.length === 0) return result;
-    const rows = this.db.prepare(`
-      SELECT event_id AS eventId, sequencer FROM event_targets
-      WHERE event_id IN (${eventIds.map(() => '?').join(',')})
-      ORDER BY event_id, sequencer
-    `).all(...eventIds);
-    for (const row of rows) {
-      const targets = result.get(row.eventId) ?? [];
-      targets.push(row.sequencer);
-      result.set(row.eventId, targets);
-    }
-    return result;
-  }
-
-  toPublicEvent(row, knownTargets) {
-    const targets = knownTargets ?? this.db.prepare(`
-      SELECT sequencer FROM event_targets WHERE event_id = ? ORDER BY sequencer
-    `).all(row.id).map((item) => item.sequencer);
-    const data = parseJson(row.data_json, {});
-    return {
-      id: row.id,
-      network: row.network,
-      source: row.source,
-      type: row.type,
-      severity: row.severity,
-      title: row.title,
-      body: row.body,
-      data,
-      certainty: data.certainty === 'pending' ? 'pending' : 'confirmed',
-      targets,
-      sequencer: targets[0] ?? null,
-      observedAt: toIso(row.observed_at),
-      occurredAt: toIso(row.observed_at),
-      createdAt: toIso(row.created_at),
-    };
-  }
-
   createWatchlist({
     id,
     managementTokenHash,
@@ -1267,7 +741,7 @@ export class OffenseRepository {
         type: 'watchlist_admission',
         now,
         limits: admissionLimits,
-        code: 'subscription_capacity_limited',
+        code: 'watchlist_capacity_limited',
         message: 'Watch-list creation is temporarily busy; try again later',
       });
       // Anonymous lists that never connect a channel are cheap to create but
@@ -1289,9 +763,9 @@ export class OffenseRepository {
       if (unconnected >= this.capacity.maxUnconnectedWatchlists) return null;
       this.db.prepare(`
         INSERT INTO watchlists(
-          id, management_token_hash, network, created_at, updated_at, unconnected_since
-        ) VALUES (?, ?, ?, ?, ?, ?)
-      `).run(id, managementTokenHash, network, now, now, now);
+          id, management_token_hash, created_at, updated_at, unconnected_since
+        ) VALUES (?, ?, ?, ?, ?)
+      `).run(id, managementTokenHash, now, now, now);
       this.replaceWatchlistAddresses(id, addresses);
       if (admissionLimits) {
         this.insertEvent({
@@ -1300,8 +774,6 @@ export class OffenseRepository {
           source: 'test',
           type: 'watchlist_admission',
           severity: 'info',
-          title: 'Private watch-list admission',
-          body: 'Private abuse-control journal entry.',
           data: { watchlistId: id, admission: true },
           observedAt: now,
         });
@@ -1312,13 +784,13 @@ export class OffenseRepository {
 
   getWatchlist(id) {
     const row = this.db.prepare(`
-      SELECT id, management_token_hash AS managementTokenHash, network,
+      SELECT id, management_token_hash AS managementTokenHash,
         created_at AS createdAt, updated_at AS updatedAt FROM watchlists WHERE id = ?
     `).get(id);
     if (!row) return undefined;
     const addresses = this.db.prepare(`
-      SELECT sequencer FROM watchlist_addresses WHERE watchlist_id = ? ORDER BY sequencer
-    `).all(id).map((item) => item.sequencer);
+      SELECT validator FROM watchlist_addresses WHERE watchlist_id = ? ORDER BY validator
+    `).all(id).map((item) => item.validator);
     const endpoints = this.db.prepare(`
       SELECT id, kind, enabled, verified_at AS verifiedAt,
         created_at AS createdAt, updated_at AS updatedAt
@@ -1342,10 +814,6 @@ export class OffenseRepository {
         nextAddresses.length !== previous.addresses.length ||
         nextAddresses.some((value, index) => value !== previous.addresses[index])
       );
-      const addedAddresses = addressesChanged
-        ? nextAddresses.filter((value) => !previous.addresses.includes(value))
-        : [];
-
       if (addressesChanged) {
         this.db.prepare('UPDATE watchlists SET updated_at = ? WHERE id = ?').run(now, id);
       }
@@ -1353,22 +821,13 @@ export class OffenseRepository {
         this.replaceWatchlistAddresses(id, nextAddresses);
         this.discardUnmatchedDeliveries(id);
       }
-      // A real scope expansion must not be swallowed by the endpoint-wide scan
-      // cooldown: query only the newly added addresses, which keeps random edit
-      // churn from replaying incidents for the stable part of the watch list.
-      if (addedAddresses.length > 0) {
-        this.enqueueCatchupForWatchlist(id, now, {
-          addresses: addedAddresses,
-          bypassScanCooldown: true,
-        });
-      }
       return this.getWatchlist(id);
     });
   }
 
   replaceWatchlistAddresses(id, addresses) {
     this.db.prepare('DELETE FROM watchlist_addresses WHERE watchlist_id = ?').run(id);
-    const insert = this.db.prepare('INSERT INTO watchlist_addresses(watchlist_id, sequencer) VALUES (?, ?)');
+    const insert = this.db.prepare('INSERT INTO watchlist_addresses(watchlist_id, validator) VALUES (?, ?)');
     for (const address of [...new Set(addresses.map((value) => value.toLowerCase()))]) insert.run(id, address);
   }
 
@@ -1385,7 +844,7 @@ export class OffenseRepository {
         AND NOT EXISTS (
           SELECT 1
           FROM event_targets target
-          JOIN watchlist_addresses address ON address.sequencer = target.sequencer
+          JOIN watchlist_addresses address ON address.validator = target.validator
           WHERE target.event_id = deliveries.event_id AND address.watchlist_id = ?
         )
     `).run(watchlistId, watchlistId);
@@ -1495,23 +954,14 @@ export class OffenseRepository {
     `).run(now, watchlistId);
     if (reboundFromWatchlistId) this.markWatchlistUnconnectedIfEmpty(reboundFromWatchlistId, now);
     const staleEndpointIds = staleEndpoints.map((endpoint) => endpoint.id);
-    const activeStaleEndpointIds = staleEndpoints
-      .filter((endpoint) => Boolean(endpoint.enabled))
-      .map((endpoint) => endpoint.id);
-    // Real incident work always follows a rotated destination. Catch-up work
-    // follows an active destination too; for a disabled destination, rebuild
-    // only the still-current catch-up below so stale and current summaries do
-    // not both fire.
-    this.transferEndpointDeliveries(staleEndpointIds, id, now, 'non-catchup');
-    this.transferEndpointDeliveries(activeStaleEndpointIds, id, now, 'catchup');
+    this.transferEndpointDeliveries(staleEndpointIds, id, now);
     const reconnectEndpoints = staleEndpoints.length > 0
       ? staleEndpoints.filter((endpoint) => !Boolean(endpoint.enabled) && endpoint.lastError)
       : existing?.watchlistId === watchlistId && !Boolean(existing.enabled) && existing.lastError
         ? [existing]
         : [];
     // A provider can permanently reject an endpoint after a one-shot slash or
-    // correction has already entered its outbox. Current-state catch-up cannot
-    // reconstruct those incidents, so a proven reconnect gets one fresh try
+    // correction has entered its outbox. A proven reconnect gets one fresh try
     // while the event is still inside the worker's normal retry lifetime.
     this.recoverFailedUrgentDeliveries(reconnectEndpoints, id, now);
     if (staleEndpoints.length > 0) {
@@ -1520,14 +970,6 @@ export class OffenseRepository {
         .run(...staleEndpoints.map((endpoint) => endpoint.id));
     }
     const verified = kind === 'telegram' || (existing?.verifiedAt !== null && existing?.verifiedAt !== undefined);
-    // A random syntactically-valid Push URL is not a recipient yet. Real-time
-    // incident rows may wait behind its challenge, but state catch-up is only
-    // created after a provider has proved the endpoint can receive.
-    const catchupQueued = !verified
-      ? 0
-      : activeStaleEndpointIds.length > 0
-      ? 0
-      : this.enqueueCatchupForEndpoint(watchlistId, id, now);
     const verificationQueued = kind === 'web_push' && !verified && !this.hasActiveEndpointVerification(id)
       ? this.enqueueEndpointVerification(watchlistId, id, now)
       : 0;
@@ -1536,19 +978,13 @@ export class OffenseRepository {
       kind,
       enabled: true,
       verified,
-      catchupQueued,
       verificationQueued,
     };
   }
 
-  transferEndpointDeliveries(endpointIds, replacementId, now, sourceMode = 'all') {
+  transferEndpointDeliveries(endpointIds, replacementId, now) {
     if (endpointIds.length === 0) return 0;
     const placeholders = endpointIds.map(() => '?').join(',');
-    const sourceClause = sourceMode === 'catchup'
-      ? "AND event.source = 'catchup'"
-      : sourceMode === 'non-catchup'
-        ? "AND event.source NOT IN ('catchup', 'test')"
-        : '';
     const rows = this.db.prepare(`
       SELECT delivery.event_id AS eventId, delivery.status, delivery.attempts,
         delivery.next_attempt_at AS nextAttemptAt,
@@ -1557,7 +993,7 @@ export class OffenseRepository {
       FROM deliveries delivery
       JOIN events event ON event.id = delivery.event_id
       WHERE delivery.endpoint_id IN (${placeholders})
-        AND delivery.status IN ('pending', 'sending', 'retry') ${sourceClause}
+        AND delivery.status IN ('pending', 'sending', 'retry')
       ORDER BY delivery.created_at, delivery.id
     `).all(...endpointIds);
     const insert = this.db.prepare(`
@@ -1594,12 +1030,12 @@ export class OffenseRepository {
     const rows = this.db.prepare(`
       SELECT delivery.event_id AS eventId, delivery.endpoint_id AS endpointId,
         delivery.last_error AS lastError, delivery.created_at AS createdAt,
-        event.network, event.data_json AS eventDataJson
+        event.data_json AS eventDataJson
       FROM deliveries delivery
       JOIN events event ON event.id = delivery.event_id
       WHERE delivery.endpoint_id IN (${placeholders})
         AND delivery.status = 'failed' AND delivery.sent_at IS NULL
-        AND event.source NOT IN ('catchup', 'test')
+        AND event.source != 'test'
         AND (
           (event.severity = 'critical' AND event.observed_at > ?)
           OR (event.severity = 'warning' AND event.observed_at > ?)
@@ -1622,10 +1058,6 @@ export class OffenseRepository {
         provider_message_id = NULL, last_error = NULL, updated_at = excluded.updated_at
       WHERE deliveries.status = 'failed' AND deliveries.sent_at IS NULL
     `);
-    const currentRoundGeneration = this.db.prepare(`
-      SELECT transition_generation AS generation FROM onchain_rounds
-      WHERE network = ? AND proposer_address = ? AND round = ?
-    `);
     let recovered = 0;
     for (const row of rows) {
       const disabledByThisEndpoint = row.lastError === endpointErrors.get(row.endpointId) ||
@@ -1634,20 +1066,7 @@ export class OffenseRepository {
       // already killed this endpoint. Reconnecting must not resurrect the very
       // alert that the reorg correction invalidated.
       const eventData = parseJson(row.eventDataJson, {});
-      const proposerAddress = String(eventData.proposerAddress ?? '').toLowerCase();
-      const round = eventData.round === undefined ? '' : String(eventData.round);
-      const currentGeneration = /^0x[0-9a-f]{40}$/.test(proposerAddress) && round
-        ? currentRoundGeneration.get(row.network, proposerAddress, round)
-        : undefined;
-      const eventGeneration = Number(eventData.forkGeneration ?? 0);
-      const supersededRoundView = Boolean(currentGeneration) && Number(currentGeneration.generation) > (
-        Number.isSafeInteger(eventGeneration) && eventGeneration >= 0 ? eventGeneration : 0
-      );
-      if (
-        !disabledByThisEndpoint ||
-        eventData.canonical === false ||
-        supersededRoundView
-      ) continue;
+      if (!disabledByThisEndpoint || eventData.canonical === false) continue;
       recovered += Number(upsert.run(
         stableId('delivery', row.eventId, replacementId),
         row.eventId,
@@ -1675,17 +1094,46 @@ export class OffenseRepository {
     if (!watchlist) return 0;
     const event = {
       id: stableId('channel-verification', endpointId, now),
-      network: watchlist.network,
+      network: this.getSourceState('runtime_identity')?.metadata?.network ?? 'mainnet',
       source: 'test',
       type: 'notification_channel_verification',
       severity: 'info',
-      title: 'Slashmon alerts connected',
-      body: `Delivery check passed. Alerts are active for ${watchlist.addresses.length} watched ` +
-        `sequencer${watchlist.addresses.length === 1 ? '' : 's'}.`,
-      data: { verification: true, watchlistId, sequencers: watchlist.addresses },
+      data: { verification: true, watchlistId, validators: watchlist.addresses },
       observedAt: now,
     };
     return this.insertEvent(event, [], [endpointId]).queued;
+  }
+
+  requestEndpointVerification({
+    watchlistId,
+    endpointId,
+    now = Date.now(),
+    admissionLimits,
+  }) {
+    return this.transaction(() => {
+      const endpoint = this.db.prepare(`
+        SELECT enabled, verified_at AS verifiedAt
+        FROM delivery_endpoints
+        WHERE id = ? AND watchlist_id = ? AND kind = 'web_push'
+      `).get(endpointId, watchlistId);
+      if (
+        !endpoint ||
+        !Boolean(endpoint.enabled) ||
+        endpoint.verifiedAt !== null ||
+        this.hasActiveEndpointVerification(endpointId)
+      ) {
+        return 0;
+      }
+      this.assertPrivateEventLimits({
+        type: 'notification_channel_verification',
+        now,
+        watchlistId,
+        limits: admissionLimits,
+        code: 'web_push_enrollment_rate_limited',
+        message: 'Too many Web Push verification checks were requested; try again later',
+      });
+      return this.enqueueEndpointVerification(watchlistId, endpointId, now);
+    });
   }
 
   hasActiveEndpointVerification(endpointId) {
@@ -1727,136 +1175,6 @@ export class OffenseRepository {
         SELECT 1 FROM delivery_endpoints endpoint WHERE endpoint.watchlist_id = watchlists.id
       )
     `).run(now, now, watchlistId).changes) > 0;
-  }
-
-  enqueueCatchupForWatchlist(watchlistId, now = Date.now(), options = {}) {
-    const endpoints = this.db.prepare(`
-      SELECT id FROM delivery_endpoints WHERE watchlist_id = ? AND enabled = 1
-    `).all(watchlistId);
-    let queued = 0;
-    for (const endpoint of endpoints) {
-      queued += this.enqueueCatchupForEndpoint(watchlistId, endpoint.id, now, options);
-    }
-    return queued;
-  }
-
-  enqueueCatchupForEndpoint(
-    watchlistId,
-    endpointId,
-    now,
-    { addresses, bypassScanCooldown = false } = {},
-  ) {
-    const endpoint = this.db.prepare(`
-      SELECT kind, verified_at AS verifiedAt FROM delivery_endpoints WHERE id = ? AND watchlist_id = ?
-    `).get(endpointId, watchlistId);
-    if (!endpoint || endpoint.verifiedAt === null) return 0;
-    const watchlist = this.getWatchlist(watchlistId);
-    if (!watchlist || watchlist.addresses.length === 0) return 0;
-    const scopedAddresses = addresses === undefined
-      ? watchlist.addresses
-      : [...new Set(addresses.map((value) => value.toLowerCase()))]
-        .filter((value) => watchlist.addresses.includes(value));
-    if (scopedAddresses.length === 0) return 0;
-    if (!bypassScanCooldown) {
-      const scanClaim = this.db.prepare(`
-        UPDATE delivery_endpoints SET last_catchup_at = ?
-        WHERE id = ? AND watchlist_id = ? AND verified_at IS NOT NULL
-          AND (last_catchup_at IS NULL OR last_catchup_at <= ?)
-      `).run(now, endpointId, watchlistId, now - CATCHUP_SCAN_COOLDOWN_MS);
-      if (Number(scanClaim.changes) === 0) return 0;
-    }
-    let queued = 0;
-    const placeholders = scopedAddresses.map(() => '?').join(',');
-    const offenses = this.db.prepare(`
-      SELECT id, sequencer, amount, offense_type AS offenseType,
-        offense_type_name AS offenseTypeName, epoch_or_slot AS epochOrSlot, time_unit AS timeUnit
-      FROM offenses WHERE status = 'active' AND sequencer IN (${placeholders})
-    `).all(...scopedAddresses);
-    const l1Metadata = this.getSourceState('l1')?.metadata;
-    for (const offense of offenses) {
-      const event = catchupEvent(pendingEvent(
-        'pending_offense_detected',
-        offense,
-        watchlist.network,
-        now,
-        undefined,
-        pendingOffenseTiming(offense, l1Metadata),
-      ), watchlistId, endpoint.kind, watchlist.network, 'pending', offense.id, offense.amount);
-      const insertion = this.insertEvent(event, [offense.sequencer], [endpointId]);
-      queued += insertion.queued;
-      if (!insertion.inserted) queued += this.queueExistingEvent(event.id, endpointId, now);
-    }
-
-    const rounds = this.db.prepare(`
-      SELECT * FROM onchain_rounds WHERE network = ? AND status NOT IN ('expired', 'archived')
-    `).all(watchlist.network);
-    for (const row of rounds) {
-      const actions = parseJson(row.actions_json, []);
-      const earlyTargets = parseJson(row.early_targets_json, []);
-      const catchupType = l1CatchupEventType(row, actions, earlyTargets);
-      // Execution with an empty tally executes no slash actions. Never turn a
-      // prior vote into a false "was included in executed round" alert.
-      const targets = catchupType === 'onchain_executed'
-        ? actionTargets(actions)
-        : roundTargets(actions, earlyTargets);
-      if (!targets.some((target) => scopedAddresses.includes(target))) continue;
-      const event = catchupEvent(
-        onchainEvent(
-          catchupType,
-          onchainRowToSnapshot(row),
-          watchlist.network,
-          now,
-          { blockNumber: row.block_number, blockHash: row.block_hash },
-        ),
-        watchlistId,
-        endpoint.kind,
-        watchlist.network,
-        'l1',
-        row.id,
-        catchupType,
-        row.status,
-        row.payload_address ?? 'none',
-        row.actions_json,
-        row.early_targets_json,
-        row.details_json,
-      );
-      const insertion = this.insertEvent(event, targets, [endpointId]);
-      queued += insertion.queued;
-      if (!insertion.inserted) queued += this.queueExistingEvent(event.id, endpointId, now);
-    }
-    return queued;
-  }
-
-  queueExistingEvent(eventId, endpointId, now) {
-    const existing = this.db.prepare(`
-      SELECT status FROM deliveries WHERE id = ?
-    `).get(stableId('delivery', eventId, endpointId));
-    // Never reset live work or provider backoff. If a pause deleted the row,
-    // the event-level replay clock still bounds recreation durably.
-    if (existing && ['pending', 'sending', 'retry'].includes(existing.status)) return 0;
-    const replay = this.db.prepare(`
-      UPDATE events SET last_replayed_at = ?
-      WHERE id = ? AND source = 'catchup'
-        AND (last_replayed_at IS NULL OR last_replayed_at <= ?)
-    `).run(now, eventId, now - CATCHUP_REPLAY_COOLDOWN_MS);
-    if (Number(replay.changes) === 0) return 0;
-    return Number(this.db.prepare(`
-      INSERT OR IGNORE INTO deliveries (
-        id, event_id, endpoint_id, status, attempts, next_attempt_at, created_at, updated_at
-      ) VALUES (?, ?, ?, 'pending', 0, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        status = 'pending', attempts = 0, next_attempt_at = excluded.next_attempt_at,
-        lease_expires_at = NULL, last_attempt_at = NULL, sent_at = NULL,
-        provider_message_id = NULL, last_error = NULL, updated_at = excluded.updated_at
-      WHERE deliveries.status IN ('sent', 'failed')
-    `).run(
-      stableId('delivery', eventId, endpointId),
-      eventId,
-      endpointId,
-      now,
-      now,
-      now,
-    ).changes);
   }
 
   createTelegramLink({ tokenHash, watchlistId, expiresAt, now = Date.now() }) {
@@ -1932,9 +1250,7 @@ export class OffenseRepository {
       this.db.prepare(`
         UPDATE delivery_endpoints SET enabled = ?, last_error = NULL, updated_at = ? WHERE id = ?
       `).run(enabled ? 1 : 0, now, endpoint.id);
-      if (enabled) {
-        this.enqueueCatchupForEndpoint(endpoint.watchlistId, endpoint.id, now);
-      } else {
+      if (!enabled) {
         this.db.prepare(`
           DELETE FROM deliveries
           WHERE endpoint_id = ? AND status IN ('pending', 'sending', 'retry')
@@ -1993,7 +1309,7 @@ export class OffenseRepository {
 
       // Claim the watchlist's test slot under the same write lock as the event
       // and outbox rows. Two API processes therefore cannot race past the
-      // cooldown and amplify one subscription into an unbounded journal.
+      // cooldown and amplify one watchlist into an unbounded journal.
       const claimed = this.db.prepare(`
         UPDATE watchlists SET last_test_at = ?
         WHERE id = ?
@@ -2009,12 +1325,12 @@ export class OffenseRepository {
         return 0;
       }
 
-      const sequencers = this.db.prepare(`
-        SELECT sequencer FROM watchlist_addresses WHERE watchlist_id = ? ORDER BY sequencer
-      `).all(watchlistId).map((row) => row.sequencer);
+      const validators = this.db.prepare(`
+        SELECT validator FROM watchlist_addresses WHERE watchlist_id = ? ORDER BY validator
+      `).all(watchlistId).map((row) => row.validator);
       return this.insertEvent({
         ...event,
-        data: { ...event.data, watchlistId, sequencers },
+        data: { ...event.data, watchlistId, validators },
         observedAt: event.observedAt ?? now,
       }, [], endpoints).queued;
     });
@@ -2128,7 +1444,7 @@ export class OffenseRepository {
         endpoint.kind, endpoint.destination, endpoint.config_json AS endpointConfig,
         endpoint.watchlist_id AS watchlistId,
         event.id AS eventId, event.network, event.source, event.type, event.severity,
-        event.title, event.body, event.data_json AS eventDataJson,
+        event.incident_id AS incidentId, event.data_json AS eventDataJson,
         event.observed_at AS eventObservedAt
       FROM deliveries delivery
       JOIN delivery_endpoints endpoint ON endpoint.id = delivery.endpoint_id
@@ -2136,14 +1452,13 @@ export class OffenseRepository {
       WHERE delivery.id = ?
     `).get(id);
     if (!row) return undefined;
-    const targets = this.db.prepare(`
-      SELECT target.sequencer
-      FROM event_targets target
-      JOIN watchlist_addresses watched
-        ON watched.watchlist_id = ? AND watched.sequencer = target.sequencer
-      WHERE target.event_id = ?
-      ORDER BY target.sequencer
-    `).all(row.watchlistId, row.eventId).map((item) => item.sequencer);
+    const eventData = parseJson(row.eventDataJson, {});
+    const targets = this.deliveryTargets(
+      row.watchlistId,
+      row.eventId,
+      row.type,
+      eventData,
+    );
     return {
       id: row.id,
       endpointId: row.endpointId,
@@ -2157,35 +1472,63 @@ export class OffenseRepository {
         source: row.source,
         type: row.type,
         severity: row.severity,
-        title: row.title,
-        body: row.body,
-        data: parseJson(row.eventDataJson, {}),
+        incidentId: row.incidentId,
+        data: eventData,
         targets,
         observedAt: row.eventObservedAt,
       },
     };
   }
 
+  deliveryTargets(watchlistId, eventId, eventType, eventData) {
+    let targets = this.db.prepare(`
+      SELECT target.validator
+      FROM event_targets target
+      JOIN watchlist_addresses watched
+        ON watched.watchlist_id = ? AND watched.validator = target.validator
+      WHERE target.event_id = ?
+      ORDER BY target.validator
+    `).all(watchlistId, eventId).map((item) => item.validator);
+    if (eventType !== 'onchain_quorum_candidate') return targets;
+    const currentCase = typeof eventData.caseId === 'string'
+      ? this.db.prepare(`
+          SELECT status, actions_json AS actionsJson
+          FROM onchain_rounds WHERE id = ?
+        `).get(eventData.caseId)
+      : undefined;
+    if (!currentCase || currentCase.status !== 'quorum-reached') return [];
+    const currentTargets = new Set(actionTargets(parseJson(currentCase.actionsJson, [])));
+    targets = targets.filter((target) => currentTargets.has(target));
+    return targets;
+  }
+
   isDeliverySendable(id) {
-    return Boolean(this.db.prepare(`
-      SELECT 1
+    const row = this.db.prepare(`
+      SELECT endpoint.watchlist_id AS watchlistId, event.id AS eventId,
+        event.type, event.data_json AS eventDataJson
       FROM deliveries delivery
       JOIN delivery_endpoints endpoint ON endpoint.id = delivery.endpoint_id
       JOIN events event ON event.id = delivery.event_id
       WHERE delivery.id = ? AND delivery.status = 'sending'
         AND endpoint.enabled = 1
         AND (endpoint.verified_at IS NOT NULL OR event.source = 'test')
-    `).get(id));
-  }
-
-  releaseDelivery(id, now = Date.now()) {
-    const result = this.db.prepare(`
-      UPDATE deliveries SET status = 'retry',
-        attempts = CASE WHEN attempts > 0 THEN attempts - 1 ELSE 0 END,
-        next_attempt_at = ?, lease_expires_at = NULL, updated_at = ?
-      WHERE id = ? AND status = 'sending'
-    `).run(now, now, id);
-    return Number(result.changes) > 0;
+    `).get(id);
+    if (!row) return false;
+    if (
+      row.type === 'onchain_quorum_candidate' &&
+      this.deliveryTargets(
+        row.watchlistId,
+        row.eventId,
+        row.type,
+        parseJson(row.eventDataJson, {}),
+      ).length === 0
+    ) {
+      this.db.prepare(`
+        DELETE FROM deliveries WHERE id = ? AND status = 'sending'
+      `).run(id);
+      return false;
+    }
+    return true;
   }
 
   completeDelivery(id, providerMessageId, now = Date.now()) {
@@ -2207,7 +1550,6 @@ export class OffenseRepository {
           UPDATE delivery_endpoints SET verified_at = ?, last_error = NULL, updated_at = ?
           WHERE id = ? AND verified_at IS NULL
         `).run(now, now, endpoint.id);
-        this.enqueueCatchupForEndpoint(endpoint.watchlistId, endpoint.id, now);
       }
       return Number(result.changes) > 0;
     });
@@ -2269,14 +1611,6 @@ export class OffenseRepository {
     });
   }
 
-  getDeliveryCounts() {
-    const counts = { pending: 0, sending: 0, retry: 0, sent: 0, failed: 0 };
-    for (const row of this.db.prepare('SELECT status, COUNT(*) AS count FROM deliveries GROUP BY status').all()) {
-      counts[row.status] = Number(row.count);
-    }
-    return counts;
-  }
-
   getDeliveryHealthStatus({
     now = Date.now(),
     overdueAfterMs = DELIVERY_OVERDUE_AFTER_MS,
@@ -2309,19 +1643,19 @@ export class OffenseRepository {
   pruneNotificationData({
     now = Date.now(),
     notificationTestRetentionMs = NOTIFICATION_TEST_RETENTION_MS,
-    catchupEventRetentionMs = CATCHUP_EVENT_RETENTION_MS,
     terminalDeliveryRetentionMs = TERMINAL_DELIVERY_RETENTION_MS,
     telegramTokenRetentionMs = TELEGRAM_TOKEN_RETENTION_MS,
     abandonedWatchlistRetentionMs = DAY_MS,
     unverifiedEndpointRetentionMs = UNVERIFIED_ENDPOINT_RETENTION_MS,
+    factRetentionMs = FACT_RETENTION_MS,
   } = {}) {
     for (const [name, value] of Object.entries({
       notificationTestRetentionMs,
-      catchupEventRetentionMs,
       terminalDeliveryRetentionMs,
       telegramTokenRetentionMs,
       abandonedWatchlistRetentionMs,
       unverifiedEndpointRetentionMs,
+      factRetentionMs,
     })) {
       if (!Number.isSafeInteger(value) || value < 0) {
         throw new RangeError(`${name} must be a non-negative integer`);
@@ -2349,10 +1683,8 @@ export class OffenseRepository {
           SELECT 1 FROM delivery_endpoints endpoint WHERE endpoint.watchlist_id = watchlists.id
         )
       `).run(now - abandonedWatchlistRetentionMs);
-      // Test and endpoint-scoped catch-up events have no feed history value.
-      // Once every associated send is terminal, remove old rows and let the
-      // foreign key cascade their outbox. Never prune pending, retrying, or
-      // leased work.
+      // Once every associated send is terminal, remove old internal alert rows
+      // and let the foreign key cascade their outbox. Never prune live work.
       const testEvents = this.db.prepare(`
         DELETE FROM events
         WHERE source = 'test' AND created_at <= ?
@@ -2362,15 +1694,15 @@ export class OffenseRepository {
               AND delivery.status IN ('pending', 'sending', 'retry')
           )
       `).run(now - notificationTestRetentionMs);
-      const catchupEvents = this.db.prepare(`
+      const alerts = this.db.prepare(`
         DELETE FROM events
-        WHERE source = 'catchup' AND created_at <= ?
+        WHERE source != 'test' AND created_at <= ?
           AND NOT EXISTS (
             SELECT 1 FROM deliveries delivery
             WHERE delivery.event_id = events.id
               AND delivery.status IN ('pending', 'sending', 'retry')
           )
-      `).run(now - catchupEventRetentionMs);
+      `).run(now - factRetentionMs);
       const terminalDeliveries = this.db.prepare(`
         DELETE FROM deliveries
         WHERE status IN ('sent', 'failed') AND updated_at <= ?
@@ -2379,21 +1711,110 @@ export class OffenseRepository {
         DELETE FROM telegram_link_tokens
         WHERE expires_at <= ? OR (consumed_at IS NOT NULL AND consumed_at <= ?)
       `).run(now - telegramTokenRetentionMs, now - telegramTokenRetentionMs);
+      const offenses = this.db.prepare(`
+        DELETE FROM offenses WHERE status = 'resolved' AND resolved_at <= ?
+      `).run(now - factRetentionMs);
+      const rounds = this.db.prepare(`
+        DELETE FROM onchain_rounds
+        WHERE status IN ('expired', 'executed', 'vetoed', 'no-consensus', 'stack-retired')
+          AND last_seen_at <= ?
+      `).run(now - factRetentionMs);
+      const outcomes = this.db.prepare(`
+        DELETE FROM slash_outcomes WHERE last_seen_at <= ?
+      `).run(now - factRetentionMs);
       return {
         unverifiedEndpoints,
         abandonedWatchlists: Number(abandonedWatchlists.changes),
         testEvents: Number(testEvents.changes),
-        catchupEvents: Number(catchupEvents.changes),
+        alerts: Number(alerts.changes),
         terminalDeliveries: Number(terminalDeliveries.changes),
         telegramTokens: Number(telegramTokens.changes),
+        offenses: Number(offenses.changes),
+        rounds: Number(rounds.changes),
+        slashOutcomes: Number(outcomes.changes),
       };
     });
+  }
+
+  cancelUnsentL1CaseAlerts(
+    network,
+    row,
+    types = ['onchain_quorum_candidate', 'onchain_ready'],
+  ) {
+    const allowedTypes = types.filter((type) =>
+      ['onchain_quorum_candidate', 'onchain_ready'].includes(type)
+    );
+    if (allowedTypes.length === 0) return;
+    const incidentId = stableId(
+      'l1-case',
+      network,
+      row.proposer_address,
+      row.round,
+    );
+    const typePlaceholders = allowedTypes.map(() => '?').join(',');
+    this.db.prepare(`
+      DELETE FROM deliveries
+      WHERE status IN ('pending', 'retry')
+        AND event_id IN (
+          SELECT id FROM events
+          WHERE network = ? AND source = 'ethereum_l1' AND incident_id = ?
+            AND type IN (${typePlaceholders})
+        )
+    `).run(network, incidentId, ...allowedTypes);
+    this.db.prepare(`
+      DELETE FROM events
+      WHERE network = ? AND source = 'ethereum_l1' AND incident_id = ?
+        AND type IN (${typePlaceholders})
+        AND NOT EXISTS (
+          SELECT 1 FROM deliveries WHERE deliveries.event_id = events.id
+        )
+    `).run(network, incidentId, ...allowedTypes);
+  }
+
+  discardStaleCandidateDeliveries(network, row, currentTargets) {
+    if (currentTargets.length === 0) return;
+    const incidentId = stableId(
+      'l1-case',
+      network,
+      row.proposer_address,
+      row.round,
+    );
+    const targetPlaceholders = currentTargets.map(() => '?').join(',');
+    const removed = Number(this.db.prepare(`
+      DELETE FROM deliveries
+      WHERE status IN ('pending', 'retry')
+        AND event_id IN (
+          SELECT id FROM events
+          WHERE network = ? AND source = 'ethereum_l1' AND incident_id = ?
+            AND type = 'onchain_quorum_candidate'
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM event_targets target
+          JOIN delivery_endpoints endpoint ON endpoint.id = deliveries.endpoint_id
+          JOIN watchlist_addresses watched
+            ON watched.watchlist_id = endpoint.watchlist_id
+              AND watched.validator = target.validator
+          WHERE target.event_id = deliveries.event_id
+            AND target.validator IN (${targetPlaceholders})
+        )
+    `).run(network, incidentId, ...currentTargets).changes);
+    if (removed === 0) return;
+    this.db.prepare(`
+      DELETE FROM events
+      WHERE network = ? AND source = 'ethereum_l1' AND incident_id = ?
+        AND type = 'onchain_quorum_candidate'
+        AND NOT EXISTS (
+          SELECT 1 FROM deliveries WHERE deliveries.event_id = events.id
+        )
+    `).run(network, incidentId);
   }
 
   recordSuccessfulL1Snapshot(network, snapshot, { observedAt = Date.now() } = {}) {
     if (!snapshot || !Array.isArray(snapshot.stacks) || !snapshot.blockHash || snapshot.blockNumber === undefined) {
       throw new Error('Refusing to persist an incomplete L1 snapshot');
     }
+    assertCompleteL1Cases(snapshot);
     return this.transaction(() => {
       const flattened = [];
       for (const stack of snapshot.stacks) {
@@ -2401,6 +1822,9 @@ export class OffenseRepository {
         for (const round of stack.rounds) flattened.push({ stack, round });
       }
       const seen = new Set();
+      const scannedStacks = new Map(snapshot.stacks.map(
+        (stack) => [stack.proposerAddress.toLowerCase(), stack],
+      ));
       const failedStackAddresses = new Set((snapshot.stackErrors ?? [])
         .map((error) => String(error.slasherAddress ?? '').toLowerCase())
         .filter((address) => /^0x[0-9a-f]{40}$/.test(address)));
@@ -2411,27 +1835,66 @@ export class OffenseRepository {
       let events = 0;
       let changed = 0;
       for (const item of flattened) {
-        const rowId = stableId('l1-round', network, snapshot.chainId, item.stack.proposerAddress.toLowerCase(), item.round.round);
+        const round = canonicalL1Round(item.round, item.stack.currentRound);
+        const rowId = stableId('l1-round', network, snapshot.chainId, item.stack.proposerAddress.toLowerCase(), round.round);
         seen.add(rowId);
         const existing = this.db.prepare('SELECT * FROM onchain_rounds WHERE id = ?').get(rowId);
-        const eventType = l1Transition(existing, item.round, snapshot);
-        const targets = l1TransitionTargets(existing, item.round, eventType);
-        const clearedExecutionTargets = l1ClearedExecutionTargets(existing, item.round);
-        const existingDetails = existing ? parseJson(existing.details_json, {}) : {};
-        const reorgDrivenTransition = Boolean(
-          (eventType || clearedExecutionTargets.length > 0) &&
-          (snapshot.reorgDetected || existingDetails.reorgOrphaned),
+        let eventType = l1AlertTransition(existing, round, {
+          ...snapshot,
+          currentRound: item.stack.currentRound,
+        });
+        const currentTargets = actionTargets(round.actions ?? []);
+        this.discardStaleCandidateDeliveries(
+          network,
+          {
+            proposer_address: item.stack.proposerAddress.toLowerCase(),
+            round: round.round,
+          },
+          currentTargets,
         );
-        const transitionGeneration = Number(existing?.transition_generation ?? 0) +
-          Number(reorgDrivenTransition);
-        if (!existing || l1RowChanged(existing, item.round, item.stack)) changed += 1;
+        let targets = eventType ? currentTargets : [];
+        if (!eventType && l1CandidateState(round, item.stack.currentRound)) {
+          const alreadyAlerted = new Set(this.db.prepare(`
+            SELECT target.validator
+            FROM event_targets target
+            JOIN events event ON event.id = target.event_id
+            WHERE event.network = ? AND event.source = 'ethereum_l1'
+              AND event.incident_id = ? AND event.type = 'onchain_quorum_candidate'
+          `).all(
+            network,
+            stableId(
+              'l1-case',
+              network,
+              item.stack.proposerAddress.toLowerCase(),
+              round.round,
+            ),
+          ).map((row) => row.validator));
+          targets = currentTargets.filter((target) => !alreadyAlerted.has(target));
+          if (targets.length > 0) eventType = 'onchain_quorum_candidate';
+        }
+        const alertRow = {
+          proposer_address: item.stack.proposerAddress.toLowerCase(),
+          round: round.round,
+        };
+        if (['executed', 'vetoed', 'expired', 'no-consensus'].includes(round.status)) {
+          this.cancelUnsentL1CaseAlerts(network, alertRow);
+        } else if (eventType === 'onchain_ready') {
+          this.cancelUnsentL1CaseAlerts(
+            network,
+            alertRow,
+            ['onchain_quorum_candidate'],
+          );
+        } else if (round.isExecutionPaused) {
+          this.cancelUnsentL1CaseAlerts(network, alertRow, ['onchain_ready']);
+        }
+        if (!existing || l1RowChanged(existing, round, item.stack)) changed += 1;
         this.db.prepare(`
           INSERT INTO onchain_rounds (
             id, network, chain_id, block_number, block_hash, stack_role, slasher_address,
             proposer_address, round, status, ballot_count, is_executed, is_vetoed,
-            payload_address, actions_json, early_targets_json, committees_json, details_json,
-            transition_generation, first_seen_at, last_seen_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            payload_address, actions_json, details_json,
+            first_seen_at, last_seen_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET
             block_number = excluded.block_number,
             block_hash = excluded.block_hash,
@@ -2443,10 +1906,7 @@ export class OffenseRepository {
             is_vetoed = excluded.is_vetoed,
             payload_address = excluded.payload_address,
             actions_json = excluded.actions_json,
-            early_targets_json = excluded.early_targets_json,
-            committees_json = excluded.committees_json,
             details_json = excluded.details_json,
-            transition_generation = excluded.transition_generation,
             last_seen_at = excluded.last_seen_at
         `).run(
           rowId,
@@ -2457,90 +1917,62 @@ export class OffenseRepository {
           item.stack.role,
           item.stack.slasherAddress.toLowerCase(),
           item.stack.proposerAddress.toLowerCase(),
-          item.round.round,
-          item.round.status,
-          item.round.ballotCount,
-          item.round.isExecuted ? 1 : 0,
-          item.round.isVetoed ? 1 : 0,
-          item.round.payloadAddress?.toLowerCase() ?? null,
-          JSON.stringify(item.round.actions ?? []),
-          JSON.stringify(item.round.earlyTargets ?? []),
-          JSON.stringify(item.round.committees ?? []),
+          round.round,
+          round.status,
+          round.ballotCount,
+          round.isExecuted ? 1 : 0,
+          round.isVetoed ? 1 : 0,
+          round.payloadAddress?.toLowerCase() ?? null,
+          JSON.stringify(round.actions ?? []),
           JSON.stringify({
-            targetEpochs: item.round.targetEpochs ?? [],
-            executableSlot: item.round.executableSlot,
-            expirySlot: item.round.expirySlot,
+            targetEpochs: round.targetEpochs ?? [],
+            executableSlot: round.executableSlot,
+            expirySlot: round.expirySlot,
             l1GenesisTime: snapshot.l1GenesisTime,
             slotDuration: snapshot.slotDuration,
             epochDuration: snapshot.epochDuration,
             currentSlot: snapshot.currentSlot,
             currentEpoch: snapshot.currentEpoch,
+            currentRound: item.stack.currentRound,
             isSlashingEnabled: Boolean(item.stack.isSlashingEnabled),
-            isExecutionPaused: Boolean(item.round.isExecutionPaused),
-            isProtected: Boolean(item.round.isProtected),
+            isExecutionPaused: Boolean(round.isExecutionPaused),
             slashingDisabledUntil: item.stack.slashingDisabledUntil ?? null,
             pauseStartedAtSlot: item.stack.pauseStartedAtSlot ?? null,
             pauseEndsAtSlot: item.stack.pauseEndsAtSlot ?? null,
             parameters: item.stack.parameters,
             readyAt: item.stack.readyAt,
             authorizedUntil: item.stack.authorizedUntil,
-            reorgOrphaned: false,
           }),
-          transitionGeneration,
           existing?.first_seen_at ?? observedAt,
           observedAt,
         );
         if (eventType && targets.length > 0) {
-          const previousActions = existing ? parseJson(existing.actions_json, []) : [];
           const insertion = this.insertEvent(
-            onchainEvent(
+            l1CaseEvent(
               eventType,
               {
-                ...item.round,
+                ...round,
                 ...item.stack,
-                transitionGeneration,
-                previousActions,
-                previousPayloadAddress: existing?.payload_address ?? null,
-                previousPayloadWasVetoed: existing ? Boolean(existing.is_vetoed) : false,
+                id: rowId,
               },
               network,
               observedAt,
               snapshot,
-              reorgDrivenTransition
-                ? roundTransitionEventId(network, eventType, rowId, transitionGeneration)
-                : undefined,
-              targets,
+              eventType === 'onchain_quorum_candidate'
+                ? stableId('event', network, eventType, rowId, ...[...targets].sort())
+                : stableId('event', network, eventType, rowId),
             ),
             targets,
-          );
-          events += Number(insertion.inserted);
-        }
-        if (clearedExecutionTargets.length > 0) {
-          const insertion = this.insertEvent(
-            onchainEvent(
-              'onchain_execution_target_cleared',
-              { ...item.round, ...item.stack, transitionGeneration },
-              network,
-              observedAt,
-              snapshot,
-              reorgDrivenTransition
-                ? roundTransitionEventId(
-                  network,
-                  'onchain_execution_target_cleared',
-                  rowId,
-                  transitionGeneration,
-                )
-                : undefined,
-              clearedExecutionTargets,
-            ),
-            clearedExecutionTargets,
           );
           events += Number(insertion.inserted);
         }
       }
 
       const previousRows = this.db.prepare(`
-        SELECT * FROM onchain_rounds WHERE network = ? AND status NOT IN ('expired', 'archived')
+        SELECT * FROM onchain_rounds
+        WHERE network = ? AND status NOT IN (
+          'expired', 'executed', 'vetoed', 'no-consensus', 'stack-retired'
+        )
       `).all(network);
       for (const old of previousRows) {
         if (seen.has(old.id)) continue;
@@ -2550,62 +1982,78 @@ export class OffenseRepository {
         // or a transient first legacy scan would falsely expire live rounds.
         if (failedStackAddresses.has(old.slasher_address)) continue;
         if (failedRounds.get(old.proposer_address)?.has(String(old.round))) continue;
-        const targets = roundTargets(
-          parseJson(old.actions_json, []),
-          parseJson(old.early_targets_json, []),
+        const stack = scannedStacks.get(old.proposer_address);
+        const targets = actionTargets(parseJson(old.actions_json, []));
+        if (stack && BigInt(stack.currentRound) <= BigInt(old.round)) {
+          // scanStack omits a completely empty round. If a reorg removes the
+          // only canonical ballots while voting is still open, the proposal no
+          // longer exists: remove it instead of manufacturing an expiry.
+          this.cancelUnsentL1CaseAlerts(network, old);
+          this.db.prepare('DELETE FROM onchain_rounds WHERE id = ?').run(old.id);
+          changed += 1;
+          continue;
+        }
+
+        const beyondLifetime = stack && (
+          BigInt(stack.currentRound) >
+          BigInt(old.round) + BigInt(stack.parameters.lifetimeInRounds)
         );
-        const nextStatus = old.is_executed ? 'archived' : 'expired';
-        const orphanGeneration = Number(old.transition_generation ?? 0) + Number(snapshot.reorgDetected);
-        const oldDetails = parseJson(old.details_json, {});
+        const nextStatus = !stack
+          ? 'stack-retired'
+          : beyondLifetime && targets.length > 0
+            ? 'expired'
+            : 'no-consensus';
+        const clearCanonicalProposal = Boolean(stack) && !beyondLifetime;
+        this.cancelUnsentL1CaseAlerts(network, old);
+        const details = parseJson(old.details_json, {});
+        const nextDetails = stack ? {
+          ...details,
+          currentSlot: snapshot.currentSlot,
+          currentEpoch: snapshot.currentEpoch,
+          currentRound: stack.currentRound,
+          isSlashingEnabled: Boolean(stack.isSlashingEnabled),
+          isExecutionPaused: clearCanonicalProposal ? false : Boolean(details.isExecutionPaused),
+          slashingDisabledUntil: stack.slashingDisabledUntil ?? null,
+          pauseStartedAtSlot: stack.pauseStartedAtSlot ?? null,
+          pauseEndsAtSlot: stack.pauseEndsAtSlot ?? null,
+          parameters: stack.parameters,
+          readyAt: stack.readyAt,
+          authorizedUntil: stack.authorizedUntil,
+        } : details;
         this.db.prepare(`
           UPDATE onchain_rounds SET status = ?, block_number = ?, block_hash = ?,
-            details_json = ?, transition_generation = ?, last_seen_at = ? WHERE id = ?
+            stack_role = ?, slasher_address = ?, ballot_count = ?,
+            is_executed = 0, is_vetoed = 0, payload_address = ?,
+            actions_json = ?, details_json = ?, last_seen_at = ? WHERE id = ?
         `).run(
           nextStatus,
           snapshot.blockNumber,
           snapshot.blockHash,
-          JSON.stringify({
-            ...oldDetails,
-            reorgOrphaned: Boolean(snapshot.reorgDetected),
-          }),
-          orphanGeneration,
+          stack?.role ?? old.stack_role,
+          stack?.slasherAddress?.toLowerCase() ?? old.slasher_address,
+          clearCanonicalProposal ? '0' : old.ballot_count,
+          clearCanonicalProposal ? null : old.payload_address,
+          clearCanonicalProposal ? '[]' : old.actions_json,
+          JSON.stringify(nextDetails),
           observedAt,
           old.id,
         );
         changed += 1;
-        if (targets.length > 0 && (snapshot.reorgDetected || !old.is_executed)) {
-          const type = snapshot.reorgDetected ? 'onchain_reorg_correction' : 'onchain_expired';
-          const insertion = this.insertEvent(onchainEvent(
+        if (targets.length > 0 && nextStatus === 'expired') {
+          const type = 'onchain_expired';
+          const insertion = this.insertEvent(l1CaseEvent(
             type,
             {
               ...onchainRowToSnapshot(old),
               status: nextStatus,
-              transitionGeneration: orphanGeneration,
             },
             network,
             observedAt,
             snapshot,
-            snapshot.reorgDetected
-              ? roundTransitionEventId(network, type, old.id, orphanGeneration)
-              : undefined,
+            stableId('event', network, type, old.id),
           ), targets);
           events += Number(insertion.inserted);
         }
-      }
-
-      if (snapshot.reorgDetected) {
-        const insertion = this.insertEvent({
-          id: stableId('event', network, 'l1_reorg_detected', snapshot.blockHash),
-          network,
-          source: 'ethereum_l1',
-          type: 'l1_reorg_detected',
-          severity: 'warning',
-          title: 'L1 reorg reconciled',
-          body: 'Slashmon discarded its old pinned-block view and applied a complete canonical snapshot.',
-          data: { blockNumber: snapshot.blockNumber, blockHash: snapshot.blockHash },
-          observedAt,
-        }, []);
-        events += Number(insertion.inserted);
       }
 
       this.ensureSource('l1');
@@ -2632,12 +2080,6 @@ export class OffenseRepository {
           currentEpoch: snapshot.currentEpoch,
           degraded: Boolean(snapshot.degraded),
           stackErrors: snapshot.stackErrors ?? [],
-          roundCursors: flattened.map(({ stack, round }) => ({
-            proposerAddress: stack.proposerAddress.toLowerCase(),
-            round: String(round.round),
-            ballotCount: String(round.ballotCount),
-            earlyTargets: round.earlyTargets ?? [],
-          })),
           stacks: snapshot.stacks.map((stack) => ({
             role: stack.role,
             slasherAddress: stack.slasherAddress,
@@ -2663,9 +2105,6 @@ export class OffenseRepository {
       this.ensureSource('l1_slash_logs');
       const previousMetadata = this.getSourceState('l1_slash_logs')?.metadata ?? {};
       if (normalized.reorgDetected) {
-        // The stored checkpoint is no longer canonical. Invalidate the bounded
-        // rewind tail immediately; each replacement chunk re-confirms any logs
-        // that still exist before correction events are emitted.
         this.db.prepare(`
           UPDATE l1_slash_logs SET canonical = 0, last_seen_at = ?
           WHERE network = ? AND block_number >= ?
@@ -2675,127 +2114,164 @@ export class OffenseRepository {
       let inserted = 0;
       let queued = 0;
       let reconfirmed = 0;
-      for (const slash of normalized.logs) {
-        const logId = stableId(
-          'l1-slashed-log',
+      let outcomesInserted = 0;
+      for (const outcome of groupSlashLogs(normalized)) {
+        const existingOutcome = this.db.prepare(`
+          SELECT * FROM slash_outcomes WHERE id = ?
+        `).get(outcome.id);
+        const correctionGeneration = Number(existingOutcome?.correction_generation ?? 0);
+        const wasCanonical = Boolean(existingOutcome?.canonical);
+        this.db.prepare(`
+          INSERT INTO slash_outcomes (
+            id, network, chain_id, rollup_address, block_number, block_hash,
+            transaction_hash, validator, amount, log_count, log_indexes_json,
+            canonical, backfilled, correction_generation, first_seen_at, last_seen_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            amount = excluded.amount,
+            log_count = excluded.log_count,
+            log_indexes_json = excluded.log_indexes_json,
+            canonical = 1,
+            last_seen_at = excluded.last_seen_at
+        `).run(
+          outcome.id,
+          network,
           normalized.chainId,
-          slash.blockHash,
-          slash.transactionHash,
-          slash.logIndex,
+          outcome.rollupAddress,
+          outcome.blockNumber,
+          outcome.blockHash,
+          outcome.transactionHash,
+          outcome.validator,
+          outcome.amount,
+          outcome.logCount,
+          JSON.stringify(outcome.logIndexes),
+          normalized.initialBackfill ? 1 : 0,
+          correctionGeneration,
+          existingOutcome?.first_seen_at ?? observedAt,
+          observedAt,
         );
-        const eventId = stableId('event', network, 'l1_slash_confirmed', logId);
-        const existing = this.db.prepare(`
-          SELECT * FROM l1_slash_logs
-          WHERE chain_id = ? AND block_hash = ? AND transaction_hash = ? AND log_index = ?
-        `).get(normalized.chainId, slash.blockHash, slash.transactionHash, slash.logIndex);
-        if (existing) {
-          if (
-            existing.id !== logId ||
-            existing.rollup_address !== slash.rollupAddress ||
-            existing.block_number !== slash.blockNumber ||
-            existing.sequencer !== slash.sequencer ||
-            existing.amount !== slash.amount
-          ) {
-            throw new Error('A persisted Slashed log identity decoded to different contents');
-          }
-          const wasCanonical = Boolean(existing.canonical);
-          const restorationWasAnnounced = !wasCanonical && Boolean(this.db.prepare(`
-            SELECT 1 FROM events WHERE id = ?
-          `).get(slashReorgCorrectionEventId(
-            network,
-            existing.id,
-            Number(existing.reconfirmation_count),
-          )));
-          const restorationGeneration = Number(existing.reconfirmation_count) + 1;
-          this.db.prepare(`
-            UPDATE l1_slash_logs SET canonical = 1, last_seen_at = ?,
-              reconfirmation_count = CASE WHEN ? = 1 THEN ? ELSE reconfirmation_count END
-            WHERE id = ?
-          `).run(
-            observedAt,
-            restorationWasAnnounced ? 1 : 0,
-            restorationGeneration,
-            logId,
+        outcomesInserted += Number(!existingOutcome);
+
+        for (const slash of outcome.logs) {
+          const logId = stableId(
+            'l1-slashed-log',
+            normalized.chainId,
+            slash.blockHash,
+            slash.transactionHash,
+            slash.logIndex,
           );
-          setEventCanonicalFlag(this.db, existing.event_id, true, observedAt);
-          if (restorationWasAnnounced) {
+          const existingLog = this.db.prepare(`
+            SELECT * FROM l1_slash_logs
+            WHERE chain_id = ? AND block_hash = ? AND transaction_hash = ? AND log_index = ?
+          `).get(normalized.chainId, slash.blockHash, slash.transactionHash, slash.logIndex);
+          if (existingLog) {
+            if (
+              existingLog.id !== logId ||
+              existingLog.outcome_id !== outcome.id ||
+              existingLog.rollup_address !== slash.rollupAddress ||
+              existingLog.block_number !== slash.blockNumber ||
+              existingLog.validator !== slash.validator ||
+              existingLog.amount !== slash.amount
+            ) {
+              throw new Error('A persisted Slashed log identity decoded to different contents');
+            }
+            this.db.prepare(`
+              UPDATE l1_slash_logs SET canonical = 1, last_seen_at = ? WHERE id = ?
+            `).run(observedAt, logId);
+            continue;
+          }
+          this.db.prepare(`
+            INSERT INTO l1_slash_logs (
+              id, outcome_id, network, chain_id, rollup_address, block_number, block_hash,
+              transaction_hash, log_index, validator, amount, canonical, first_seen_at, last_seen_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+          `).run(
+            logId,
+            outcome.id,
+            network,
+            normalized.chainId,
+            slash.rollupAddress,
+            slash.blockNumber,
+            slash.blockHash,
+            slash.transactionHash,
+            slash.logIndex,
+            slash.validator,
+            slash.amount,
+            observedAt,
+            observedAt,
+          );
+          inserted += 1;
+        }
+
+        const confirmedEventId = slashConfirmedEventId(network, outcome.id);
+        if (!existingOutcome && !normalized.initialBackfill) {
+          const eventResult = this.insertEvent(
+            confirmedSlashOutcomeEvent(confirmedEventId, network, outcome, observedAt, normalized.chainId),
+            [outcome.validator],
+          );
+          queued += eventResult.queued;
+        } else if (existingOutcome && !wasCanonical && !Boolean(existingOutcome.backfilled)) {
+          setEventCanonicalFlag(this.db, confirmedEventId, true, observedAt);
+          const correctionId = slashReorgCorrectionEventId(
+            network,
+            outcome.id,
+            correctionGeneration,
+          );
+          if (this.db.prepare('SELECT 1 FROM events WHERE id = ?').get(correctionId)) {
             const restoration = this.insertEvent(
-              slashReconfirmedEvent(
-                existing,
+              slashOutcomeReconfirmedEvent(
                 network,
+                outcome,
                 observedAt,
                 normalized,
-                restorationGeneration,
+                correctionGeneration,
               ),
-              [existing.sequencer],
+              [outcome.validator],
             );
             reconfirmed += Number(restoration.inserted);
             queued += restoration.queued;
           }
-          continue;
         }
-
-        const eventResult = this.insertEvent(
-          confirmedSlashEvent(
-            eventId,
-            network,
-            slash,
-            observedAt,
-            normalized.initialBackfill,
-            normalized.chainId,
-          ),
-          [slash.sequencer],
-        );
-        this.db.prepare(`
-          INSERT INTO l1_slash_logs (
-            id, event_id, network, chain_id, rollup_address, block_number, block_hash,
-            transaction_hash, log_index, sequencer, amount, canonical, first_seen_at, last_seen_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-        `).run(
-          logId,
-          eventId,
-          network,
-          normalized.chainId,
-          slash.rollupAddress,
-          slash.blockNumber,
-          slash.blockHash,
-          slash.transactionHash,
-          slash.logIndex,
-          slash.sequencer,
-          slash.amount,
-          observedAt,
-          observedAt,
-        );
-        inserted += 1;
-        queued += eventResult.queued;
       }
 
       let corrections = 0;
       const orphaned = this.db.prepare(`
-        SELECT * FROM l1_slash_logs
-        WHERE network = ? AND canonical = 0 AND block_number BETWEEN ? AND ?
+        SELECT * FROM slash_outcomes
+        WHERE network = ? AND canonical = 1 AND block_number BETWEEN ? AND ?
+          AND NOT EXISTS (
+            SELECT 1 FROM l1_slash_logs log
+            WHERE log.outcome_id = slash_outcomes.id AND log.canonical = 1
+          )
       `).all(network, normalized.fromBlock, normalized.toBlock);
-      for (const slash of orphaned) {
-        // Stop unsent work from an orphaned block. A provider-accepted alert
-        // cannot be recalled, so follow it with a target-scoped correction.
+      for (const outcome of orphaned) {
+        const generation = Number(outcome.correction_generation) + 1;
+        const confirmedEventId = slashConfirmedEventId(network, outcome.id);
+        this.db.prepare(`
+          UPDATE slash_outcomes SET canonical = 0, correction_generation = ?,
+            last_seen_at = ? WHERE id = ?
+        `).run(generation, observedAt, outcome.id);
         this.db.prepare(`
           UPDATE deliveries SET status = 'failed', lease_expires_at = NULL,
             last_error = 'L1 reorg removed the confirmed slash log', updated_at = ?
           WHERE event_id = ? AND status IN ('pending', 'sending', 'retry')
-        `).run(observedAt, slash.event_id);
-        setEventCanonicalFlag(this.db, slash.event_id, false, observedAt);
-        const correction = this.insertEvent(
-          slashReorgCorrectionEvent(
-            slash,
-            network,
-            observedAt,
-            normalized,
-            Number(slash.reconfirmation_count),
-          ),
-          [slash.sequencer],
-        );
-        corrections += Number(correction.inserted);
-        queued += correction.queued;
+        `).run(observedAt, confirmedEventId);
+        setEventCanonicalFlag(this.db, confirmedEventId, false, observedAt);
+        if (!Boolean(outcome.backfilled) && this.db.prepare(
+          'SELECT 1 FROM events WHERE id = ?',
+        ).get(confirmedEventId)) {
+          const correction = this.insertEvent(
+            slashOutcomeReorgEvent(
+              network,
+              toSlashOutcome(outcome),
+              observedAt,
+              normalized,
+              generation,
+            ),
+            [outcome.validator],
+          );
+          corrections += Number(correction.inserted);
+          queued += correction.queued;
+        }
       }
 
       this.db.prepare(`
@@ -2833,6 +2309,7 @@ export class OffenseRepository {
       );
       return {
         inserted,
+        outcomesInserted,
         reconfirmed,
         queued,
         corrections,
@@ -2844,21 +2321,110 @@ export class OffenseRepository {
     });
   }
 
-  listOnchainRounds({ network, limit = 200 } = {}) {
+  listSlashOutcomes({ network, validator, canonical, limit = 50 } = {}) {
+    if (typeof canonical !== 'boolean') {
+      throw new Error('Slash outcome queries must select canonical or removed records');
+    }
+    const clauses = ['network = ?', 'canonical = ?'];
+    const parameters = [network, canonical ? 1 : 0];
+    if (validator) {
+      clauses.push('validator = ?');
+      parameters.push(String(validator).toLowerCase());
+    }
     const rows = this.db.prepare(`
-      SELECT * FROM onchain_rounds WHERE network = ? AND status != 'archived'
-      ORDER BY last_seen_at DESC, CAST(round AS INTEGER) DESC LIMIT ?
-    `).all(network, limit);
-    return rows.map((row) => ({
-      ...onchainRowToSnapshot(row),
-      network: row.network,
-      chainId: row.chain_id,
-      blockNumber: row.block_number,
-      blockHash: row.block_hash,
-      firstSeenAt: toIso(row.first_seen_at),
-      lastSeenAt: toIso(row.last_seen_at),
-      ...parseJson(row.details_json, {}),
-    }));
+      SELECT * FROM slash_outcomes
+      WHERE ${clauses.join(' AND ')}
+      ORDER BY ${canonical ? 'block_number' : 'last_seen_at'} DESC,
+        block_number DESC, transaction_hash DESC, validator
+      LIMIT ?
+    `).all(...parameters, limit);
+    return rows.map(toSlashOutcome);
+  }
+
+  getMonitorSnapshot(network, {
+    caseLimit = 100,
+    confirmedSlashLimit = 50,
+    removedSlashLimit = 10,
+  } = {}) {
+    const l1State = this.getSourceState('l1');
+    const slashState = this.getSourceState('l1_slash_logs');
+    const rows = this.db.prepare(`
+      SELECT * FROM onchain_rounds
+      WHERE network = ?
+      ORDER BY last_seen_at DESC, CAST(round AS INTEGER) DESC
+      LIMIT ?
+    `).all(network, caseLimit);
+    return {
+      network,
+      coverage: {
+        cases: l1DatasetCoverage(l1State),
+        slashes: slashDatasetCoverage(slashState),
+      },
+      protocol: this.getSlashingProtocolSnapshot() ?? null,
+      cases: rows.map(toMonitorCase),
+      slashes: {
+        confirmed: this.listSlashOutcomes({
+          network,
+          canonical: true,
+          limit: confirmedSlashLimit,
+        }),
+        removed: this.listSlashOutcomes({
+          network,
+          canonical: false,
+          limit: removedSlashLimit,
+        }),
+      },
+    };
+  }
+
+  getValidatorSnapshot(network, validator, {
+    caseLimit = 100,
+    confirmedSlashLimit = 100,
+    removedSlashLimit = 20,
+  } = {}) {
+    const address = normalizeValidator(validator);
+    const cases = this.db.prepare(`
+      SELECT * FROM onchain_rounds
+      WHERE network = ?
+        AND EXISTS (
+          SELECT 1 FROM json_each(onchain_rounds.actions_json) action
+          WHERE lower(json_extract(action.value, '$.validator')) = ?
+        )
+      ORDER BY last_seen_at DESC, CAST(round AS INTEGER) DESC
+      LIMIT ?
+    `).all(network, address, caseLimit).map(toMonitorCase);
+    const nodeOffenses = this.listOffenses({
+      status: 'all',
+      validators: [address],
+      limit: 200,
+    });
+    const slashes = {
+      confirmed: this.listSlashOutcomes({
+        network,
+        validator: address,
+        canonical: true,
+        limit: confirmedSlashLimit,
+      }),
+      removed: this.listSlashOutcomes({
+        network,
+        validator: address,
+        canonical: false,
+        limit: removedSlashLimit,
+      }),
+    };
+    const latest = [
+      ...cases.map((item) => Date.parse(item.observedAt)),
+      ...nodeOffenses.map((offense) => Date.parse(offense.lastObservedAt)),
+      ...slashes.confirmed.map((slash) => Date.parse(slash.observedAt)),
+      ...slashes.removed.map((slash) => Date.parse(slash.observedAt)),
+    ].filter((value) => Number.isFinite(value));
+    return {
+      address,
+      observedAt: toIso(latest.length > 0 ? Math.max(...latest) : null),
+      cases,
+      nodeOffenses,
+      slashes,
+    };
   }
 
   close() {
@@ -2867,9 +2433,9 @@ export class OffenseRepository {
 }
 
 const PUBLIC_OFFENSE_SELECT = `
-  SELECT id, sequencer, amount, offense_type AS offenseType, offense_type_name AS offenseTypeName,
+  SELECT id, validator, penalty, offense_type AS offenseType, offense_type_name AS offenseTypeName,
     epoch_or_slot AS epochOrSlot, time_unit AS timeUnit, status,
-    first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt, withdrawn_at AS withdrawnAt,
+    first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt, resolved_at AS resolvedAt,
     observation_count AS observationCount, reactivation_count AS reactivationCount,
     missed_polls AS missedPolls FROM offenses
 `;
@@ -2877,421 +2443,35 @@ const PUBLIC_OFFENSE_SELECT = `
 function toPublicOffense(row) {
   return {
     id: row.id,
-    sequencer: row.sequencer,
-    amount: row.amount,
+    address: row.validator,
+    configuredPenalty: row.penalty,
     offenseType: row.offenseType,
     offenseTypeName: row.offenseTypeName,
     epochOrSlot: row.epochOrSlot,
     timeUnit: row.timeUnit,
     status: row.status,
-    firstSeenAt: toIso(row.firstSeenAt),
-    lastSeenAt: toIso(row.lastSeenAt),
-    withdrawnAt: toIso(row.withdrawnAt),
+    firstObservedAt: toIso(row.firstSeenAt),
+    lastObservedAt: toIso(row.lastSeenAt),
+    resolvedAt: toIso(row.resolvedAt),
     observationCount: row.observationCount,
     reactivationCount: row.reactivationCount,
     missedPolls: row.missedPolls,
   };
 }
 
-function buildOffenseFilters(status, sequencers) {
-  if (!['active', 'withdrawn', 'all'].includes(status)) throw new Error('status must be active, withdrawn, or all');
+function buildOffenseFilters(status, validators) {
+  if (!['active', 'resolved', 'all'].includes(status)) throw new Error('status must be active, resolved, or all');
   const clauses = [];
   const parameters = [];
   if (status !== 'all') {
     clauses.push('status = ?');
     parameters.push(status);
   }
-  if (sequencers.length > 0) {
-    clauses.push(`sequencer IN (${sequencers.map(() => '?').join(',')})`);
-    parameters.push(...sequencers.map((value) => value.toLowerCase()));
+  if (validators.length > 0) {
+    clauses.push(`validator IN (${validators.map(() => '?').join(',')})`);
+    parameters.push(...validators.map((value) => value.toLowerCase()));
   }
   return { where: clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '', parameters };
-}
-
-function pendingEvent(type, offense, network, observedAt, explicitId, timing = {}) {
-  const copy = pendingEventCopy(type, offense, timing);
-  return {
-    id: explicitId ?? stableId('event', network, type, offense.id, observedAt, offense.amount),
-    network,
-    source: 'aztec_node',
-    type,
-    severity: 'warning',
-    title: copy.title,
-    body: copy.body,
-    data: {
-      offenseId: offense.id,
-      sequencer: offense.sequencer,
-      amount: String(offense.amount),
-      offenseType: offense.offenseType,
-      offenseTypeName: offense.offenseTypeName,
-      epochOrSlot: String(offense.epochOrSlot),
-      timeUnit: offense.timeUnit,
-      ...timing,
-      certainty: 'pending',
-    },
-    observedAt,
-  };
-}
-
-function inactivityFirstMissEvent(miss, network, observedAt) {
-  return {
-    id: stableId('event', network, 'inactivity_first_miss', miss.sequencer, miss.epoch),
-    network,
-    source: 'aztec_sentinel',
-    type: 'inactivity_first_miss',
-    severity: 'warning',
-    title: 'Missed duty observed',
-    body: `A duty was missed at slot ${miss.slot} in epoch ${miss.epoch}. ` +
-      'This is early Sentinel evidence, not a registered slash offense or an L1 vote.',
-    data: {
-      certainty: 'pending',
-      sequencer: miss.sequencer,
-      offenseType: null,
-      offenseTypeName: 'inactivity precursor',
-      epochOrSlot: String(miss.epoch),
-      timeUnit: 'epoch',
-      epoch: String(miss.epoch),
-      slot: String(miss.slot),
-      dutyStatus: miss.status,
-    },
-    observedAt,
-  };
-}
-
-function inactivityEpochEvent(performance, network, observedAt) {
-  const thresholdReached = performance.inactiveStreak >= performance.threshold;
-  const missedSlots = performance.firstMissedSlot === null
-    ? ''
-    : performance.firstMissedSlot === performance.lastMissedSlot
-      ? ` Missed slot: ${performance.firstMissedSlot}.`
-      : ` Missed slots: ${performance.firstMissedSlot}–${performance.lastMissedSlot}.`;
-  const threshold = thresholdReached
-    ? ` Inactivity threshold reached: ${performance.inactiveStreak}/${performance.threshold} required epochs.`
-    : ` Inactivity streak: ${performance.inactiveStreak}/${performance.threshold} required epochs.`;
-  return {
-    id: stableId(
-      'event',
-      network,
-      'inactivity_epoch_completed',
-      performance.sequencer,
-      performance.epoch,
-    ),
-    network,
-    source: 'aztec_sentinel',
-    type: 'inactivity_epoch_completed',
-    severity: 'warning',
-    title: thresholdReached
-      ? 'Inactivity threshold reached'
-      : 'Inactive epoch recorded',
-    body: `${performance.missed}/${performance.total} observed duties were missed in epoch ${performance.epoch}.` +
-      `${missedSlots}${threshold} This is Sentinel evidence, not a registered slash offense or an L1 vote.`,
-    data: {
-      certainty: 'pending',
-      sequencer: performance.sequencer,
-      offenseType: null,
-      offenseTypeName: 'inactivity precursor',
-      epochOrSlot: String(performance.epoch),
-      timeUnit: 'epoch',
-      epoch: String(performance.epoch),
-      missed: performance.missed,
-      total: performance.total,
-      firstMissedSlot: performance.firstMissedSlot === null
-        ? null
-        : String(performance.firstMissedSlot),
-      lastMissedSlot: performance.lastMissedSlot === null
-        ? null
-        : String(performance.lastMissedSlot),
-      inactiveStreak: performance.inactiveStreak,
-      slashableThreshold: performance.threshold,
-      targetPercentage: performance.targetPercentage,
-      thresholdReached,
-    },
-    observedAt,
-  };
-}
-
-function pendingEventCopy(type, offense, timing) {
-  const label = String(offense.offenseTypeName ?? 'unknown').replaceAll('_', ' ');
-  const position = offensePosition(offense, timing);
-  const amount = formatAztecAmount(offense.amount);
-  const rounds = pendingRoundContext(timing);
-  const stage = 'This is a node-local offense, not an L1 vote or slash payload.';
-  return {
-    pending_offense_detected: {
-      title: `${capitalize(label)} offense detected`,
-      body: `Aztec node registered ${indefiniteArticle(label)} ${label} offense for ${position}. ` +
-        `Proposed slash: ${amount} AZTEC.${rounds} ${stage}`,
-    },
-    pending_offense_reactivated: {
-      title: `${capitalize(label)} offense returned`,
-      body: `Aztec node reported its ${label} offense again for ${position}. ` +
-        `Proposed slash: ${amount} AZTEC.${rounds} ${stage}`,
-    },
-    pending_offense_updated: {
-      title: `${capitalize(label)} offense changed`,
-      body: `Aztec node updated its ${label} offense for ${position}. ` +
-        `Current proposed slash: ${amount} AZTEC.${rounds} ${stage}`,
-    },
-  }[type];
-}
-
-function onchainEventCopy(type, round, targets) {
-  const role = round.role ?? round.stackRole ?? 'active';
-  const roundNumber = String(round.round);
-  const roundContext = `${role} round ${roundNumber}${targetEpochClause(round.targetEpochs)}`;
-  const proposalAmount = onchainAmountContext(round.actions, targets, 'Proposed slash');
-  const executedAmount = onchainAmountContext(round.actions, targets, 'Executed slash');
-  const currentAmount = onchainAmountContext(round.actions, targets, 'Current slash');
-  const executionWindow = slotWindow(
-    round.executableSlot,
-    round.expirySlot,
-    round.executableAt,
-    round.expiryAt,
-  );
-  const expiry = round.expirySlot === null || round.expirySlot === undefined
-    ? ''
-    : ` Expiry remains slot ${round.expirySlot}${round.expiryAt ? ` (${round.expiryAt})` : ''}.`;
-  const pause = round.pauseEndsAtSlot === null || round.pauseEndsAtSlot === undefined
-    ? ''
-    : ` The pause is scheduled to end at slot ${round.pauseEndsAtSlot}.`;
-  const observed = observationContext(round);
-  const replacedVeto = replacedVetoContext(round);
-  if (type === 'onchain_payload_changed') {
-    return payloadChangeCopy(round, targets, roundContext, executionWindow, observed, replacedVeto);
-  }
-  const config = {
-    onchain_vote_targeted: [
-      'warning',
-      'L1 slash vote observed',
-      `At least one L1 slash vote was recorded in ${roundContext}. ` +
-        `This is vote evidence only; no slash payload exists yet.${observed}`,
-    ],
-    onchain_targeted: [
-      'warning',
-      'Slash payload proposed',
-      `A slash payload was proposed in ${roundContext}.${proposalAmount}${executionWindow}${observed}`,
-    ],
-    onchain_executable: [
-      'critical',
-      'Slash payload is executable',
-      `The slash payload from ${roundContext} is now executable.${currentAmount}` +
-        `${replacedVeto}${expiry}${observed}`,
-    ],
-    onchain_executable_after_pause: [
-      'critical',
-      'Slash payload blocked by global pause',
-      `The slash payload from ${roundContext} reached its execution window, but the global slashing ` +
-        `pause blocks execution.${currentAmount}${pause}${expiry}${observed}`,
-    ],
-    onchain_execution_paused: [
-      'warning',
-      'Slash execution paused',
-      `The global slashing pause now blocks execution of the payload from ${roundContext}.` +
-        `${currentAmount}${pause}${expiry}${observed}`,
-    ],
-    onchain_pause_protected: [
-      'info',
-      'Slash payload protected through expiry',
-      `The global slashing pause protects the payload from ${roundContext} through its expiry.` +
-        `${currentAmount}${pause}${expiry}${observed}`,
-    ],
-    onchain_vetoed: [
-      'info',
-      'Slash payload vetoed',
-      `The slash payload from ${roundContext} was vetoed.${currentAmount}${expiry}${observed}`,
-    ],
-    onchain_veto_reverted: [
-      'critical',
-      'Slash payload no longer reported vetoed',
-      `The same slash payload from ${roundContext} is no longer reported as vetoed.` +
-        `${currentAmount}${expiry}${observed}`,
-    ],
-    onchain_executed: [
-      'critical',
-      'Slashing round executed',
-      `The slash payload from ${roundContext} was executed.${executedAmount}` +
-        `${replacedVeto}${observed}`,
-    ],
-    onchain_execution_target_cleared: [
-      'info',
-      'Executed tally cleared prior target',
-      `The executed tally for ${roundContext} did not include a sequencer targeted by an earlier ` +
-        `view of the round.${observed}`,
-    ],
-    onchain_expired: [
-      'info',
-      'Slash payload expired',
-      `The execution window for ${roundContext} closed without execution.${observed}`,
-    ],
-    onchain_reorg_correction: [
-      'warning',
-      'L1 slashing view corrected',
-      `An L1 reorganization removed or changed prior targeting in ${roundContext}.${observed}`,
-    ],
-    onchain_reorg_restored: [
-      'critical',
-      'L1 slashing target restored',
-      `Targeting in ${roundContext} returned to the canonical L1 view.${currentAmount}${observed}`,
-    ],
-  }[type];
-  return { severity: config[0], title: config[1], body: config[2] };
-}
-
-function payloadChangeCopy(round, targets, roundContext, executionWindow, observed, replacedVeto) {
-  const targetSet = new Set(targets.map((target) => String(target).toLowerCase()));
-  const changes = (round.actionChanges ?? [])
-    .filter((change) => targetSet.has(change.sequencer));
-  let title = 'Slash payload changed';
-  let body = `Slash actions changed in ${roundContext}.`;
-  if (changes.length === 1) {
-    const [change] = changes;
-    const sequencer = targets.length === 1 ? 'This sequencer' : shortAddress(change.sequencer);
-    if (change.kind === 'added') {
-      title = 'Sequencer added to slash payload';
-      body = `${sequencer} was added to the slash payload in ${roundContext}. ` +
-        `Proposed slash: ${formatAztecAmount(change.currentAmount)} AZTEC.`;
-    } else if (change.kind === 'removed') {
-      title = 'Sequencer removed from slash payload';
-      body = `${sequencer} was removed from the slash payload in ${roundContext}. ` +
-        'No slash is currently proposed for this sequencer in this round.';
-    } else {
-      title = 'Proposed slash amount changed';
-      const subject = sequencer === 'This sequencer'
-        ? 'The proposed slash for this sequencer'
-        : `The proposed slash for ${sequencer}`;
-      body = `${subject} changed from ` +
-        `${formatAztecAmount(change.previousAmount)} to ` +
-        `${formatAztecAmount(change.currentAmount)} AZTEC in ${roundContext}.`;
-    }
-  } else if (changes.length > 1) {
-    body = `Slash actions changed for ${changes.length} sequencers in ${roundContext}.` +
-      onchainAmountContext(round.actions, targets, 'Current proposed slash');
-  } else {
-    body = `The payload address changed in ${roundContext}; the proposed slash actions are unchanged.`;
-  }
-  const raisesRisk = changes.some((change) => {
-    if (change.kind === 'added') return true;
-    if (change.kind !== 'amount_changed') return false;
-    try {
-      return BigInt(change.currentAmount) > BigInt(change.previousAmount);
-    } catch {
-      return true;
-    }
-  });
-  return {
-    severity: replacedVeto || raisesRisk
-      ? 'critical'
-      : changes.length > 0
-        ? 'info'
-        : 'warning',
-    title,
-    body: `${body}${replacedVeto}${executionWindow}${observed}`,
-  };
-}
-
-function replacedVetoContext(round) {
-  const previousPayload = String(round.previousPayloadAddress ?? '');
-  const currentPayload = String(round.payloadAddress ?? '');
-  if (
-    round.previousPayloadWasVetoed !== true ||
-    !/^0x[0-9a-f]{40}$/i.test(previousPayload) ||
-    !/^0x[0-9a-f]{40}$/i.test(currentPayload) ||
-    previousPayload.toLowerCase() === currentPayload.toLowerCase() ||
-    round.isVetoed
-  ) {
-    return '';
-  }
-  return ` The previous payload (${shortAddress(previousPayload)}) was vetoed. ` +
-    `The new payload (${shortAddress(currentPayload)}) is not vetoed.`;
-}
-
-function offensePosition(offense, timing) {
-  if (!offense.timeUnit || offense.epochOrSlot === undefined) return 'an unknown position';
-  if (offense.timeUnit === 'epoch' && timing?.slot !== undefined) {
-    return `epoch ${offense.epochOrSlot} (starts at slot ${timing.slot})`;
-  }
-  if (offense.timeUnit === 'slot' && timing?.epoch !== undefined) {
-    return `slot ${offense.epochOrSlot} (epoch ${timing.epoch})`;
-  }
-  return `${offense.timeUnit} ${offense.epochOrSlot}`;
-}
-
-function pendingRoundContext(timing) {
-  const facts = [];
-  if (timing?.offenseRound !== undefined) facts.push(`offense round ${timing.offenseRound}`);
-  if (timing?.proposalRound !== undefined) facts.push(`expected vote round ${timing.proposalRound}`);
-  return facts.length > 0 ? ` ${capitalize(facts.join('; '))}.` : '';
-}
-
-function indefiniteArticle(value) {
-  return /^[aeiou]/i.test(String(value)) ? 'an' : 'a';
-}
-
-function targetEpochClause(targetEpochs) {
-  const formatted = formatEpochRange(targetEpochs);
-  return formatted ? ` for target ${formatted}` : '';
-}
-
-function onchainAmountContext(actions, targets, label) {
-  const byTarget = new Map((actions ?? []).map((action) => [
-    String(action.sequencer ?? action.validator ?? '').toLowerCase(),
-    String(action.amount ?? action.slashAmount ?? ''),
-  ]));
-  const amounts = targets
-    .map((target) => byTarget.get(String(target).toLowerCase()))
-    .filter((amount) => amount !== undefined);
-  if (amounts.length !== targets.length || amounts.length === 0) return '';
-  const unique = [...new Set(amounts)];
-  if (unique.length === 1) {
-    return ` ${label}: ${formatAztecAmount(unique[0])} AZTEC${targets.length > 1 ? ' each' : ''}.`;
-  }
-  const sorted = unique.map(BigInt).sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
-  return ` Slash amounts: ${formatAztecAmount(sorted[0])}–` +
-    `${formatAztecAmount(sorted[sorted.length - 1])} AZTEC.`;
-}
-
-function slotWindow(executableSlot, expirySlot, executableAt, expiryAt) {
-  if (executableSlot === null || executableSlot === undefined) return '';
-  if (expirySlot === null || expirySlot === undefined) {
-    return ` Execution opens at slot ${executableSlot}${executableAt ? ` (${executableAt})` : ''}.`;
-  }
-  const timestamps = executableAt && expiryAt ? ` (${executableAt} to ${expiryAt})` : '';
-  return ` Execution window: slots ${executableSlot}–${expirySlot}${timestamps}.`;
-}
-
-function observationContext(round) {
-  const epoch = round.currentEpoch;
-  const slot = round.currentSlot;
-  if (epoch !== null && epoch !== undefined && slot !== null && slot !== undefined) {
-    return ` Observed at epoch ${epoch}, slot ${slot}.`;
-  }
-  if (epoch !== null && epoch !== undefined) return ` Observed at epoch ${epoch}.`;
-  if (slot !== null && slot !== undefined) return ` Observed at slot ${slot}.`;
-  return '';
-}
-
-function pendingOffenseTiming(offense, l1Metadata) {
-  const activeStack = l1Metadata?.stacks?.find((stack) => stack.role === 'active');
-  const parameters = activeStack?.parameters;
-  if (!['epoch', 'slot'].includes(offense.timeUnit)) return {};
-  try {
-    const epochDuration = BigInt(l1Metadata?.epochDuration);
-    const roundSize = BigInt(parameters?.roundSize);
-    const slashOffset = BigInt(parameters?.slashOffsetInRounds);
-    const epochOrSlot = BigInt(offense.epochOrSlot);
-    if (epochDuration <= 0n || roundSize <= 0n || slashOffset < 0n || epochOrSlot < 0n) return {};
-    const slot = offense.timeUnit === 'epoch' ? epochOrSlot * epochDuration : epochOrSlot;
-    const epoch = offense.timeUnit === 'epoch' ? epochOrSlot : slot / epochDuration;
-    const offenseRound = slot / roundSize;
-    return {
-      epoch: epoch.toString(),
-      slot: slot.toString(),
-      offenseRound: offenseRound.toString(),
-      proposalRound: (offenseRound + slashOffset).toString(),
-    };
-  } catch {
-    return {};
-  }
 }
 
 function slotTimestamp(slot, ...sources) {
@@ -3311,369 +2491,16 @@ function slotTimestamp(slot, ...sources) {
   }
 }
 
-function capitalize(value) {
-  return value ? `${value[0].toUpperCase()}${value.slice(1)}` : value;
-}
-
-function catchupEvent(event, ...identity) {
-  return {
-    ...event,
-    id: stableId('catchup-event', ...identity),
-    source: 'catchup',
-    data: {
-      ...event.data,
-      originSource: event.source,
-      catchup: true,
-    },
-  };
-}
-
-function l1Transition(existing, round, snapshot) {
-  const hasActions = Array.isArray(round.actions) && round.actions.length > 0;
-  const hasEarlyTargets = Array.isArray(round.earlyTargets) && round.earlyTargets.length > 0;
-  const timeExecutable = ['newly-executable', 'executable'].includes(round.status);
-  const executionAlertable = hasActions && round.isAuthorized !== false && timeExecutable && !round.isVetoed;
-  if (!existing) {
-    if (!hasActions && !hasEarlyTargets) return undefined;
-    if (round.isExecuted) return 'onchain_executed';
-    if (round.isVetoed) return 'onchain_vetoed';
-    if (executionAlertable) {
-      if (round.isProtected) return 'onchain_pause_protected';
-      if (round.isExecutionPaused) return 'onchain_executable_after_pause';
-      return 'onchain_executable';
-    }
-    return hasActions ? 'onchain_targeted' : 'onchain_vote_targeted';
+function canonicalL1Round(round, currentRound) {
+  let status = round.status;
+  if (round.isExecuted) {
+    status = 'executed';
+  } else if (round.isVetoed && isVotingClosed(round.round, currentRound)) {
+    status = 'vetoed';
+  } else if ((round.actions ?? []).length === 0 && isVotingClosed(round.round, currentRound)) {
+    status = 'no-consensus';
   }
-  const oldActions = parseJson(existing.actions_json, []);
-  const oldEarlyTargets = parseJson(existing.early_targets_json, []);
-  const oldDetails = parseJson(existing.details_json, {});
-  const oldTimeExecutable = ['newly-executable', 'executable'].includes(existing.status);
-  const oldExecutionPaused = Boolean(oldDetails.isExecutionPaused);
-  const oldProtected = Boolean(oldDetails.isProtected);
-  const actionsChanged = JSON.stringify(round.actions ?? []) !== JSON.stringify(oldActions);
-  const payloadChanged = (round.payloadAddress?.toLowerCase() ?? null) !== existing.payload_address;
-  const oldTargets = new Set(roundTargets(oldActions, oldEarlyTargets));
-  const newTargets = new Set(roundTargets(round.actions ?? [], round.earlyTargets ?? []));
-  const targetingRemoved = [...oldTargets].some((target) => !newTargets.has(target));
-  const executionReverted = Boolean(existing.is_executed) && !round.isExecuted;
-  const executionWindowReverted = ['newly-executable', 'executable'].includes(existing.status) &&
-    !['newly-executable', 'executable', 'executed'].includes(round.status);
-
-  // Execution is terminal and must never be hidden by a simultaneous payload
-  // transition (for example when the process skipped the quorum snapshot).
-  if (round.isExecuted && !existing.is_executed) return 'onchain_executed';
-  if (oldDetails.reorgOrphaned && (hasActions || hasEarlyTargets)) {
-    return 'onchain_reorg_restored';
-  }
-  if (
-    snapshot?.reorgDetected &&
-    (payloadChanged || actionsChanged || targetingRemoved || executionReverted || executionWindowReverted)
-  ) {
-    return 'onchain_reorg_correction';
-  }
-  if (round.isVetoed && !existing.is_vetoed) return 'onchain_vetoed';
-  // Vetoes are permanent flags on exact payload addresses. A non-vetoed,
-  // different payload is a payload replacement, not a removed veto.
-  if (!round.isVetoed && existing.is_vetoed && !payloadChanged) {
-    return 'onchain_veto_reverted';
-  }
-  // A scheduled pause and permanent protection-through-expiry are different.
-  // Warn immediately when a round survives the pause, then escalate again when
-  // execution actually becomes possible. A veto always wins over these states.
-  if (executionAlertable && !round.isExecutionPaused && (!oldTimeExecutable || oldExecutionPaused)) {
-    return 'onchain_executable';
-  }
-  if (hasActions && oldActions.length === 0) return 'onchain_targeted';
-  if (oldActions.length > 0 && (payloadChanged || actionsChanged)) return 'onchain_payload_changed';
-  if (executionAlertable && round.isProtected && (!oldTimeExecutable || !oldProtected)) {
-    return 'onchain_pause_protected';
-  }
-  if (executionAlertable && round.isExecutionPaused && !round.isProtected) {
-    if (!oldTimeExecutable || oldProtected) return 'onchain_executable_after_pause';
-    if (!oldExecutionPaused) return 'onchain_execution_paused';
-  }
-  const oldEarlyTargetAddresses = new Set(oldEarlyTargets.map((target) => target.sequencer?.toLowerCase()));
-  if ((round.earlyTargets ?? []).some((target) => !oldEarlyTargetAddresses.has(target.sequencer?.toLowerCase()))) {
-    return 'onchain_vote_targeted';
-  }
-  return undefined;
-}
-
-function l1TransitionTargets(existing, round, type) {
-  if (!type) return [];
-  if (type === 'onchain_executed') return actionTargets(round.actions ?? []);
-  if (type === 'onchain_vote_targeted') {
-    const oldTargets = new Set(
-      existing ? parseJson(existing.early_targets_json, []).map((target) => target.sequencer?.toLowerCase()) : [],
-    );
-    const added = (round.earlyTargets ?? [])
-      .map((target) => target.sequencer?.toLowerCase())
-      .filter((target) => target && !oldTargets.has(target));
-    return [...new Set(added)];
-  }
-  if (existing && type === 'onchain_payload_changed') {
-    const previousActions = parseJson(existing.actions_json, []);
-    const changedTargets = changedActionTargets(previousActions, round.actions ?? []);
-    const payloadChanged = (round.payloadAddress?.toLowerCase() ?? null) !== existing.payload_address;
-    if (
-      Boolean(existing.is_vetoed) &&
-      !round.isVetoed &&
-      payloadChanged
-    ) {
-      // The old veto protected every action in that exact payload, including
-      // actions whose amount did not change in the replacement.
-      return actionTargets([...previousActions, ...(round.actions ?? [])]);
-    }
-    return changedTargets;
-  }
-  if (existing && type === 'onchain_reorg_correction') {
-    return roundTargets(
-      [
-        ...parseJson(existing.actions_json, []),
-        ...(round.actions ?? []),
-      ],
-      [
-        ...parseJson(existing.early_targets_json, []),
-        ...(round.earlyTargets ?? []),
-      ],
-    );
-  }
-  const actionAddresses = actionTargets(round.actions ?? []);
-  return actionAddresses.length > 0 ? actionAddresses : roundTargets([], round.earlyTargets ?? []);
-}
-
-function changedActionTargets(previousActions, nextActions) {
-  const previousAmounts = actionAmountsByTarget(previousActions);
-  const nextAmounts = actionAmountsByTarget(nextActions);
-  return [...new Set([...previousAmounts.keys(), ...nextAmounts.keys()])]
-    .filter((target) => previousAmounts.get(target) !== nextAmounts.get(target))
-    .sort();
-}
-
-function describeActionChanges(previousActions, nextActions) {
-  const previousAmounts = actionAmountsByTarget(previousActions);
-  const nextAmounts = actionAmountsByTarget(nextActions);
-  return [...new Set([...previousAmounts.keys(), ...nextAmounts.keys()])]
-    .filter((sequencer) => previousAmounts.get(sequencer) !== nextAmounts.get(sequencer))
-    .sort()
-    .map((sequencer) => {
-      const previousAmount = previousAmounts.get(sequencer) ?? null;
-      const currentAmount = nextAmounts.get(sequencer) ?? null;
-      return {
-        sequencer,
-        kind: previousAmount === null
-          ? 'added'
-          : currentAmount === null
-            ? 'removed'
-            : 'amount_changed',
-        previousAmount,
-        currentAmount,
-      };
-    });
-}
-
-function actionAmountsByTarget(actions) {
-  const amounts = new Map();
-  for (const action of actions ?? []) {
-    const target = String(action.sequencer ?? '').toLowerCase();
-    if (!/^0x[0-9a-f]{40}$/.test(target)) continue;
-    amounts.set(target, String(action.amount));
-  }
-  return amounts;
-}
-
-function l1ClearedExecutionTargets(existing, round) {
-  if (!existing || Boolean(existing.is_executed) || !round.isExecuted) return [];
-  const previouslyTargeted = roundTargets(
-    parseJson(existing.actions_json, []),
-    parseJson(existing.early_targets_json, []),
-  );
-  const executedTargets = new Set(actionTargets(round.actions ?? []));
-  return previouslyTargeted.filter((target) => !executedTargets.has(target));
-}
-
-function l1CatchupEventType(row, actions, earlyTargets) {
-  const details = parseJson(row.details_json, {});
-  if (row.is_executed) return 'onchain_executed';
-  if (row.is_vetoed) return 'onchain_vetoed';
-  if (['newly-executable', 'executable'].includes(row.status) && actions.length > 0) {
-    if (details.isProtected) return 'onchain_pause_protected';
-    if (details.isExecutionPaused) return 'onchain_executable_after_pause';
-    return 'onchain_executable';
-  }
-  if (actions.length > 0) return 'onchain_targeted';
-  if (earlyTargets.length > 0) return 'onchain_vote_targeted';
-  return 'onchain_targeted';
-}
-
-function onchainEvent(type, round, network, observedAt, snapshot, explicitId, explicitTargets) {
-  const targets = explicitTargets ?? (type === 'onchain_executed'
-    ? actionTargets(round.actions ?? [])
-    : roundTargets(round.actions ?? [], round.earlyTargets ?? []));
-  const role = round.role ?? round.stackRole ?? 'active';
-  const executableSlot = round.executableSlot ?? null;
-  const expirySlot = round.expirySlot ?? null;
-  const executableAt = slotTimestamp(executableSlot, round, snapshot);
-  const expiryAt = slotTimestamp(expirySlot, round, snapshot);
-  const actionChanges = type === 'onchain_payload_changed'
-    ? describeActionChanges(round.previousActions ?? [], round.actions ?? [])
-    : [];
-  const copy = onchainEventCopy(type, {
-    ...round,
-    actionChanges,
-    role,
-    currentSlot: snapshot.currentSlot ?? round.currentSlot ?? null,
-    currentEpoch: snapshot.currentEpoch ?? round.currentEpoch ?? null,
-    executableSlot,
-    executableAt,
-    expirySlot,
-    expiryAt,
-  }, targets);
-  const payload = round.payloadAddress ?? null;
-  return {
-    id: explicitId ?? stableId('event', network, type, round.proposerAddress ?? '', round.round, payload ?? '', snapshot.blockHash),
-    network,
-    source: 'ethereum_l1',
-    type,
-    severity: copy.severity,
-    title: copy.title,
-    body: copy.body,
-    data: {
-      certainty: 'confirmed',
-      chainId: snapshot.chainId ?? round.chainId ?? null,
-      role,
-      round: String(round.round),
-      targetEpochs: round.targetEpochs ?? [],
-      epochDuration: snapshot.epochDuration ?? round.epochDuration ?? null,
-      currentSlot: snapshot.currentSlot ?? round.currentSlot ?? null,
-      currentEpoch: snapshot.currentEpoch ?? round.currentEpoch ?? null,
-      executableSlot,
-      executableAt,
-      expirySlot,
-      expiryAt,
-      proposerAddress: round.proposerAddress,
-      slasherAddress: round.slasherAddress,
-      payloadAddress: payload,
-      previousPayloadAddress: round.previousPayloadAddress ?? null,
-      previousPayloadWasVetoed: round.previousPayloadWasVetoed === true,
-      status: round.status,
-      isVetoed: Boolean(round.isVetoed),
-      isExecuted: Boolean(round.isExecuted),
-      isSlashingEnabled: round.isSlashingEnabled !== false,
-      isExecutionPaused: Boolean(round.isExecutionPaused),
-      isProtected: Boolean(round.isProtected),
-      pauseStartedAtSlot: round.pauseStartedAtSlot ?? null,
-      pauseEndsAtSlot: round.pauseEndsAtSlot ?? null,
-      actions: round.actions ?? [],
-      actionChanges,
-      earlyTargets: round.earlyTargets ?? [],
-      forkGeneration: round.transitionGeneration ?? null,
-      blockNumber: snapshot.blockNumber,
-      blockHash: snapshot.blockHash,
-    },
-    observedAt,
-  };
-}
-
-function confirmedSlashEvent(id, network, slash, observedAt, backfilled = false, chainId = null) {
-  const amount = formatAztecAmount(slash.amount);
-  return {
-    id,
-    network,
-    source: 'ethereum_l1',
-    type: 'l1_slash_confirmed',
-    severity: 'critical',
-    title: backfilled ? 'Historical L1 slash found' : 'Sequencer slashed on L1',
-    body: backfilled
-      ? `A historical scan found a confirmed slash of ${amount} AZTEC in L1 block ${slash.blockNumber}.`
-      : `A slash of ${amount} AZTEC was confirmed in L1 block ${slash.blockNumber}.`,
-    data: {
-      certainty: 'confirmed',
-      chainId,
-      sequencer: slash.sequencer,
-      amount: slash.amount,
-      rollupAddress: slash.rollupAddress,
-      blockNumber: String(slash.blockNumber),
-      blockHash: slash.blockHash,
-      transactionHash: slash.transactionHash,
-      logIndex: slash.logIndex,
-      canonical: true,
-      backfilled,
-    },
-    observedAt,
-  };
-}
-
-function slashReorgCorrectionEvent(slash, network, observedAt, chunk, generation) {
-  const amount = formatAztecAmount(slash.amount);
-  return {
-    id: slashReorgCorrectionEventId(network, slash.id, generation),
-    network,
-    source: 'ethereum_l1',
-    type: 'l1_slash_reorged',
-    severity: 'warning',
-    title: 'L1 slash confirmation reorged out',
-    body: `The ${amount} AZTEC slash previously confirmed in L1 block ${slash.block_number} ` +
-      'was removed by a chain reorganization and is no longer canonical.',
-    data: {
-      certainty: 'confirmed',
-      chainId: slash.chain_id,
-      correction: true,
-      canonical: false,
-      forkGeneration: generation,
-      originalSlashEventId: slash.event_id,
-      sequencer: slash.sequencer,
-      amount: slash.amount,
-      rollupAddress: slash.rollup_address,
-      blockNumber: String(slash.block_number),
-      blockHash: slash.block_hash,
-      transactionHash: slash.transaction_hash,
-      logIndex: slash.log_index,
-      replacementCheckpoint: {
-        blockNumber: String(chunk.toBlock),
-        blockHash: chunk.toBlockHash,
-      },
-    },
-    observedAt,
-  };
-}
-
-function slashReorgCorrectionEventId(network, slashId, generation) {
-  return stableId('event', network, 'l1_slash_reorged', slashId, generation);
-}
-
-function slashReconfirmedEvent(slash, network, observedAt, chunk, generation) {
-  const amount = formatAztecAmount(slash.amount);
-  return {
-    id: stableId('event', network, 'l1_slash_reconfirmed', slash.id, generation),
-    network,
-    source: 'ethereum_l1',
-    type: 'l1_slash_reconfirmed',
-    severity: 'critical',
-    title: 'L1 slash confirmation restored',
-    body: `The ${amount} AZTEC slash in L1 block ${slash.block_number} is canonical again after ` +
-      'the reorganization correction.',
-    data: {
-      certainty: 'confirmed',
-      chainId: slash.chain_id,
-      restoration: true,
-      canonical: true,
-      forkGeneration: generation,
-      originalSlashEventId: slash.event_id,
-      sequencer: slash.sequencer,
-      amount: slash.amount,
-      rollupAddress: slash.rollup_address,
-      blockNumber: String(slash.block_number),
-      blockHash: slash.block_hash,
-      transactionHash: slash.transaction_hash,
-      logIndex: slash.log_index,
-      restorationCheckpoint: {
-        blockNumber: String(chunk.toBlock),
-        blockHash: chunk.toBlockHash,
-      },
-    },
-    observedAt,
-  };
+  return status === round.status ? round : { ...round, status };
 }
 
 function l1RowChanged(row, round, stack) {
@@ -3686,11 +2513,9 @@ function l1RowChanged(row, round, stack) {
     row.stack_role !== stack.role ||
     Boolean(details.isSlashingEnabled) !== Boolean(stack.isSlashingEnabled) ||
     Boolean(details.isExecutionPaused) !== Boolean(round.isExecutionPaused) ||
-    Boolean(details.isProtected) !== Boolean(round.isProtected) ||
     (details.pauseStartedAtSlot ?? null) !== (stack.pauseStartedAtSlot ?? null) ||
     (details.pauseEndsAtSlot ?? null) !== (stack.pauseEndsAtSlot ?? null) ||
-    row.actions_json !== JSON.stringify(round.actions ?? []) ||
-    row.early_targets_json !== JSON.stringify(round.earlyTargets ?? []);
+    row.actions_json !== JSON.stringify(round.actions ?? []);
 }
 
 function onchainRowToSnapshot(row) {
@@ -3709,30 +2534,399 @@ function onchainRowToSnapshot(row) {
     isVetoed: Boolean(row.is_vetoed),
     payloadAddress: row.payload_address,
     actions: parseJson(row.actions_json, []),
-    earlyTargets: parseJson(row.early_targets_json, []),
-    committees: parseJson(row.committees_json, []),
   };
 }
 
 function actionTargets(actions) {
   return [...new Set((actions ?? []).map((action) =>
-    String(action.sequencer ?? action.validator ?? '').toLowerCase()
+    String(action.validator ?? '').toLowerCase()
   ).filter((value) => /^0x[0-9a-f]{40}$/.test(value)))];
 }
 
-function roundTargets(actions, earlyTargets) {
-  return [...new Set([
-    ...actionTargets(actions),
-    ...(earlyTargets ?? []).map((target) => String(target.sequencer ?? '').toLowerCase()),
-  ].filter((value) => /^0x[0-9a-f]{40}$/.test(value)))];
+function nodeOffenseEvent(type, offense, network, observedAt) {
+  return {
+    id: stableId('event', network, type, offense.id),
+    incidentId: stableId('node-offense', network, offense.id),
+    network,
+    source: 'aztec_node',
+    type,
+    severity: 'warning',
+    data: {
+      certainty: 'node',
+      offenseId: offense.id,
+      validator: offense.validator,
+      configuredPenalty: String(offense.penalty),
+      offenseType: offense.offenseType,
+      offenseTypeName: offense.offenseTypeName,
+      epochOrSlot: String(offense.epochOrSlot),
+      timeUnit: offense.timeUnit,
+    },
+    observedAt,
+  };
+}
+
+function l1AlertTransition(existing, round, snapshot) {
+  const actions = Array.isArray(round.actions) ? round.actions : [];
+  if (actions.length === 0 || round.isExecuted) return undefined;
+
+  const ready = ['newly-executable', 'executable'].includes(round.status) &&
+    !round.isVetoed &&
+    !round.isExecutionPaused &&
+    round.isAuthorized !== false;
+  const finalVeto = round.isVetoed && isVotingClosed(round.round, snapshot.currentRound);
+  if (!existing) {
+    if (finalVeto) return 'onchain_vetoed';
+    if (ready) return 'onchain_ready';
+    return undefined;
+  }
+
+  const oldDetails = parseJson(existing.details_json, {});
+  const oldReady = ['newly-executable', 'executable'].includes(existing.status) &&
+    !Boolean(existing.is_vetoed) &&
+    !Boolean(oldDetails.isExecutionPaused);
+  if (
+    finalVeto &&
+    (!Boolean(existing.is_vetoed) || !isVotingClosed(existing.round, oldDetails.currentRound))
+  ) return 'onchain_vetoed';
+  if (ready && !oldReady) return 'onchain_ready';
+  return undefined;
+}
+
+function l1CandidateState(round, currentRound) {
+  const actions = Array.isArray(round.actions) ? round.actions : [];
+  if (actions.length === 0 || round.isExecuted) return false;
+  if (round.isVetoed && isVotingClosed(round.round, currentRound)) return false;
+  return round.status === 'quorum-reached';
+}
+
+function isVotingClosed(round, currentRound) {
+  try {
+    return BigInt(currentRound) > BigInt(round);
+  } catch {
+    return false;
+  }
+}
+
+function l1CaseEvent(type, round, network, observedAt, snapshot, explicitId) {
+  const details = l1CaseFacts(round, snapshot);
+  return {
+    id: explicitId ?? stableId(
+      'event',
+      network,
+      type,
+      String(round.proposerAddress ?? '').toLowerCase(),
+      round.round,
+    ),
+    incidentId: stableId(
+      'l1-case',
+      network,
+      String(round.proposerAddress ?? '').toLowerCase(),
+      round.round,
+    ),
+    network,
+    source: 'ethereum_l1',
+    type,
+    severity: type === 'onchain_ready' ? 'critical' : type === 'onchain_quorum_candidate' ? 'warning' : 'info',
+    data: details,
+    observedAt,
+  };
+}
+
+function l1CaseFacts(round, snapshot = {}) {
+  const executableSlot = round.executableSlot ?? null;
+  const expirySlot = round.expirySlot ?? null;
+  return {
+    caseId: round.id ?? null,
+    certainty: 'confirmed',
+    chainId: snapshot.chainId ?? round.chainId ?? null,
+    role: round.role ?? round.stackRole ?? 'active',
+    round: String(round.round),
+    targetEpochs: round.targetEpochs ?? [],
+    votesCast: String(round.ballotCount ?? '0'),
+    quorum: round.parameters?.quorum ?? null,
+    currentSlot: snapshot.currentSlot ?? round.currentSlot ?? null,
+    currentEpoch: snapshot.currentEpoch ?? round.currentEpoch ?? null,
+    votingOpen: !isVotingClosed(
+      round.round,
+      round.currentRound ?? snapshot.currentRound,
+    ),
+    executableSlot,
+    executableAt: slotTimestamp(executableSlot, round, snapshot),
+    expirySlot,
+    expiryAt: slotTimestamp(expirySlot, round, snapshot),
+    proposerAddress: round.proposerAddress,
+    slasherAddress: round.slasherAddress,
+    payloadAddress: round.payloadAddress ?? null,
+    status: round.status,
+    currentPayloadVetoed: Boolean(round.isVetoed),
+    isExecutionPaused: Boolean(round.isExecutionPaused),
+    pauseEndsAtSlot: round.pauseEndsAtSlot ?? null,
+    pauseEndsAt: slotTimestamp(round.pauseEndsAtSlot ?? null, round, snapshot),
+    actions: round.actions ?? [],
+    blockNumber: snapshot.blockNumber ?? round.blockNumber ?? null,
+    blockHash: snapshot.blockHash ?? round.blockHash ?? null,
+  };
+}
+
+function groupSlashLogs(chunk) {
+  const groups = new Map();
+  for (const log of chunk.logs) {
+    const key = [
+      chunk.chainId,
+      log.blockHash,
+      log.transactionHash,
+      log.validator,
+    ].join('|');
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        id: stableId(
+          'l1-slash-outcome',
+          chunk.chainId,
+          log.blockHash,
+          log.transactionHash,
+          log.validator,
+        ),
+        rollupAddress: log.rollupAddress,
+        blockNumber: log.blockNumber,
+        blockHash: log.blockHash,
+        transactionHash: log.transactionHash,
+        validator: log.validator,
+        amount: '0',
+        logCount: 0,
+        logIndexes: [],
+        logs: [],
+      };
+      groups.set(key, group);
+    }
+    group.amount = (BigInt(group.amount) + BigInt(log.amount)).toString();
+    group.logCount += 1;
+    group.logIndexes.push(log.logIndex);
+    group.logs.push(log);
+  }
+  return [...groups.values()]
+    .map((group) => ({
+      ...group,
+      logIndexes: group.logIndexes.sort((left, right) => left - right),
+      logs: group.logs.sort((left, right) => left.logIndex - right.logIndex),
+    }))
+    .sort((left, right) =>
+      left.blockNumber - right.blockNumber ||
+      left.transactionHash.localeCompare(right.transactionHash) ||
+      left.validator.localeCompare(right.validator)
+    );
+}
+
+function slashConfirmedEventId(network, outcomeId) {
+  return stableId('event', network, 'l1_slash_confirmed', outcomeId);
+}
+
+function slashReorgCorrectionEventId(network, outcomeId, generation) {
+  return stableId('event', network, 'l1_slash_reorged', outcomeId, generation);
+}
+
+function confirmedSlashOutcomeEvent(id, network, outcome, observedAt, chainId) {
+  return {
+    id,
+    incidentId: outcome.id,
+    network,
+    source: 'ethereum_l1',
+    type: 'l1_slash_confirmed',
+    severity: 'critical',
+    data: slashOutcomeFacts(outcome, chainId, {
+      canonical: true,
+      backfilled: false,
+    }),
+    observedAt,
+  };
+}
+
+function slashOutcomeReorgEvent(network, outcome, observedAt, chunk, generation) {
+  return {
+    id: slashReorgCorrectionEventId(network, outcome.id, generation),
+    incidentId: outcome.id,
+    network,
+    source: 'ethereum_l1',
+    type: 'l1_slash_reorged',
+    severity: 'warning',
+    data: {
+      ...slashOutcomeFacts(outcome, outcome.chainId, {
+        canonical: false,
+        correctionGeneration: generation,
+      }),
+      replacementCheckpoint: {
+        blockNumber: String(chunk.toBlock),
+        blockHash: chunk.toBlockHash,
+      },
+    },
+    observedAt,
+  };
+}
+
+function slashOutcomeReconfirmedEvent(network, outcome, observedAt, chunk, generation) {
+  return {
+    id: stableId('event', network, 'l1_slash_reconfirmed', outcome.id, generation),
+    incidentId: outcome.id,
+    network,
+    source: 'ethereum_l1',
+    type: 'l1_slash_reconfirmed',
+    severity: 'critical',
+    data: {
+      ...slashOutcomeFacts(outcome, chunk.chainId, {
+        canonical: true,
+        correctionGeneration: generation,
+      }),
+      restorationCheckpoint: {
+        blockNumber: String(chunk.toBlock),
+        blockHash: chunk.toBlockHash,
+      },
+    },
+    observedAt,
+  };
+}
+
+function slashOutcomeFacts(outcome, chainId, extra = {}) {
+  return {
+    certainty: 'confirmed',
+    chainId,
+    validator: outcome.validator ?? outcome.address,
+    actualAmount: String(outcome.amount ?? outcome.actualAmount),
+    logCount: Number(outcome.logCount),
+    logIndexes: outcome.logIndexes ?? [],
+    rollupAddress: outcome.rollupAddress,
+    blockNumber: String(outcome.blockNumber),
+    blockHash: outcome.blockHash,
+    transactionHash: outcome.transactionHash,
+    ...extra,
+  };
+}
+
+function toSlashOutcome(row) {
+  return {
+    id: row.id,
+    address: row.validator,
+    actualAmount: String(row.amount),
+    logCount: Number(row.log_count ?? row.logCount),
+    logIndexes: parseJson(row.log_indexes_json, row.logIndexes ?? []),
+    canonical: Boolean(row.canonical),
+    chainId: Number(row.chain_id ?? row.chainId),
+    rollupAddress: row.rollup_address ?? row.rollupAddress,
+    blockNumber: String(row.block_number ?? row.blockNumber),
+    blockHash: row.block_hash ?? row.blockHash,
+    transactionHash: row.transaction_hash ?? row.transactionHash,
+    firstObservedAt: toIso(row.first_seen_at ?? row.firstSeenAt),
+    observedAt: toIso(row.last_seen_at ?? row.lastSeenAt),
+  };
+}
+
+function toMonitorCase(row) {
+  const details = parseJson(row.details_json, {});
+  const actions = parseJson(row.actions_json, []);
+  const phase = monitorCasePhase(row, details);
+  const quorum = safePositiveInteger(details.parameters?.quorum, 'case quorum');
+  const executableSlot = safeUnsignedBigIntString(details.executableSlot, 'case executable slot');
+  const expirySlot = safeUnsignedBigIntString(details.expirySlot, 'case expiry slot');
+  const executableAt = slotTimestamp(executableSlot, details);
+  const expiryAt = slotTimestamp(expirySlot, details);
+  if (!executableAt || !expiryAt) throw new Error('Persisted L1 case has incomplete timing');
+  return {
+    id: row.id,
+    role: row.stack_role,
+    round: String(row.round),
+    phase,
+    outcome: monitorCaseOutcome(row, details),
+    votesCast: String(row.ballot_count),
+    quorum,
+    targetEpochs: details.targetEpochs ?? [],
+    targets: aggregateSlashActions(actions),
+    proposerAddress: row.proposer_address,
+    slasherAddress: row.slasher_address,
+    payloadAddress: row.payload_address,
+    currentPayloadVetoed: Boolean(row.is_vetoed),
+    executableSlot,
+    executableAt,
+    expirySlot,
+    expiryAt,
+    isExecutionPaused: Boolean(details.isExecutionPaused),
+    pauseEndsAtSlot: details.pauseEndsAtSlot ?? null,
+    pauseEndsAt: slotTimestamp(details.pauseEndsAtSlot ?? null, details),
+    blockNumber: String(row.block_number),
+    blockHash: row.block_hash,
+    firstObservedAt: toIso(row.first_seen_at),
+    observedAt: toIso(row.last_seen_at),
+  };
+}
+
+export function aggregateSlashActions(actions) {
+  const byAddress = new Map();
+  for (const action of actions ?? []) {
+    const address = String(action.validator ?? '').toLowerCase();
+    if (!/^0x[0-9a-f]{40}$/.test(address)) continue;
+    const current = byAddress.get(address) ?? {
+      address,
+      proposedAmount: '0',
+      actionCount: 0,
+    };
+    current.proposedAmount = (
+      BigInt(current.proposedAmount) +
+      BigInt(action.amount ?? action.slashAmount ?? 0)
+    ).toString();
+    current.actionCount += 1;
+    byAddress.set(address, current);
+  }
+  return [...byAddress.values()].sort((left, right) => left.address.localeCompare(right.address));
+}
+
+function monitorCasePhase(row, details) {
+  if (monitorCaseOutcome(row, details) !== null) return 'closed';
+  if (details.isExecutionPaused && ['newly-executable', 'executable'].includes(row.status)) return 'paused';
+  if (['newly-executable', 'executable'].includes(row.status)) return 'ready';
+  if (isVotingClosed(row.round, details.currentRound)) return 'review';
+  return 'voting';
+}
+
+function monitorCaseOutcome(row, details) {
+  if (row.is_executed || row.status === 'executed') return 'executed';
+  if (row.status === 'stack-retired') return 'stack-retired';
+  if (row.status === 'vetoed') return 'vetoed';
+  if (row.status === 'no-consensus') return 'no-consensus';
+  if (row.is_vetoed && isVotingClosed(row.round, details.currentRound)) return 'vetoed';
+  if (row.status === 'expired') return 'expired';
+  return null;
 }
 
 function stableId(...parts) {
   return createHash('sha256').update(parts.map(String).join('|')).digest('hex');
 }
 
-function roundTransitionEventId(network, type, roundId, generation) {
-  return stableId('event', network, type, roundId, 'reorg-generation', generation);
+function assertCompleteL1Cases(snapshot) {
+  let timing;
+  for (const stack of snapshot.stacks) {
+    if (!stack || !Array.isArray(stack.rounds)) {
+      throw new Error('Refusing to persist an incomplete L1 stack');
+    }
+    safeUnsignedBigIntString(stack.currentRound, 'stack current round');
+    safePositiveInteger(stack.parameters?.lifetimeInRounds, 'case lifetime');
+    if (stack.rounds.length === 0) continue;
+    timing ??= {
+      l1GenesisTime: safeUnsignedBigIntString(snapshot.l1GenesisTime, 'L1 genesis time'),
+      slotDuration: safePositiveInteger(snapshot.slotDuration, 'slot duration'),
+    };
+    safePositiveInteger(stack.parameters?.quorum, 'case quorum');
+    for (const round of stack.rounds) {
+      const executableSlot = safeUnsignedBigIntString(
+        round.executableSlot,
+        'case executable slot',
+      );
+      const expirySlot = safeUnsignedBigIntString(round.expirySlot, 'case expiry slot');
+      if (BigInt(expirySlot) <= BigInt(executableSlot)) {
+        throw new Error('L1 case expiry must follow its executable slot');
+      }
+      if (!slotTimestamp(executableSlot, timing) || !slotTimestamp(expirySlot, timing)) {
+        throw new Error('Refusing to persist an L1 case with invalid timing');
+      }
+    }
+  }
 }
 
 function truncateError(error) {
@@ -3796,7 +2990,7 @@ function normalizeL1SlashLogChunk(network, chunk) {
     if (blockNumber < fromBlock || blockNumber > toBlock) throw new Error('L1 Slashed log is outside its chunk');
     const rollupAddress = normalizeHexAddress(log.rollupAddress, 'Slashed log Rollup');
     if (!allowedRollups.has(rollupAddress)) throw new Error('L1 Slashed log emitter was not Registry-resolved');
-    const sequencer = normalizeHexAddress(log.sequencer, 'Slashed log sequencer');
+    const validator = normalizeHexAddress(log.validator, 'Slashed log validator');
     if (!Number.isSafeInteger(log.logIndex) || log.logIndex < 0) throw new Error('Slashed log index is invalid');
     if (!/^\d+$/.test(String(log.amount))) throw new Error('Slashed log amount is invalid');
     return {
@@ -3805,7 +2999,7 @@ function normalizeL1SlashLogChunk(network, chunk) {
       blockHash: normalizeHash(log.blockHash, 'Slashed log block hash'),
       transactionHash: normalizeHash(log.transactionHash, 'Slashed log transaction hash'),
       logIndex: log.logIndex,
-      sequencer,
+      validator,
       amount: String(log.amount),
     };
   });
@@ -3879,41 +3073,8 @@ function safeUnsignedBigIntString(value, label) {
   return parsed.toString();
 }
 
-function summarizeValidatorHistory(history) {
-  let missed = 0;
-  let firstMissedSlot = null;
-  let lastMissedSlot = null;
-  for (const observation of history) {
-    if (!isMissedDuty(observation.status)) continue;
-    missed += 1;
-    firstMissedSlot = firstMissedSlot === null
-      ? observation.slot
-      : Math.min(firstMissedSlot, observation.slot);
-    lastMissedSlot = lastMissedSlot === null
-      ? observation.slot
-      : Math.max(lastMissedSlot, observation.slot);
-  }
-  return {
-    missed,
-    total: history.length,
-    firstMissedSlot,
-    lastMissedSlot,
-  };
-}
-
-function normalizeSequencer(value) {
-  return normalizeHexAddress(value, 'sequencer');
-}
-
-function validatorDutyStatus(value) {
-  if (!VALIDATOR_DUTY_STATUSES.has(value)) {
-    throw new Error(`validator duty status is invalid: ${String(value)}`);
-  }
-  return value;
-}
-
-function isMissedDuty(status) {
-  return MISSED_DUTY_STATUSES.has(status);
+function normalizeValidator(value) {
+  return normalizeHexAddress(value, 'validator');
 }
 
 function normalizeHash(value, label) {
@@ -3962,22 +3123,28 @@ function setEventCanonicalFlag(database, eventId, canonical, observedAt) {
   database.prepare('UPDATE events SET data_json = ? WHERE id = ?').run(JSON.stringify(data), eventId);
 }
 
-function encodeCursor(observedAt, id) {
-  return Buffer.from(`${observedAt}|${id}`).toString('base64url');
+function l1DatasetCoverage(state) {
+  const observedAt = toIso(state?.lastSuccessAt);
+  return {
+    observedAt,
+    blockNumber: state?.lastBlockNumber ?? null,
+    blockHash: state?.lastBlockHash ?? null,
+    complete: observedAt !== null && !Boolean(state?.metadata?.degraded),
+  };
 }
 
-function decodeCursor(cursor) {
-  if (!cursor) return undefined;
-  try {
-    const decoded = Buffer.from(cursor, 'base64url').toString('utf8');
-    const separator = decoded.indexOf('|');
-    const observedAt = Number(decoded.slice(0, separator));
-    const id = decoded.slice(separator + 1);
-    if (!Number.isSafeInteger(observedAt) || !id) return undefined;
-    return { observedAt, id };
-  } catch {
-    return undefined;
-  }
+function slashDatasetCoverage(state) {
+  const observedAt = toIso(state?.lastSuccessAt);
+  return {
+    observedAt,
+    fromBlock: state?.metadata?.lookbackStartBlock ?? null,
+    blockNumber: state?.lastBlockNumber ?? null,
+    blockHash: state?.lastBlockHash ?? null,
+    confirmedBlockNumber: state?.metadata?.confirmedBlockNumber ?? null,
+    complete: observedAt !== null &&
+      state?.metadata?.caughtUp === true &&
+      !Boolean(state?.metadata?.degraded),
+  };
 }
 
 function toIso(value) {

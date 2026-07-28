@@ -21,19 +21,15 @@ test('loadConfig provides a complete local configuration', () => {
   assert.equal(config.l1ChainId, 1);
   assert.equal(config.l1RegistryAddress, '0x35b22e09Ee0390539439E24f06Da43D83f90e298');
   assert.equal(config.l1SlashLogLookbackBlocks, 600);
-  assert.equal(config.sentinelPollIntervalMs, 60_000);
-  assert.equal(config.sentinelLookbackEpochs, 3);
-  assert.equal(config.sentinelEpochEndBufferSlots, 2);
-  assert.equal(config.sentinelValidatorConcurrency, 8);
-  assert.equal(config.maxSingleValidatorStatsResponseBytes, 2 * 1024 * 1024);
   assert.equal(config.rateLimitMaxMutations, 20);
   assert.equal(config.readRateLimitMax, 180);
   assert.equal(config.readRateLimitMaxGlobal, 600);
   assert.equal(config.watchlistMutationRateLimitMax, 20);
-  assert.equal(config.subscriptionCreateMaxPerHourPerClient, 3);
-  assert.equal(config.subscriptionCreateMaxPerDayPerClient, 10);
-  assert.equal(config.subscriptionCreateMaxPerHourGlobal, 10);
-  assert.equal(config.subscriptionCreateMaxPerDayGlobal, 50);
+  assert.equal(config.maxWatchlistAddresses, 100);
+  assert.equal(config.watchlistCreateMaxPerHourPerClient, 3);
+  assert.equal(config.watchlistCreateMaxPerDayPerClient, 10);
+  assert.equal(config.watchlistCreateMaxPerHourGlobal, 10);
+  assert.equal(config.watchlistCreateMaxPerDayGlobal, 50);
   assert.equal(config.notificationTestCooldownMs, 5 * 60_000);
   assert.equal(config.notificationTestMaxPerHourGlobal, 30);
   assert.equal(config.notificationTestMaxPerDayGlobal, 100);
@@ -82,22 +78,6 @@ test('operator-facing URLs and process settings are validated', () => {
     /must use the same browser origin/,
   );
   assert.throws(() => loadConfig({ BACKEND_PORT: '0' }), /between 1 and 65535/);
-  assert.throws(
-    () => loadConfig({ AZTEC_SENTINEL_POLL_INTERVAL_MS: '1000' }),
-    /between 5000 and 3600000/,
-  );
-  assert.throws(
-    () => loadConfig({ AZTEC_SENTINEL_LOOKBACK_EPOCHS: '0' }),
-    /between 1 and 24/,
-  );
-  assert.throws(
-    () => loadConfig({ AZTEC_SENTINEL_EPOCH_END_BUFFER_SLOTS: '-1' }),
-    /between 0 and 10000/,
-  );
-  assert.throws(
-    () => loadConfig({ AZTEC_SENTINEL_VALIDATOR_CONCURRENCY: '0' }),
-    /between 1 and 128/,
-  );
   assert.throws(() => loadConfig({ BACKEND_TRUST_PROXY: 'yes' }), /must be true or false/);
   assert.throws(() => loadConfig({ BACKEND_LOG_LEVEL: 'trace' }), /debug, info, warn, or error/);
 

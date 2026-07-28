@@ -29,7 +29,6 @@ export const slashedEvent = {
 export const rollupAbi = [
   fn('getVersion', [], [out('uint256')]),
   fn('getSlasher', [], [out('address')]),
-  fn('getPendingSlasher', [], [out('address', 'slasher'), out('uint256', 'readyAt')]),
   fn('getLegacySlasher', [], [out('address', 'slasher'), out('uint256', 'authorizedUntil')]),
   fn('getCurrentSlot', [], [out('uint256')]),
   fn('getCurrentEpoch', [], [out('uint256')]),
@@ -37,7 +36,6 @@ export const rollupAbi = [
   fn('getSlotAt', [input('uint256', '_timestamp')], [out('uint256')]),
   fn('getEpochDuration', [], [out('uint256')]),
   fn('getSlotDuration', [], [out('uint256')]),
-  fn('getEpochCommittee', [input('uint256', '_epoch')], [out('address[]')], 'nonpayable'),
 ];
 
 export const slasherAbi = [
@@ -57,7 +55,6 @@ const slashAction = {
 export const slashingProposerAbi = [
   fn('getCurrentRound', [], [out('uint256')]),
   fn('getRound', [input('uint256', '_round')], [out('bool', 'isExecuted'), out('uint256', 'voteCount')]),
-  fn('getVotes', [input('uint256', '_round'), input('uint256', '_index')], [out('bytes')]),
   fn('getSlashTargetCommittees', [input('uint256', '_round')], [out('address[][]', 'committees')], 'nonpayable'),
   fn('getTally', [input('uint256', '_round'), input('address[][]', '_committees')], [slashAction]),
   fn('getPayloadAddress', [input('uint256', '_round'), { ...slashAction, name: '_actions' }], [out('address')]),

@@ -9,15 +9,12 @@ import {
   createOpaqueToken,
   hashToken,
   normalizeAddresses,
-  normalizeNetwork,
   parsePushSubscription,
   readBearerToken,
   safeHashMatches,
 } from './security.mjs';
 
 const WATCHLIST_ID_PATTERN = /^[0-9a-f-]{36}$/i;
-const MAX_SEQUENCER_FILTERS = 100;
-const PUBLIC_EVENT_SOURCES = ['aztec_node', 'aztec_sentinel', 'ethereum_l1'];
 
 export class CollectorApiServer {
   constructor({
@@ -31,7 +28,7 @@ export class CollectorApiServer {
     vapidPublicKey,
     telegramBotUsername,
     isTelegramReady,
-    maxSequencers = 100,
+    maxWatchlistAddresses = 100,
     maxRequestBodyBytes = 64 * 1024,
     rateLimitWindowMs = 60_000,
     rateLimitMaxMutations = 20,
@@ -40,12 +37,12 @@ export class CollectorApiServer {
     readRateLimitMaxGlobal = 600,
     watchlistMutationRateLimitWindowMs = 60_000,
     watchlistMutationRateLimitMax = 20,
-    subscriptionCreateWindowMs = 60 * 60_000,
-    subscriptionCreateMaxPerClient = 3,
-    subscriptionCreateDailyWindowMs = 24 * 60 * 60_000,
-    subscriptionCreateMaxPerDayPerClient = 10,
-    subscriptionCreateMaxPerHourGlobal = 10,
-    subscriptionCreateMaxPerDayGlobal = 50,
+    watchlistCreateWindowMs = 60 * 60_000,
+    watchlistCreateMaxPerClient = 3,
+    watchlistCreateDailyWindowMs = 24 * 60 * 60_000,
+    watchlistCreateMaxPerDayPerClient = 10,
+    watchlistCreateMaxPerHourGlobal = 10,
+    watchlistCreateMaxPerDayGlobal = 50,
     notificationTestCooldownMs = 5 * 60_000,
     notificationTestMaxPerHourGlobal = 30,
     notificationTestMaxPerDayGlobal = 100,
@@ -72,29 +69,29 @@ export class CollectorApiServer {
     this.vapidPublicKey = vapidPublicKey ?? null;
     this.telegramBotUsername = telegramBotUsername ?? null;
     this.isTelegramReady = isTelegramReady ?? (() => Boolean(this.telegramBotUsername));
-    this.maxSequencers = maxSequencers;
+    this.maxWatchlistAddresses = maxWatchlistAddresses;
     this.maxRequestBodyBytes = maxRequestBodyBytes;
-    this.rateLimiter = new MutationRateLimiter(rateLimitWindowMs, rateLimitMaxMutations, now);
-    this.readRateLimiter = new MutationRateLimiter(readRateLimitWindowMs, readRateLimitMax, now);
-    this.globalReadRateLimiter = new MutationRateLimiter(readRateLimitWindowMs, readRateLimitMaxGlobal, now);
-    this.watchlistMutationRateLimiter = new MutationRateLimiter(
+    this.rateLimiter = new RateLimiter(rateLimitWindowMs, rateLimitMaxMutations, now);
+    this.readRateLimiter = new RateLimiter(readRateLimitWindowMs, readRateLimitMax, now);
+    this.globalReadRateLimiter = new RateLimiter(readRateLimitWindowMs, readRateLimitMaxGlobal, now);
+    this.watchlistMutationRateLimiter = new RateLimiter(
       watchlistMutationRateLimitWindowMs,
       watchlistMutationRateLimitMax,
       now,
     );
-    this.subscriptionCreateRateLimiter = new MutationRateLimiter(
-      subscriptionCreateWindowMs,
-      subscriptionCreateMaxPerClient,
+    this.watchlistCreateRateLimiter = new RateLimiter(
+      watchlistCreateWindowMs,
+      watchlistCreateMaxPerClient,
       now,
     );
-    this.subscriptionCreateDailyRateLimiter = new MutationRateLimiter(
-      subscriptionCreateDailyWindowMs,
-      subscriptionCreateMaxPerDayPerClient,
+    this.watchlistCreateDailyRateLimiter = new RateLimiter(
+      watchlistCreateDailyWindowMs,
+      watchlistCreateMaxPerDayPerClient,
       now,
     );
-    this.subscriptionAdmissionLimits = {
-      maxPerHourGlobal: subscriptionCreateMaxPerHourGlobal,
-      maxPerDayGlobal: subscriptionCreateMaxPerDayGlobal,
+    this.watchlistAdmissionLimits = {
+      maxPerHourGlobal: watchlistCreateMaxPerHourGlobal,
+      maxPerDayGlobal: watchlistCreateMaxPerDayGlobal,
     };
     this.notificationTestCooldownMs = notificationTestCooldownMs;
     this.notificationTestAdmissionLimits = {
@@ -149,42 +146,36 @@ export class CollectorApiServer {
     setCommonHeaders(response, request, this.corsOrigin);
     try {
       this.assertAllowedOrigin(request);
+      const url = new URL(request.url ?? '/', 'http://slashmon.local');
       if (request.method === 'OPTIONS') {
+        if (!url.pathname.startsWith('/api/')) {
+          throw new HttpError(404, 'not_found', 'Route not found');
+        }
         response.writeHead(204);
         response.end();
         return;
       }
 
-      const url = new URL(request.url ?? '/', 'http://slashmon.local');
       const method = request.method ?? 'GET';
-      const clientKey = mutationClientKey(request, this.trustLoopbackProxy);
-      if (method !== 'GET' && method !== 'HEAD') {
-        this.rateLimiter.take(clientKey);
-      } else if (url.pathname.startsWith('/api/') || url.pathname === '/health') {
-        this.readRateLimiter.take(
-          clientKey,
-          'read_rate_limited',
-          'Too many API reads; try again shortly',
-        );
-        this.globalReadRateLimiter.take(
-          'global',
-          'read_capacity_limited',
-          'The public read budget is busy; try again shortly',
-        );
+      const clientKey = clientAddress(request, this.trustLoopbackProxy);
+      if (url.pathname.startsWith('/api/')) {
+        if (method === 'GET' || method === 'HEAD') {
+          this.readRateLimiter.take(
+            clientKey,
+            'read_rate_limited',
+            'Too many API reads; try again shortly',
+          );
+          this.globalReadRateLimiter.take(
+            'global',
+            'read_capacity_limited',
+            'The public read budget is busy; try again shortly',
+          );
+        } else {
+          this.rateLimiter.take(clientKey);
+        }
       }
 
-      if (method === 'GET' && url.pathname === '/live') {
-        return writeJson(response, 200, { status: 'ok', now: toIso(this.now()) });
-      }
-      if (method === 'GET' && url.pathname === '/health') {
-        const health = this.buildHealth();
-        return writeJson(response, health.httpStatus, health.body);
-      }
-
-      if (url.pathname.startsWith('/api/v2/')) {
-        return await this.handleV2(method, url, request, response);
-      }
-      throw new HttpError(404, 'not_found', 'Route not found');
+      return await this.handleApi(method, url, request, response, clientKey);
     } catch (error) {
       if (error instanceof NotificationRateLimitError) {
         response.setHeader('retry-after', String(Math.max(1, Math.ceil(error.retryAfterMs / 1_000))));
@@ -197,271 +188,291 @@ export class CollectorApiServer {
         if (error.status === 429 && error.retryAfterMs) {
           response.setHeader('retry-after', String(Math.max(1, Math.ceil(error.retryAfterMs / 1_000))));
         }
-        return writeJson(response, error.status, { error: { code: error.code, message: error.message } });
+        return writeJson(response, error.status, {
+          error: { code: error.code, message: error.message },
+        });
       }
       this.logger.error('Slashmon API request failed', {
         method: request.method,
+        path: request.url,
         error: errorMessage(error),
       });
-      return writeJson(response, 500, { error: { code: 'internal_error', message: 'Internal server error' } });
+      return writeJson(response, 500, {
+        error: { code: 'internal_error', message: 'Internal server error' },
+      });
     }
   }
 
-  async handleV2(method, url, request, response) {
-    if (method === 'GET' && url.pathname === '/api/v2/config') {
-      const readyTelegramUsername = this.readyTelegramUsername();
+  async handleApi(method, url, request, response, clientKey) {
+    if (!url.pathname.startsWith('/api/')) {
+      throw new HttpError(404, 'not_found', 'Route not found');
+    }
+
+    if (method === 'GET' && url.pathname === '/api/config') {
+      assertNoQuery(url);
+      const telegramBotUsername = this.readyTelegramUsername();
       return writeJson(response, 200, {
-        schemaVersion: 2,
         network: this.network,
-        vapidPublicKey: this.vapidPublicKey,
-        telegramBotUsername: readyTelegramUsername,
-        maxSequencers: this.maxSequencers,
-      });
-    }
-    if (method === 'GET' && url.pathname === '/api/v2/status') {
-      normalizeNetwork(url.searchParams.get('network') ?? this.network, this.network);
-      return writeJson(response, 200, this.buildPublicStatus());
-    }
-    if (method === 'GET' && url.pathname === '/api/v2/events') {
-      const query = parseEventQuery(url.searchParams, this.network);
-      const page = this.repository.listEvents({
-        ...query,
-        sources: PUBLIC_EVENT_SOURCES,
-      });
-      return writeJson(response, 200, {
-        schemaVersion: 2,
-        data: page.data,
-        pagination: { nextCursor: page.nextCursor ?? null },
-        generatedAt: toIso(this.now()),
-      });
-    }
-    const sequencerRecordMatch = /^\/api\/v2\/sequencers\/([^/]+)\/record$/.exec(url.pathname);
-    if (method === 'GET' && sequencerRecordMatch) {
-      let rawSequencer;
-      try {
-        rawSequencer = decodeURIComponent(sequencerRecordMatch[1]);
-      } catch {
-        throw new HttpError(400, 'invalid_address', 'Sequencer address is malformed');
-      }
-      const [sequencer] = normalizeAddresses([rawSequencer], 1);
-      const query = parseEventQuery(url.searchParams, this.network);
-      const page = this.repository.listEvents({
-        ...query,
-        addresses: [sequencer],
-        sources: PUBLIC_EVENT_SOURCES,
-      });
-      return writeJson(response, 200, {
-        schemaVersion: 2,
-        data: {
-          sequencer,
-          protocol: this.repository.getSlashingProtocolSnapshot() ?? null,
-          events: page.data,
+        maxWatchlistAddresses: this.maxWatchlistAddresses,
+        channels: {
+          webPush: {
+            available: Boolean(this.vapidPublicKey),
+            publicKey: this.vapidPublicKey,
+          },
+          telegram: {
+            available: Boolean(telegramBotUsername),
+            botUsername: telegramBotUsername,
+          },
         },
-        pagination: { nextCursor: page.nextCursor ?? null },
-        generatedAt: toIso(this.now()),
       });
     }
-    if (method === 'GET' && url.pathname.startsWith('/api/v2/events/')) {
-      const id = decodeURIComponent(url.pathname.slice('/api/v2/events/'.length));
-      if (!/^[A-Za-z0-9:_-]{1,200}$/.test(id)) {
-        throw new HttpError(400, 'invalid_event_id', 'Event id is malformed');
-      }
-      const network = normalizeNetwork(url.searchParams.get('network') ?? this.network, this.network);
-      const event = this.repository.getEvent(id);
-      if (!event || event.network !== network || !PUBLIC_EVENT_SOURCES.includes(event.source)) {
-        throw new HttpError(404, 'event_not_found', 'Event not found');
-      }
-      return writeJson(response, 200, {
-        schemaVersion: 2,
-        data: event,
-        generatedAt: toIso(this.now()),
-      });
+    if (method === 'GET' && url.pathname === '/api/status') {
+      assertNoQuery(url);
+      return writeJson(response, 200, this.buildStatus());
     }
-    if (method === 'POST' && url.pathname === '/api/v2/subscriptions') {
-      const clientKey = mutationClientKey(request, this.trustLoopbackProxy);
-      this.subscriptionCreateRateLimiter.take(
-        clientKey,
-        'subscription_rate_limited',
-        'Too many watch lists created from this client; try again later',
+    if (method === 'GET' && url.pathname === '/api/monitor') {
+      assertNoQuery(url);
+      return writeJson(response, 200, this.repository.getMonitorSnapshot(this.network));
+    }
+
+    const validatorMatch = /^\/api\/validators\/([^/]+)$/.exec(url.pathname);
+    if (validatorMatch) {
+      if (method !== 'GET') {
+        throw new HttpError(405, 'method_not_allowed', 'Method is not allowed for this route');
+      }
+      assertNoQuery(url);
+      const address = decodePathSegment(validatorMatch[1], 'invalid_address');
+      const [normalized] = normalizeAddresses([address], 1);
+      return writeJson(
+        response,
+        200,
+        this.repository.getValidatorSnapshot(this.network, normalized),
       );
-      this.subscriptionCreateDailyRateLimiter.take(
+    }
+
+    if (url.pathname === '/api/watchlists') {
+      if (method !== 'POST') {
+        throw new HttpError(405, 'method_not_allowed', 'Method is not allowed for this route');
+      }
+      assertNoQuery(url);
+      this.watchlistCreateRateLimiter.take(
         clientKey,
-        'subscription_daily_rate_limited',
-        'The daily watch-list creation limit for this client was reached',
+        'watchlist_rate_limited',
+        'Too many watchlists were created from this client; try again later',
+      );
+      this.watchlistCreateDailyRateLimiter.take(
+        clientKey,
+        'watchlist_daily_rate_limited',
+        'The daily watchlist creation limit for this client was reached',
       );
       const body = await readJsonBody(request, this.maxRequestBodyBytes);
-      assertBodyFields(body, ['network', 'addresses']);
-      const network = normalizeNetwork(body.network ?? this.network, this.network);
-      const addresses = normalizeAddresses(body.addresses, this.maxSequencers);
+      assertBodyFields(body, ['addresses']);
+      const addresses = normalizeAddresses(body.addresses, this.maxWatchlistAddresses);
       const managementToken = createOpaqueToken();
       const watchlist = this.repository.createWatchlist({
         id: randomUUID(),
         managementTokenHash: hashToken(managementToken),
-        network,
+        network: this.network,
         addresses,
         now: this.now(),
-        admissionLimits: this.subscriptionAdmissionLimits,
+        admissionLimits: this.watchlistAdmissionLimits,
       });
       if (!watchlist) {
-        throw new HttpError(503, 'subscription_capacity', 'Too many unconnected watch lists; try again later');
+        throw new HttpError(
+          503,
+          'watchlist_capacity',
+          'Too many unconnected watchlists; try again later',
+        );
       }
       return writeJson(response, 201, {
-        schemaVersion: 2,
-        data: { ...toPublicWatchlist(watchlist), managementToken },
+        ...toPublicWatchlist(watchlist),
+        managementToken,
       });
     }
 
-    const match = /^\/api\/v2\/subscriptions\/([^/]+)(.*)$/.exec(url.pathname);
+    const match = /^\/api\/watchlists\/([^/]+)(.*)$/.exec(url.pathname);
     if (!match) throw new HttpError(404, 'not_found', 'Route not found');
-    const id = decodeURIComponent(match[1]);
-    if (!WATCHLIST_ID_PATTERN.test(id)) throw new HttpError(404, 'subscription_not_found', 'Subscription not found');
+    const id = decodePathSegment(match[1], 'watchlist_not_found');
+    if (!WATCHLIST_ID_PATTERN.test(id)) {
+      throw new HttpError(404, 'watchlist_not_found', 'Watchlist not found');
+    }
     const watchlist = this.authorizeWatchlist(id, request);
     const suffix = match[2];
+    assertNoQuery(url);
     if (method !== 'GET' && method !== 'HEAD') {
       this.watchlistMutationRateLimiter.take(
         id,
-        'subscription_mutation_rate_limited',
-        'Too many changes were requested for this watch list; try again shortly',
+        'watchlist_mutation_rate_limited',
+        'Too many changes were requested for this watchlist; try again shortly',
       );
     }
 
-    if (suffix === '' && method === 'GET') {
-      return writeJson(response, 200, { schemaVersion: 2, data: toPublicWatchlist(watchlist) });
-    }
-    if (suffix === '/events' && method === 'GET') {
-      const query = parseEventQuery(url.searchParams, watchlist.network);
-      const page = this.repository.listEvents({ ...query, addresses: watchlist.addresses });
-      return writeJson(response, 200, {
-        schemaVersion: 2,
-        data: page.data,
-        pagination: { nextCursor: page.nextCursor ?? null },
-        generatedAt: toIso(this.now()),
-      });
-    }
-    const eventMatch = /^\/events\/([^/]+)$/.exec(suffix);
-    if (eventMatch && method === 'GET') {
-      const eventId = decodeURIComponent(eventMatch[1]);
-      if (!/^[A-Za-z0-9:_-]{1,200}$/.test(eventId)) {
-        throw new HttpError(400, 'invalid_event_id', 'Event id is malformed');
+    if (suffix === '') {
+      if (method === 'GET') {
+        return writeJson(response, 200, toPublicWatchlist(watchlist));
       }
-      const network = normalizeNetwork(url.searchParams.get('network') ?? watchlist.network, watchlist.network);
-      const event = this.repository.getEvent(eventId);
-      const matchesWatchlist = event?.targets.some((target) => watchlist.addresses.includes(target));
-      if (!event || event.network !== network || event.source === 'test' || !matchesWatchlist) {
-        throw new HttpError(404, 'event_not_found', 'Event not found');
+      if (method === 'PATCH') {
+        const body = await readJsonBody(request, this.maxRequestBodyBytes);
+        assertBodyFields(body, ['addresses']);
+        const addresses = normalizeAddresses(body.addresses, this.maxWatchlistAddresses);
+        const updated = this.repository.updateWatchlist(id, {
+          addresses,
+          now: this.now(),
+        });
+        return writeJson(response, 200, toPublicWatchlist(updated));
       }
-      return writeJson(response, 200, {
-        schemaVersion: 2,
-        data: event,
-        generatedAt: toIso(this.now()),
-      });
+      if (method === 'DELETE') {
+        this.repository.deleteWatchlist(id);
+        response.writeHead(204);
+        response.end();
+        return;
+      }
+      throw new HttpError(405, 'method_not_allowed', 'Method is not allowed for this route');
     }
-    if (suffix === '' && method === 'PATCH') {
-      const body = await readJsonBody(request, this.maxRequestBodyBytes);
-      assertBodyFields(body, ['addresses']);
-      if (!Object.hasOwn(body, 'addresses')) {
-        throw new HttpError(400, 'empty_patch', 'PATCH must include addresses');
-      }
-      const addresses = normalizeAddresses(body.addresses, this.maxSequencers);
-      const updated = this.repository.updateWatchlist(id, {
-        addresses,
-        now: this.now(),
-      });
-      return writeJson(response, 200, { schemaVersion: 2, data: toPublicWatchlist(updated) });
-    }
-    if (suffix === '' && method === 'DELETE') {
-      this.repository.deleteWatchlist(id, this.now());
-      response.writeHead(204);
-      response.end();
-      return;
-    }
-    if (suffix === '/channels/web-push' && method === 'PUT') {
-      if (!this.vapidPublicKey) throw new HttpError(503, 'web_push_unavailable', 'Web Push is not configured');
-      const body = await readJsonBody(request, this.maxRequestBodyBytes);
-      assertBodyFields(body, ['subscription']);
-      const subscription = parsePushSubscription(body.subscription);
-      const result = this.repository.upsertEndpoint({
-        watchlistId: id,
-        kind: 'web_push',
-        destination: subscription.endpoint,
-        configJson: JSON.stringify(subscription),
-        now: this.now(),
-        admissionLimits: this.webPushEnrollmentAdmissionLimits,
-      });
-      if (result?.conflict) {
-        throw new HttpError(
-          409,
-          'push_endpoint_in_use',
-          'This browser push endpoint belongs to another watch list; reconnect it to create a fresh endpoint',
-        );
-      }
-      if (result?.capacity) {
-        throw new HttpError(503, 'channel_capacity', 'Notification endpoint capacity is temporarily full');
-      }
-      return writeJson(response, 200, {
-        schemaVersion: 2,
-        data: {
+
+    if (suffix === '/channels/web-push') {
+      if (method === 'PUT') {
+        if (!this.vapidPublicKey) {
+          throw new HttpError(503, 'web_push_unavailable', 'Web Push is not configured');
+        }
+        const body = await readJsonBody(request, this.maxRequestBodyBytes);
+        assertBodyFields(body, ['subscription']);
+        const subscription = parsePushSubscription(body.subscription);
+        const result = this.repository.upsertEndpoint({
+          watchlistId: id,
+          kind: 'web_push',
+          destination: subscription.endpoint,
+          configJson: JSON.stringify(subscription),
+          now: this.now(),
+          admissionLimits: this.webPushEnrollmentAdmissionLimits,
+        });
+        if (result?.conflict) {
+          throw new HttpError(
+            409,
+            'push_endpoint_in_use',
+            'This browser push endpoint belongs to another watchlist',
+          );
+        }
+        if (result?.capacity) {
+          throw new HttpError(
+            503,
+            'channel_capacity',
+            'Notification endpoint capacity is temporarily full',
+          );
+        }
+        return writeJson(response, 200, {
           connected: true,
           enabled: true,
           verified: result?.verified === true,
-          verificationQueued: result?.verificationQueued ?? 0,
-          catchupQueued: result?.catchupQueued ?? 0,
-        },
-      });
-    }
-    if (suffix === '/channels/web-push' && method === 'DELETE') {
-      this.repository.removeEndpoint(id, 'web_push', this.now());
-      response.writeHead(204);
-      response.end();
-      return;
-    }
-    if (suffix === '/channels/telegram-link' && method === 'POST') {
-      const readyTelegramUsername = this.readyTelegramUsername();
-      if (!readyTelegramUsername) {
-        throw new HttpError(503, 'telegram_unavailable', 'Telegram is not ready');
+          verificationQueued: Number(result?.verificationQueued ?? 0),
+        });
       }
-      const token = createOpaqueToken(24);
-      const expiresAt = this.now() + this.linkTokenTtlMs;
-      this.repository.createTelegramLink({
-        tokenHash: hashToken(token),
+      if (method === 'DELETE') {
+        this.repository.removeEndpoint(id, 'web_push', this.now());
+        response.writeHead(204);
+        response.end();
+        return;
+      }
+      throw new HttpError(405, 'method_not_allowed', 'Method is not allowed for this route');
+    }
+
+    if (suffix === '/channels/web-push/verify') {
+      if (method !== 'POST') {
+        throw new HttpError(405, 'method_not_allowed', 'Method is not allowed for this route');
+      }
+      const endpoint = watchlist.endpoints.find((item) => item.kind === 'web_push');
+      if (!endpoint) {
+        throw new HttpError(409, 'channel_not_connected', 'Web Push is not connected');
+      }
+      if (endpoint.enabled !== false && endpoint.verified === true) {
+        return writeJson(response, 200, { verified: true, queued: 0 });
+      }
+      if (endpoint.enabled === false) {
+        throw new HttpError(
+          409,
+          'channel_disabled',
+          'Web Push must be reconnected before it can be verified',
+        );
+      }
+      const queued = Number(this.repository.requestEndpointVerification({
         watchlistId: id,
-        expiresAt,
+        endpointId: endpoint.id,
         now: this.now(),
-      });
-      return writeJson(response, 201, {
-        schemaVersion: 2,
-        url: `https://t.me/${readyTelegramUsername}?start=${token}`,
-        expiresAt: toIso(expiresAt),
+        admissionLimits: this.webPushEnrollmentAdmissionLimits,
+      }) ?? 0);
+      return writeJson(response, 202, {
+        verified: false,
+        queued,
       });
     }
-    if (suffix === '/test' && method === 'POST') {
-      const now = this.now();
-      const queued = this.repository.enqueueWatchlistTest(id, {
-        id: `test-${randomUUID()}`,
-        network: watchlist.network,
-        source: 'test',
-        type: 'notification_test',
-        severity: 'info',
-        title: 'Slashmon test successful',
-        body: 'Delivery is working. Real alerts will identify the affected sequencer and clearly ' +
-          'separate node evidence, L1 votes, slash payloads, and confirmed slashes.',
-        data: {},
-        observedAt: now,
-      }, now, {
-        cooldownMs: this.notificationTestCooldownMs,
-        admissionLimits: this.notificationTestAdmissionLimits,
-      });
-      if (!queued) {
-        throw new HttpError(409, 'no_active_channels', 'No active notification channel is connected');
+
+    if (suffix === '/channels/telegram') {
+      if (method === 'POST') {
+        const telegramBotUsername = this.readyTelegramUsername();
+        if (!telegramBotUsername) {
+          throw new HttpError(503, 'telegram_unavailable', 'Telegram is not ready');
+        }
+        const token = createOpaqueToken(24);
+        const expiresAt = this.now() + this.linkTokenTtlMs;
+        this.repository.createTelegramLink({
+          tokenHash: hashToken(token),
+          watchlistId: id,
+          expiresAt,
+          now: this.now(),
+        });
+        return writeJson(response, 201, {
+          url: `https://t.me/${telegramBotUsername}?start=${token}`,
+          expiresAt: toIso(expiresAt),
+        });
       }
-      return writeJson(response, 202, { schemaVersion: 2, queued: Number(queued ?? 0) });
+      if (method === 'DELETE') {
+        this.repository.removeEndpoint(id, 'telegram', this.now());
+        response.writeHead(204);
+        response.end();
+        return;
+      }
+      throw new HttpError(405, 'method_not_allowed', 'Method is not allowed for this route');
     }
-    throw new HttpError(405, 'method_not_allowed', 'Method is not allowed for this route');
+
+    if (suffix === '/test') {
+      if (method !== 'POST') {
+        throw new HttpError(405, 'method_not_allowed', 'Method is not allowed for this route');
+      }
+      const now = this.now();
+      const queued = this.repository.enqueueWatchlistTest(
+        id,
+        {
+          id: `test-${randomUUID()}`,
+          incidentId: `watchlist-test-${id}`,
+          network: this.network,
+          source: 'test',
+          type: 'notification_test',
+          severity: 'info',
+          data: {},
+          observedAt: now,
+        },
+        now,
+        {
+          cooldownMs: this.notificationTestCooldownMs,
+          admissionLimits: this.notificationTestAdmissionLimits,
+        },
+      );
+      if (!queued) {
+        throw new HttpError(
+          409,
+          'no_active_channels',
+          'No active notification channel is connected',
+        );
+      }
+      return writeJson(response, 202, { queued: Number(queued) });
+    }
+
+    throw new HttpError(404, 'not_found', 'Route not found');
   }
 
   authorizeWatchlist(id, request) {
     const watchlist = this.repository.getWatchlist(id);
-    if (!watchlist) throw new HttpError(404, 'subscription_not_found', 'Subscription not found');
+    if (!watchlist) throw new HttpError(404, 'watchlist_not_found', 'Watchlist not found');
     const token = readBearerToken(request.headers.authorization);
     if (!safeHashMatches(token, watchlist.managementTokenHash)) {
       throw new HttpError(401, 'invalid_management_token', 'Management token is invalid');
@@ -470,86 +481,21 @@ export class CollectorApiServer {
   }
 
   readyTelegramUsername() {
-    return this.telegramBotUsername && this.isTelegramReady() ? this.telegramBotUsername : null;
+    return this.telegramBotUsername && this.isTelegramReady()
+      ? this.telegramBotUsername
+      : null;
   }
 
   assertAllowedOrigin(request) {
     const origin = request.headers.origin;
-    if (origin && origin !== this.corsOrigin && request.method !== 'GET' && request.method !== 'HEAD') {
+    if (
+      origin &&
+      origin !== this.corsOrigin &&
+      request.method !== 'GET' &&
+      request.method !== 'HEAD'
+    ) {
       throw new HttpError(403, 'origin_not_allowed', 'Request origin is not allowed');
     }
-  }
-
-  buildBaseStatus() {
-    const now = this.now();
-    const aztecOffenses = sourceHealthFromOffenseSync(
-      this.repository.getSyncState(),
-      this.staleAfterMs,
-      now,
-    );
-    const aztecSentinelState = this.repository.getSourceState('aztec_sentinel');
-    const aztecSentinel = sourceHealth(
-      aztecSentinelState,
-      Math.max(this.staleAfterMs, 3 * 60_000),
-      now,
-    );
-    const aztec = aztecSentinelState
-      ? combineSourceHealth([aztecOffenses, aztecSentinel])
-      : aztecOffenses;
-    const l1SnapshotState = this.repository.getSourceState('l1');
-    const l1SlashLogState = this.repository.getSourceState('l1_slash_logs');
-    const l1 = l1SlashLogState
-      ? combineSourceHealth([
-        sourceHealth(l1SnapshotState, this.l1StaleAfterMs, now),
-        sourceHealth(l1SlashLogState, this.l1StaleAfterMs, now),
-      ])
-      : sourceHealth(l1SnapshotState, this.l1StaleAfterMs, now);
-    const telegram = this.telegramBotUsername
-      ? sourceHealth(this.repository.getSourceState('telegram'), Math.max(120_000, this.staleAfterMs), now)
-      : { status: 'disabled', enabled: false };
-    const webPush = this.vapidPublicKey
-      ? deliveryChannelHealth(this.repository.getSourceState('web_push'))
-      : { status: 'disabled', enabled: false };
-    const deliveryQueue = publicDeliveryHealth(this.repository.getDeliveryHealthStatus({ now }));
-    const critical = [aztec.status, l1.status];
-    const sourceStatus = critical.every((value) => value === 'healthy')
-      ? 'healthy'
-      : critical.some((value) => value === 'unavailable' || value === 'stale')
-        ? 'stale'
-        : 'degraded';
-    const notificationDegraded = deliveryQueue.status === 'degraded' || (
-      telegram.enabled !== false && telegram.status !== 'healthy'
-    ) || webPush.status === 'degraded';
-    const delivery = {
-      ...deliveryQueue,
-      status: notificationDegraded ? 'degraded' : 'healthy',
-    };
-    const status = sourceStatus === 'healthy' && notificationDegraded
-      ? 'degraded'
-      : sourceStatus;
-    return {
-      schemaVersion: 2,
-      status,
-      generatedAt: toIso(now),
-      network: this.network,
-      sources: { l1, aztec, aztecOffenses, aztecSentinel, telegram, webPush },
-      delivery,
-    };
-  }
-
-  buildPublicStatus() {
-    const status = this.buildStatus();
-    return {
-      schemaVersion: status.schemaVersion,
-      status: status.status,
-      generatedAt: status.generatedAt,
-      network: status.network,
-      sources: {
-        l1: { status: status.sources.l1.status },
-        aztec: { status: status.sources.aztec.status },
-      },
-      delivery: { status: status.delivery.status },
-    };
   }
 
   buildStatus() {
@@ -557,51 +503,63 @@ export class CollectorApiServer {
     if (this.statusCache && this.statusCache.expiresAt > now) {
       return this.statusCache.value;
     }
-    const value = this.buildBaseStatus();
+
+    const node = sourceHealthFromOffenseSync(
+      this.repository.getSyncState(),
+      this.staleAfterMs,
+      now,
+    );
+    const l1Snapshot = sourceHealth(
+      this.repository.getSourceState('l1'),
+      this.l1StaleAfterMs,
+      now,
+    );
+    const slashLogsState = this.repository.getSourceState('l1_slash_logs');
+    const l1 = combineSourceHealth([
+      l1Snapshot,
+      sourceHealth(slashLogsState, this.l1StaleAfterMs, now),
+    ]);
+    const notifications = publicDeliveryHealth({
+      delivery: this.repository.getDeliveryHealthStatus({ now }),
+      webPushConfigured: Boolean(this.vapidPublicKey),
+      webPushState: this.repository.getSourceState('web_push'),
+      telegramConfigured: Boolean(this.telegramBotUsername),
+      telegramReady: Boolean(this.telegramBotUsername) && this.isTelegramReady(),
+      telegramState: this.repository.getSourceState('telegram'),
+    });
+    const criticalStates = [node.status, l1.status];
+    const status = criticalStates.some((value) => value === 'unavailable' || value === 'stale')
+      ? 'stale'
+      : criticalStates.some((value) => value === 'degraded') || notifications.status === 'degraded'
+        ? 'degraded'
+        : 'healthy';
+    const value = {
+      network: this.network,
+      status,
+      observedAt: toIso(now),
+      sources: {
+        node: toPublicSourceHealth(node),
+        l1: toPublicSourceHealth(l1),
+      },
+      notifications,
+    };
     this.statusCache = { value, expiresAt: now + 1_000 };
     return value;
   }
-
-  buildHealth() {
-    const status = this.buildStatus();
-    return {
-      httpStatus: status.status === 'stale' ? 503 : 200,
-      body: {
-        status: status.status,
-        sources: status.sources,
-        delivery: status.delivery,
-        now: status.generatedAt,
-      },
-    };
-  }
-
 }
 
-function parseEventQuery(searchParams, expectedNetwork) {
-  const network = normalizeNetwork(searchParams.get('network') ?? expectedNetwork, expectedNetwork);
-  const addresses = searchParams.getAll('address')
-    .flatMap((value) => value.split(','))
-    .map((value) => value.trim())
-    .filter(Boolean);
-  const cursor = searchParams.get('cursor');
-  if (cursor && (cursor.length > 200 || !/^[A-Za-z0-9_.:-]+$/.test(cursor))) {
-    throw new HttpError(400, 'invalid_cursor', 'cursor is malformed');
+function assertNoQuery(url) {
+  if (url.searchParams.size > 0) {
+    throw new HttpError(400, 'unexpected_query', 'This route does not accept query parameters');
   }
-  return {
-    network,
-    addresses: addresses.length > 0 ? normalizeAddresses(addresses, MAX_SEQUENCER_FILTERS) : [],
-    cursor: cursor ?? undefined,
-    limit: parseQueryInteger(searchParams.get('limit'), 'limit', 50, 1, 100),
-  };
 }
 
-function parseQueryInteger(raw, name, defaultValue, min, max) {
-  if (raw === null) return defaultValue;
-  const value = Number(raw);
-  if (!Number.isSafeInteger(value) || value < min || value > max) {
-    throw new HttpError(400, `invalid_${name}`, `${name} must be an integer between ${min} and ${max}`);
+function decodePathSegment(value, code) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    throw new HttpError(400, code, 'Path parameter is malformed');
   }
-  return value;
 }
 
 async function readJsonBody(request, maxBytes) {
@@ -617,7 +575,9 @@ async function readJsonBody(request, maxBytes) {
   let length = 0;
   for await (const chunk of request) {
     length += chunk.length;
-    if (length > maxBytes) throw new HttpError(413, 'request_too_large', `Request body exceeds ${maxBytes} bytes`);
+    if (length > maxBytes) {
+      throw new HttpError(413, 'request_too_large', `Request body exceeds ${maxBytes} bytes`);
+    }
     chunks.push(chunk);
   }
   let body;
@@ -644,7 +604,7 @@ function setCommonHeaders(response, request, corsOrigin) {
     response.setHeader('access-control-allow-origin', corsOrigin);
     response.setHeader('vary', 'Origin');
   }
-  response.setHeader('access-control-allow-methods', 'GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS');
+  response.setHeader('access-control-allow-methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
   response.setHeader('access-control-allow-headers', 'authorization, content-type');
   response.setHeader('access-control-max-age', '600');
   response.setHeader('cache-control', 'no-store');
@@ -676,14 +636,10 @@ function sourceHealth(state, staleAfterMs, now) {
   if (!state || state.lastSuccessAt === null || state.lastSuccessAt === undefined) {
     return {
       status: 'unavailable',
-      upstreamReachable: false,
-      dataFresh: false,
       dataAgeMs: null,
-      lastAttemptAt: toIso(state?.lastAttemptAt),
       lastSuccessAt: null,
-      consecutiveFailures: state?.consecutiveFailures ?? 0,
-      successfulPolls: state?.successfulPolls ?? 0,
-      errorClass: state?.lastError ? 'upstream_error' : null,
+      blockNumber: state?.lastBlockNumber ?? null,
+      blockHash: state?.lastBlockHash ?? null,
     };
   }
   const age = Math.max(0, now - Number(state.lastSuccessAt));
@@ -692,30 +648,10 @@ function sourceHealth(state, staleAfterMs, now) {
   const partial = Boolean(state.metadata?.degraded);
   return {
     status: !fresh ? 'stale' : !reachable || partial ? 'degraded' : 'healthy',
-    upstreamReachable: reachable,
-    dataFresh: fresh,
     dataAgeMs: age,
-    lastAttemptAt: toIso(state.lastAttemptAt),
     lastSuccessAt: toIso(state.lastSuccessAt),
-    consecutiveFailures: Number(state.consecutiveFailures ?? 0),
-    successfulPolls: Number(state.successfulPolls ?? 0),
-    errorClass: state.lastError ? 'upstream_error' : null,
     blockNumber: state.lastBlockNumber ?? null,
     blockHash: state.lastBlockHash ?? null,
-  };
-}
-
-function deliveryChannelHealth(state) {
-  if (!state || Number(state.consecutiveFailures ?? 0) === 0) {
-    return { status: 'healthy', enabled: true };
-  }
-  return {
-    status: 'degraded',
-    enabled: true,
-    errorClass: 'upstream_error',
-    consecutiveFailures: Number(state.consecutiveFailures),
-    lastAttemptAt: toIso(state.lastAttemptAt),
-    lastSuccessAt: toIso(state.lastSuccessAt),
   };
 }
 
@@ -724,36 +660,79 @@ function combineSourceHealth(sources) {
   const worst = sources.reduce((left, right) =>
     rank[right.status] > rank[left.status] ? right : left
   );
-  const attempts = sources.map((source) => source.lastAttemptAt).filter(Boolean).sort();
   const successes = sources.map((source) => source.lastSuccessAt).filter(Boolean).sort();
+  const blockSource = [...sources].reverse().find((source) => source.blockNumber !== null);
   return {
-    ...worst,
     status: worst.status,
-    upstreamReachable: sources.every((source) => source.upstreamReachable),
-    dataFresh: sources.every((source) => source.dataFresh),
     dataAgeMs: sources.some((source) => source.dataAgeMs === null)
       ? null
       : Math.max(...sources.map((source) => source.dataAgeMs)),
-    lastAttemptAt: attempts.at(-1) ?? null,
     lastSuccessAt: successes.length === sources.length ? successes[0] : null,
-    consecutiveFailures: sources.reduce((sum, source) => sum + source.consecutiveFailures, 0),
-    successfulPolls: Math.min(...sources.map((source) => source.successfulPolls)),
-    errorClass: sources.some((source) => source.errorClass) ? 'upstream_error' : null,
+    blockNumber: blockSource?.blockNumber ?? null,
+    blockHash: blockSource?.blockHash ?? null,
   };
 }
 
-function publicDeliveryHealth(health) {
-  // Exact global queue counts/timestamps can reveal the cadence and volume of
-  // capability-scoped pending alerts. Public callers only need to know whether
-  // notification coverage is healthy; operators can inspect SQLite/journald.
-  return { status: health.status === 'degraded' ? 'degraded' : 'healthy' };
+function toPublicSourceHealth(source) {
+  const result = {
+    status: source.status,
+    lastSuccessAt: source.lastSuccessAt,
+    dataAgeMs: source.dataAgeMs,
+  };
+  if (source.blockNumber !== null && source.blockNumber !== undefined) {
+    result.blockNumber = source.blockNumber;
+    result.blockHash = source.blockHash;
+  }
+  return result;
+}
+
+function publicDeliveryHealth({
+  delivery,
+  webPushConfigured,
+  webPushState,
+  telegramConfigured,
+  telegramReady,
+  telegramState,
+}) {
+  const webPush = channelNotificationHealth({
+    configured: webPushConfigured,
+    ready: true,
+    state: webPushState,
+  });
+  const telegram = channelNotificationHealth({
+    configured: telegramConfigured,
+    ready: telegramReady,
+    state: telegramState,
+  });
+  const configuredStatuses = [
+    ...(webPushConfigured ? [webPush.status] : []),
+    ...(telegramConfigured ? [telegram.status] : []),
+  ];
+  const status = configuredStatuses.length === 0
+    ? 'unavailable'
+    : delivery.status === 'degraded' ||
+        configuredStatuses.some((value) => value !== 'healthy')
+      ? 'degraded'
+      : 'healthy';
+  return {
+    status,
+    channels: { webPush, telegram },
+  };
+}
+
+function channelNotificationHealth({ configured, ready, state }) {
+  if (!configured || !ready) return { status: 'unavailable' };
+  return {
+    status: Number(state?.consecutiveFailures ?? 0) > 0
+      ? 'degraded'
+      : 'healthy',
+  };
 }
 
 function toPublicWatchlist(watchlist) {
   const endpoints = watchlist.endpoints;
   return {
     id: watchlist.id,
-    network: watchlist.network,
     addresses: watchlist.addresses,
     channels: {
       webPush: channelSummary(endpoints, 'web_push'),
@@ -767,12 +746,16 @@ function channelSummary(endpoints, kind) {
   return {
     connected: matching.length > 0,
     enabled: matching.some((endpoint) => endpoint.enabled !== false),
-    verified: matching.some((endpoint) => endpoint.enabled !== false && endpoint.verified === true),
+    verified: matching.some(
+      (endpoint) => endpoint.enabled !== false && endpoint.verified === true,
+    ),
   };
 }
 
 function toIso(value) {
-  return value === null || value === undefined ? null : new Date(Number(value)).toISOString();
+  return value === null || value === undefined
+    ? null
+    : new Date(Number(value)).toISOString();
 }
 
 class HttpError extends Error {
@@ -784,7 +767,7 @@ class HttpError extends Error {
   }
 }
 
-class MutationRateLimiter {
+class RateLimiter {
   constructor(windowMs, max, now, maxBuckets = 10_000) {
     this.windowMs = windowMs;
     this.max = max;
@@ -793,17 +776,11 @@ class MutationRateLimiter {
     this.buckets = new Map();
   }
 
-  take(key, code = 'rate_limited', message = 'Too many mutation requests; try again shortly') {
+  take(key, code = 'rate_limited', message = 'Too many requests; try again shortly') {
     const now = this.now();
     const bucket = this.getBucket(key, now);
     bucket.count += 1;
-    if (bucket.count > this.max) throw new HttpError(429, code, message, bucket.resetAt - now);
-  }
-
-  check(key, code = 'rate_limited', message = 'Too many requests; try again shortly') {
-    const now = this.now();
-    const bucket = this.buckets.get(key);
-    if (bucket && bucket.resetAt > now && bucket.count >= this.max) {
+    if (bucket.count > this.max) {
       throw new HttpError(429, code, message, bucket.resetAt - now);
     }
   }
@@ -827,21 +804,16 @@ class MutationRateLimiter {
   }
 }
 
-function mutationClientKey(request, trustLoopbackProxy) {
+function clientAddress(request, trustLoopbackProxy) {
   const remote = request.socket.remoteAddress ?? 'unknown';
   if (!trustLoopbackProxy || !isLoopback(remote)) return remote;
 
-  // Cloudflare sends this as one canonical address. Only trust it when the
-  // request came from the explicitly trusted loopback tunnel process.
   const cloudflareIp = request.headers['cf-connecting-ip'];
   if (typeof cloudflareIp === 'string' && isIP(cloudflareIp.trim())) {
     return cloudflareIp.trim();
   }
-
   const forwarded = request.headers['x-forwarded-for'];
   if (typeof forwarded === 'string') {
-    // Cloudflare appends the address that connected to its edge, so the
-    // rightmost valid address is the conservative compatibility fallback.
     const candidates = forwarded.split(',').map((value) => value.trim()).filter(Boolean);
     for (let index = candidates.length - 1; index >= 0; index -= 1) {
       if (isIP(candidates[index])) return candidates[index];

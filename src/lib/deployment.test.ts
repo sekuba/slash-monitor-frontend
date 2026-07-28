@@ -1,59 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { zeroAddress, type Address, type PublicClient } from 'viem';
-import type { DeploymentAddresses } from '@/types/slashing';
-import { deploymentsMatch, resolveDeploymentWithClient } from './deployment';
+import {
+    assertFreshL1Head,
+    MAX_L1_FUTURE_SKEW_SECONDS,
+    resolveDeploymentWithClient,
+} from './deployment';
 
 const addresses = {
     registry: '0x0000000000000000000000000000000000000010' as Address,
     rollup: '0x0000000000000000000000000000000000000020' as Address,
     slasher: '0x0000000000000000000000000000000000000030' as Address,
     proposer: '0x0000000000000000000000000000000000000040' as Address,
-    pendingSlasher: '0x0000000000000000000000000000000000000050' as Address,
-    pendingProposer: '0x0000000000000000000000000000000000000060' as Address,
-};
-
-const deployment: DeploymentAddresses = {
-    deploymentBlockNumber: 123n,
-    deploymentTimestamp: 456n,
-    rollupAddress: addresses.rollup,
-    slasherAddress: addresses.slasher,
-    slashingProposerAddress: addresses.proposer,
-    rollupVersion: 5n,
-    pendingSlasherAddress: zeroAddress,
-    pendingSlashingProposerAddress: zeroAddress,
-    pendingSlasherReadyAt: 0n,
-    legacySlasherAddress: zeroAddress,
-    legacySlashingProposerAddress: zeroAddress,
-    legacySlasherAuthorizedUntil: 0n,
+    legacySlasher: '0x0000000000000000000000000000000000000050' as Address,
+    legacyProposer: '0x0000000000000000000000000000000000000060' as Address,
 };
 
 describe('deployment discovery', () => {
-    it('detects a change to every topology and rotation field', () => {
-        expect(deploymentsMatch(deployment, { ...deployment })).toBe(true);
-        expect(deploymentsMatch(deployment, {
-            ...deployment,
-            deploymentBlockNumber: 999n,
-            deploymentTimestamp: 999n,
-        })).toBe(true);
-
-        const changes: Partial<DeploymentAddresses>[] = [
-            { rollupAddress: addresses.registry },
-            { slasherAddress: addresses.registry },
-            { slashingProposerAddress: addresses.registry },
-            { rollupVersion: 6n },
-            { pendingSlasherAddress: addresses.registry },
-            { pendingSlashingProposerAddress: addresses.registry },
-            { pendingSlasherReadyAt: 1n },
-            { legacySlasherAddress: addresses.registry },
-            { legacySlashingProposerAddress: addresses.registry },
-            { legacySlasherAuthorizedUntil: 1n },
-        ];
-
-        for (const change of changes) {
-            expect(deploymentsMatch(deployment, { ...deployment, ...change })).toBe(false);
-        }
-    });
-
     it('rejects an RPC connected to the wrong chain', async () => {
         const client = { getChainId: async () => 11155111 } as unknown as PublicClient;
         await expect(resolveDeploymentWithClient(client, addresses.registry, 1)).rejects.toThrow(
@@ -64,6 +26,18 @@ describe('deployment discovery', () => {
     it('rejects a frozen RPC head before trusting its Registry state', async () => {
         const client = createClient({ timestamp: 1n });
         await expect(resolveDeploymentWithClient(client, addresses.registry, 1)).rejects.toThrow('L1 RPC head is stale');
+    });
+
+    it('rejects an L1 head beyond the future-skew bound', () => {
+        const now = 1_000_000n;
+        expect(() => assertFreshL1Head(
+            now + MAX_L1_FUTURE_SKEW_SECONDS,
+            now,
+        )).not.toThrow();
+        expect(() => assertFreshL1Head(
+            now + MAX_L1_FUTURE_SKEW_SECONDS + 1n,
+            now,
+        )).toThrow('in the future');
     });
 
     it('rejects broken proposer backreferences and missing bytecode', async () => {
@@ -78,23 +52,37 @@ describe('deployment discovery', () => {
         );
     });
 
-    it('validates a queued v5 slasher stack before it can become active', async () => {
+    it('validates a currently authorized legacy stack', async () => {
         const valid = await resolveDeploymentWithClient(
-            createClient({ pendingSlasher: true }),
+            createClient({ legacySlasher: true }),
             addresses.registry,
             1
         );
         expect(valid).toMatchObject({
-            pendingSlasherAddress: addresses.pendingSlasher,
-            pendingSlashingProposerAddress: addresses.pendingProposer,
-            pendingSlasherReadyAt: 999n,
+            deploymentBlockNumber: 121n,
+            legacySlasherAddress: addresses.legacySlasher,
+            legacySlashingProposerAddress: addresses.legacyProposer,
+            legacySlasherAuthorizedUntil: 9999999999n,
         });
 
         await expect(resolveDeploymentWithClient(
-            createClient({ pendingSlasher: true, invalidPendingBackreference: true }),
+            createClient({ legacySlasher: true, invalidLegacyBackreference: true }),
             addresses.registry,
             1
-        )).rejects.toThrow('pending proposer SLASHER');
+        )).rejects.toThrow('legacy proposer SLASHER');
+    });
+
+    it('excludes an expired legacy stack from the executable topology', async () => {
+        const resolved = await resolveDeploymentWithClient(
+            createClient({ legacySlasher: true, legacyAuthorizedUntil: 1n }),
+            addresses.registry,
+            1,
+        );
+        expect(resolved).toMatchObject({
+            legacySlasherAddress: zeroAddress,
+            legacySlashingProposerAddress: zeroAddress,
+            legacySlasherAuthorizedUntil: 0n,
+        });
     });
 });
 
@@ -102,30 +90,34 @@ function createClient(options: {
     proposerRollup?: Address;
     missingCodeAt?: Address;
     timestamp?: bigint;
-    pendingSlasher?: boolean;
-    invalidPendingBackreference?: boolean;
+    legacySlasher?: boolean;
+    legacyAuthorizedUntil?: bigint;
+    invalidLegacyBackreference?: boolean;
 } = {}): PublicClient {
     return {
         getChainId: async () => 1,
-        getBlock: async () => ({
-            number: 123n,
-            timestamp: options.timestamp ?? BigInt(Math.floor(Date.now() / 1000)),
-        }),
+        getBlock: async ({ blockNumber }: { blockNumber?: bigint } = {}) => {
+            const number = blockNumber ?? 123n;
+            return {
+                number,
+                hash: `0x${number.toString(16).padStart(64, '0')}`,
+                timestamp: options.timestamp ?? BigInt(Math.floor(Date.now() / 1000)),
+            };
+        },
         readContract: async ({ address, functionName }: { address: Address; functionName: string }) => {
             switch (functionName) {
                 case 'getCanonicalRollup': return addresses.rollup;
                 case 'getSlasher': return addresses.slasher;
                 case 'getVersion': return 5n;
-                case 'getPendingSlasher': return options.pendingSlasher
-                    ? [addresses.pendingSlasher, 999n] as const
+                case 'getLegacySlasher': return options.legacySlasher
+                    ? [addresses.legacySlasher, options.legacyAuthorizedUntil ?? 9999999999n] as const
                     : [zeroAddress, 0n] as const;
-                case 'getLegacySlasher': return [zeroAddress, 0n] as const;
-                case 'PROPOSER': return address === addresses.pendingSlasher
-                    ? addresses.pendingProposer
+                case 'PROPOSER': return address === addresses.legacySlasher
+                    ? addresses.legacyProposer
                     : addresses.proposer;
                 case 'INSTANCE': return options.proposerRollup ?? addresses.rollup;
-                case 'SLASHER': return address === addresses.pendingProposer && !options.invalidPendingBackreference
-                    ? addresses.pendingSlasher
+                case 'SLASHER': return address === addresses.legacyProposer && !options.invalidLegacyBackreference
+                    ? addresses.legacySlasher
                     : addresses.slasher;
                 default: throw new Error(`Unexpected function ${functionName}`);
             }

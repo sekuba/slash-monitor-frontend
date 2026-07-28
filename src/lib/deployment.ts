@@ -1,4 +1,10 @@
-import { createPublicClient, getAddress, zeroAddress, type Address, type PublicClient } from 'viem';
+import {
+    createPublicClient,
+    getAddress,
+    zeroAddress,
+    type Address,
+    type PublicClient,
+} from 'viem';
 import type { DeploymentAddresses, MonitorConfigInput } from '@/types/slashing';
 import { registryAbi } from './contracts/registryAbi';
 import { rollupAbi } from './contracts/rollupAbi';
@@ -7,6 +13,8 @@ import { slashingProposerAbi } from './contracts/slashingProposerAbi';
 import { createPublicRpcTransport } from './rpc';
 
 export const MAX_L1_HEAD_AGE_SECONDS = 15n * 60n;
+export const MAX_L1_FUTURE_SKEW_SECONDS = 2n * 60n;
+export const INDEPENDENT_L1_CONFIRMATIONS = 2n;
 
 export async function resolveDeployment(config: MonitorConfigInput): Promise<DeploymentAddresses> {
     const client = createPublicClient({
@@ -28,7 +36,17 @@ export async function resolveDeploymentWithClient(
 
     const head = await client.getBlock({ blockTag: 'latest' });
     assertFreshL1Head(head.timestamp);
-    const blockNumber = head.number;
+    if (head.number < INDEPENDENT_L1_CONFIRMATIONS) {
+        throw new Error(
+            `L1 RPC head ${head.number} is below the ${INDEPENDENT_L1_CONFIRMATIONS}-block confirmation depth`,
+        );
+    }
+    const blockNumber = head.number - INDEPENDENT_L1_CONFIRMATIONS;
+    const block = await client.getBlock({ blockNumber });
+    if (!block.hash) {
+        throw new Error(`Confirmed L1 block ${blockNumber} has no hash`);
+    }
+    assertFreshL1Head(block.timestamp);
 
     const registryAddress = getAddress(registryAddressInput);
     const rollupAddress = getAddress(await client.readContract({
@@ -38,7 +56,7 @@ export async function resolveDeploymentWithClient(
         blockNumber,
     }));
 
-    const [slasherResult, rollupVersion, pendingSlasher, legacySlasher] = await Promise.all([
+    const [slasherResult, rollupVersion, legacySlasher] = await Promise.all([
         client.readContract({
             address: rollupAddress,
             abi: rollupAbi,
@@ -54,12 +72,6 @@ export async function resolveDeploymentWithClient(
         client.readContract({
             address: rollupAddress,
             abi: rollupAbi,
-            functionName: 'getPendingSlasher',
-            blockNumber,
-        }),
-        client.readContract({
-            address: rollupAddress,
-            abi: rollupAbi,
             functionName: 'getLegacySlasher',
             blockNumber,
         }),
@@ -69,18 +81,18 @@ export async function resolveDeploymentWithClient(
     requireNonZeroAddress('canonical Rollup', rollupAddress);
     requireNonZeroAddress('Slasher', slasherAddress);
 
-    const pendingSlasherAddress = getAddress(pendingSlasher[0]);
-    const legacySlasherAddress = getAddress(legacySlasher[0]);
-    const legacySlasherIsAuthorized = legacySlasherAddress !== zeroAddress && legacySlasher[1] >= head.timestamp;
+    const discoveredLegacySlasherAddress = getAddress(legacySlasher[0]);
+    const legacySlasherIsAuthorized =
+        discoveredLegacySlasherAddress !== zeroAddress &&
+        legacySlasher[1] >= block.timestamp;
+    const legacySlasherAddress = legacySlasherIsAuthorized
+        ? discoveredLegacySlasherAddress
+        : zeroAddress;
     const [
         slashingProposerAddress,
-        pendingSlashingProposerAddress,
         legacySlashingProposerAddress,
     ] = await Promise.all([
         resolveAndValidateProposer(client, slasherAddress, rollupAddress, blockNumber, 'active'),
-        pendingSlasherAddress === zeroAddress
-            ? zeroAddress
-            : resolveAndValidateProposer(client, pendingSlasherAddress, rollupAddress, blockNumber, 'pending'),
         !legacySlasherIsAuthorized
             ? zeroAddress
             : resolveAndValidateProposer(client, legacySlasherAddress, rollupAddress, blockNumber, 'legacy'),
@@ -95,20 +107,24 @@ export async function resolveDeploymentWithClient(
             throw new Error(`Invalid Aztec deployment: no contract code at ${deployedAddresses[index]}`);
         }
     });
+    const verifiedBlock = await client.getBlock({ blockNumber });
+    if (!verifiedBlock.hash || verifiedBlock.hash.toLowerCase() !== block.hash.toLowerCase()) {
+        throw new Error(`Confirmed L1 block ${blockNumber} changed during deployment discovery`);
+    }
 
     return {
         deploymentBlockNumber: blockNumber,
-        deploymentTimestamp: head.timestamp,
+        deploymentBlockHash: block.hash,
+        deploymentTimestamp: block.timestamp,
         rollupAddress,
         slasherAddress,
         slashingProposerAddress,
         rollupVersion,
-        pendingSlasherAddress,
-        pendingSlashingProposerAddress,
-        pendingSlasherReadyAt: pendingSlasher[1],
         legacySlasherAddress,
         legacySlashingProposerAddress,
-        legacySlasherAuthorizedUntil: legacySlasher[1],
+        legacySlasherAuthorizedUntil: legacySlasherIsAuthorized
+            ? legacySlasher[1]
+            : 0n,
     };
 }
 
@@ -117,7 +133,7 @@ async function resolveAndValidateProposer(
     slasherAddress: Address,
     rollupAddress: Address,
     blockNumber: bigint,
-    label: 'active' | 'pending' | 'legacy'
+    label: 'active' | 'legacy'
 ): Promise<Address> {
     const slashingProposerAddress = getAddress(await client.readContract({
         address: slasherAddress,
@@ -171,6 +187,12 @@ export function assertFreshL1Head(
     timestamp: bigint,
     now = BigInt(Math.floor(Date.now() / 1000))
 ): void {
+    if (timestamp > now + MAX_L1_FUTURE_SKEW_SECONDS) {
+        throw new Error(
+            `L1 RPC head timestamp is ${timestamp - now} seconds in the future ` +
+            `(maximum ${MAX_L1_FUTURE_SKEW_SECONDS})`
+        );
+    }
     if (timestamp + MAX_L1_HEAD_AGE_SECONDS < now) {
         throw new Error(
             `L1 RPC head is stale: latest block is ${now - timestamp} seconds old (maximum ${MAX_L1_HEAD_AGE_SECONDS})`
@@ -182,17 +204,4 @@ function requireNonZeroAddress(label: string, address: Address): void {
     if (address === zeroAddress) {
         throw new Error(`Invalid Aztec deployment: ${label} address is zero`);
     }
-}
-
-export function deploymentsMatch(a: DeploymentAddresses, b: DeploymentAddresses): boolean {
-    return a.rollupAddress === b.rollupAddress &&
-        a.slasherAddress === b.slasherAddress &&
-        a.slashingProposerAddress === b.slashingProposerAddress &&
-        a.rollupVersion === b.rollupVersion &&
-        a.pendingSlasherAddress === b.pendingSlasherAddress &&
-        a.pendingSlashingProposerAddress === b.pendingSlashingProposerAddress &&
-        a.pendingSlasherReadyAt === b.pendingSlasherReadyAt &&
-        a.legacySlasherAddress === b.legacySlasherAddress &&
-        a.legacySlashingProposerAddress === b.legacySlashingProposerAddress &&
-        a.legacySlasherAuthorizedUntil === b.legacySlasherAuthorizedUntil;
 }

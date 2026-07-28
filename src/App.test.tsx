@@ -2,82 +2,55 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 
-const scannerSpy = vi.hoisted(() => vi.fn());
+describe('top-level monitor views', () => {
+    beforeEach(() => installBrowser('https://slashmon.example/'));
 
-vi.mock('./hooks/useSlashingMonitor', () => ({
-    useSlashingMonitor: scannerSpy,
-}));
+    afterEach(() => vi.unstubAllGlobals());
 
-describe('top-level view isolation', () => {
-    beforeEach(() => {
-        scannerSpy.mockClear();
-        installBrowser('https://slashmon.example/');
+    it('uses the hosted live monitor as the clean default', () => {
+        const markup = renderToStaticMarkup(<App />);
+
+        expect(markup).toContain('Live Aztec slashing state');
+        expect(markup).toContain('Connecting to the hosted monitor');
+        expect(markup).toContain('Live monitor &amp; alerts');
+        expect(markup).toContain('Independent L1 check');
+        expect(markup).toContain('href="#main-content"');
+        expect(markup).not.toContain('protected');
     });
 
-    afterEach(() => {
-        vi.unstubAllGlobals();
-    });
-
-    it('renders PINGME and permanent navigation without initializing the client scanner', () => {
-        installBrowser('https://slashmon.example/?view=pingme&network=mainnet');
+    it('keeps unrelated query parameters on the default live view', () => {
+        installBrowser('https://slashmon.example/?utm_source=test');
 
         const markup = renderToStaticMarkup(<App />);
 
-        expect(scannerSpy).not.toHaveBeenCalled();
-        expect(markup).toContain('Connecting To Pingme');
-        expect(markup).toContain('Watch sequencers');
-        expect(markup).not.toContain('PWA Web Push');
-        expect(markup).not.toContain('>Telegram</h3>');
-        expect(markup).not.toContain('Address-First Alerts');
-        expect(markup).not.toContain('Pick the mainnet sequencers');
-        expect(markup).toContain('Monitor');
-        expect(markup).toContain('>PINGME</button>');
-        expect(markup).not.toContain('Debug');
-        expect(markup).not.toContain('On-chain details &amp; RPC');
-        expect(markup).not.toContain('Client scanner network');
-        expect(markup).toContain('brutal-button--nav-selected');
+        expect(markup).toContain('Live Aztec slashing state');
+        expect(markup).not.toContain('Independent Ethereum check');
     });
 
-    it('keeps the network feed collapsed while a sequencer record is selected', () => {
-        installBrowser(
-            'https://slashmon.example/?view=pingme&sequencer=0x1111111111111111111111111111111111111111',
-        );
+    it('isolates the browser-only fallback behind the independent route', () => {
+        installBrowser('https://slashmon.example/?view=independent&network=testnet');
 
         const markup = renderToStaticMarkup(<App />);
 
-        expect(scannerSpy).not.toHaveBeenCalled();
-        expect(markup).toContain('<details');
-        expect(markup).toContain('Network feed');
-        expect(markup).toContain('id="sequencer-record-timeline"');
+        expect(markup).toContain('Independent Ethereum check');
+        expect(markup).toContain('Sepolia testnet');
+        expect(markup).toContain('Offchain offense reasons and alerts are unavailable here');
+        expect(markup).toContain('Contract details &amp; RPC');
+        expect(markup).not.toContain('Connecting to the hosted monitor');
     });
 
-    it('treats removed and unknown views as the Monitor', () => {
-        installBrowser('https://slashmon.example/?view=unknown&network=testnet');
-
-        const markup = renderToStaticMarkup(<App />);
-
-        expect(scannerSpy).toHaveBeenCalledOnce();
-        expect(markup).not.toContain('Debug');
-        expect(markup).toContain('On-chain details &amp; RPC');
-        expect(markup).not.toContain('Client scanner network');
-        expect(markup).toContain('Switch client scanner to Mainnet');
-        expect(markup).toContain('INITIALIZING CLIENTSIDE L1 MONITOR');
-    });
-
-    it('uses the saved RPC override only for the selected Monitor network', () => {
-        installBrowser('https://slashmon.example/', {
+    it('uses only the selected independent network RPC override', () => {
+        installBrowser('https://slashmon.example/?view=independent&network=testnet', {
             'slashmon:monitor-rpc:1': 'https://rpc.example/mainnet',
-            'slashmon:monitor-rpc:11155111': 'https://rpc.example/testnet',
+            'slashmon:monitor-rpc:11155111': 'https://rpc.example/sepolia',
         });
 
-        renderToStaticMarkup(<App />);
+        const markup = renderToStaticMarkup(<App />);
 
-        expect(scannerSpy).toHaveBeenCalledWith(expect.objectContaining({
-            chainId: 1,
-            l1RpcUrl: 'https://rpc.example/mainnet',
-        }));
+        expect(markup).toContain('https://rpc.example/sepolia');
+        expect(markup).not.toContain('https://rpc.example/mainnet');
+        expect(markup).toContain('Custom');
     });
-
 });
 
 function installBrowser(href: string, initialStorage: Record<string, string> = {}): void {

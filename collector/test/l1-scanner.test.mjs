@@ -3,74 +3,49 @@ import test from 'node:test';
 
 import {
   L1Scanner,
+  annotateSlashActions,
   calculateStatus,
-  decodeEarlyTargets,
   deduplicateStacks,
-  isRoundProtectedByPause,
-  mergeEarlyTargets,
+  scanRound,
 } from '../src/l1-scanner.mjs';
 
 const REGISTRY = '0x35b22e09Ee0390539439E24f06Da43D83f90e298';
-const ROLLUP = '0x1000000000000000000000000000000000000001';
-const SECOND_ROLLUP = '0x1000000000000000000000000000000000000002';
 const SLASHER = '0x2000000000000000000000000000000000000002';
 const PROPOSER = '0x3000000000000000000000000000000000000003';
-const PENDING_SLASHER = '0x4000000000000000000000000000000000000004';
 const TARGET = '0x5000000000000000000000000000000000000005';
-const PAYLOAD = '0x6000000000000000000000000000000000000006';
-const BLOCK_HASH = `0x${'ab'.repeat(32)}`;
+const SECOND_TARGET = '0x6000000000000000000000000000000000000006';
+const PAYLOAD = '0x7000000000000000000000000000000000000007';
 
-test('L1Scanner rejects stale and implausibly future heads at configured boundaries', () => {
+test('L1 head freshness and progress checks fail closed', () => {
   const scanner = new L1Scanner({
     rpcUrls: ['https://rpc.example'],
     chainId: 1,
     registryAddress: REGISTRY,
+    confirmations: 1,
     maxHeadAgeMs: 1_000,
     maxFutureSkewMs: 1_000,
+    maxHeadStallMs: 120_000,
     now: () => 1_000_000,
   });
 
   assert.doesNotThrow(() => scanner.assertFreshTimestamp(999n));
   assert.doesNotThrow(() => scanner.assertFreshTimestamp(1_001n));
   assert.throws(() => scanner.assertFreshTimestamp(998n), /L1 head is 2000ms old/);
-  assert.throws(() => scanner.assertFreshTimestamp(1_002n), /L1 head timestamp is 2000ms in the future/);
-});
-
-test('L1Scanner rejects a repeated confirmed head after a missed-slot grace window', () => {
-  const scanner = new L1Scanner({
-    rpcUrls: ['https://rpc.example'],
-    chainId: 1,
-    registryAddress: REGISTRY,
-    confirmations: 1,
-    maxHeadAgeMs: 15 * 60_000,
-    maxHeadStallMs: 120_000,
-    now: () => 1_000_000,
-  });
-  const previous = { lastBlockNumber: '100' };
-
-  assert.doesNotThrow(() => scanner.assertHeadProgress(
-    { number: 101n, timestamp: 880n },
-    previous,
-    100n,
-  ));
+  assert.throws(() => scanner.assertFreshTimestamp(1_002n), /2000ms in the future/);
   assert.throws(() => scanner.assertHeadProgress(
     { number: 101n, timestamp: 879n },
-    previous,
+    { lastBlockNumber: '100' },
     100n,
-  ), /confirmed head 100 has not advanced for 121000ms/);
-  assert.doesNotThrow(() => scanner.assertHeadProgress(
-    { number: 101n, timestamp: 800n },
-    { lastBlockNumber: '99' },
-    100n,
-  ), 'an advancing head is not confused with a provider stall');
+  ), /has not advanced for 121000ms/);
 });
 
-test('calculateStatus preserves execution, expiry, quorum, and executable boundaries', () => {
+test('round status preserves execution, expiry, quorum, and execution boundaries', () => {
   const common = {
     round: 100n,
     currentRound: 100n,
     currentSlot: 12_800n,
     isExecuted: false,
+    isVetoed: false,
     hasActions: true,
     executableSlot: 16_512n,
     lifetimeInRounds: 34n,
@@ -80,534 +55,128 @@ test('calculateStatus preserves execution, expiry, quorum, and executable bounda
   assert.equal(calculateStatus({ ...common, isExecuted: true }), 'executed');
   assert.equal(calculateStatus({ ...common, currentRound: 135n }), 'expired');
   assert.equal(calculateStatus({ ...common, hasActions: false }), 'below-quorum');
+  assert.equal(calculateStatus({ ...common, currentRound: 101n, hasActions: false }), 'no-consensus');
+  assert.equal(calculateStatus({ ...common, currentRound: 101n, isVetoed: true }), 'vetoed');
+  assert.equal(calculateStatus({ ...common, isVetoed: true }), 'quorum-reached');
   assert.equal(calculateStatus({ ...common, currentRound: 129n, currentSlot: 16_511n }), 'quorum-reached');
   assert.equal(calculateStatus({ ...common, currentRound: 129n, currentSlot: 16_512n }), 'newly-executable');
   assert.equal(calculateStatus({ ...common, currentRound: 130n, currentSlot: 16_640n }), 'executable');
 });
 
-test('pause protection only covers rounds whose lifetime ends inside the scheduled pause', () => {
-  const common = {
-    slashOffsetInRounds: 2n,
-    isSlashingEnabled: false,
-    pauseStartedAtSlot: 100n,
-    pauseEndsAtSlot: 150n,
-  };
-
-  assert.equal(isRoundProtectedByPause({ ...common, round: 5n, expirySlot: 130n }), true);
-  assert.equal(isRoundProtectedByPause({ ...common, round: 5n, expirySlot: 150n }), true);
-  assert.equal(isRoundProtectedByPause({ ...common, round: 5n, expirySlot: 151n }), false);
-  assert.equal(isRoundProtectedByPause({ ...common, round: 1n, expirySlot: 130n }), false);
-  assert.equal(isRoundProtectedByPause({ ...common, round: 5n, expirySlot: 130n, isSlashingEnabled: true }), false);
-  assert.equal(isRoundProtectedByPause({ ...common, round: 5n, expirySlot: 130n, pauseEndsAtSlot: null }), false);
-});
-
-test('decodeEarlyTargets exposes address-level targeting from the first two-bit vote', () => {
-  const committees = [[
-    '0x1111111111111111111111111111111111111111',
-    '0x2222222222222222222222222222222222222222',
-    '0x3333333333333333333333333333333333333333',
-    '0x4444444444444444444444444444444444444444',
-  ]];
-  const targets = decodeEarlyTargets(['0x39', '0x01'], committees, 4n);
-
-  assert.deepEqual(targets, [
-    {
-      sequencer: committees[0][0],
-      voteCount: 2,
-      maxSlashUnits: 1,
-      unitVoteCounts: [2, 0, 0],
-    },
-    {
-      sequencer: committees[0][1],
-      voteCount: 1,
-      maxSlashUnits: 2,
-      unitVoteCounts: [0, 1, 0],
-    },
-    {
-      sequencer: committees[0][2],
-      voteCount: 1,
-      maxSlashUnits: 3,
-      unitVoteCounts: [0, 0, 1],
-    },
-  ]);
-});
-
-test('mergeEarlyTargets increments an existing per-address vote cursor', () => {
-  const sequencer = '0x1111111111111111111111111111111111111111';
-  assert.deepEqual(mergeEarlyTargets([
-    { sequencer, voteCount: 2, maxSlashUnits: 1, unitVoteCounts: [2, 0, 0] },
-  ], [
-    { sequencer, voteCount: 1, maxSlashUnits: 3, unitVoteCounts: [0, 0, 1] },
-  ]), [
-    { sequencer, voteCount: 3, maxSlashUnits: 3, unitVoteCounts: [2, 0, 1] },
-  ]);
-});
-
-test('deduplicateStacks keeps an authorized legacy role when that Slasher is also pending', () => {
+test('only active and currently authorized legacy stack roles survive deduplication', () => {
   assert.deepEqual(deduplicateStacks([
+    { role: 'legacy', slasherAddress: SLASHER },
     { role: 'active', slasherAddress: SLASHER },
-    { role: 'pending', slasherAddress: PENDING_SLASHER, readyAt: '1200' },
-    { role: 'legacy', slasherAddress: PENDING_SLASHER, authorizedUntil: '1100' },
+    { role: 'pending', slasherAddress: SECOND_TARGET },
   ]), [
     { role: 'active', slasherAddress: SLASHER },
-    {
-      role: 'legacy',
-      slasherAddress: PENDING_SLASHER,
-      readyAt: '1200',
-      authorizedUntil: '1100',
-    },
   ]);
 });
 
-test('scanWithClient publishes one coherent pinned-block snapshot', async () => {
-  const scanner = createScanner();
-  const client = fakeL1Client();
-
-  const snapshot = await scanner.scanWithClient(client);
-
-  assert.equal(snapshot.blockNumber, '100');
-  assert.equal(snapshot.blockHash, BLOCK_HASH);
-  assert.equal(snapshot.rollupAddress, ROLLUP);
-  assert.equal(snapshot.l1GenesisTime, '100');
-  assert.equal(snapshot.degraded, false);
-  assert.equal(snapshot.stacks.length, 1);
-  assert.equal(snapshot.stacks[0].role, 'active');
-  assert.equal(snapshot.stacks[0].proposerAddress, PROPOSER);
-  assert.deepEqual(snapshot.stackErrors, []);
-  assert.equal(client.confirmedBlockReads(), 2, 'the pinned block is re-read after every contract call');
-});
-
-test('scanWithClient rejects a block replaced while its snapshot is being assembled', async () => {
-  const replacementHash = `0x${'cd'.repeat(32)}`;
-  await assert.rejects(
-    createScanner().scanWithClient(fakeL1Client({ replacementHash })),
-    /confirmed L1 block 100 changed during snapshot/,
-  );
-});
-
-test('epoch committee lookup is pinned to the accepted confirmed L1 block', async () => {
-  const scanner = createScanner();
-  let blockReads = 0;
+test('below-quorum rounds do not read committees, per-vote state, tallies, or payloads', async () => {
+  const calls = [];
   const client = {
-    async getChainId() {
-      return 1;
-    },
-    async getBlock({ blockNumber }) {
-      assert.equal(blockNumber, 100n);
-      blockReads += 1;
-      return { number: blockNumber, hash: BLOCK_HASH, timestamp: 988n };
-    },
-    async getBytecode({ address, blockNumber }) {
-      assert.equal(address, ROLLUP);
-      assert.equal(blockNumber, 100n);
-      return '0x01';
-    },
-    async readContract({ address, functionName, args, blockNumber }) {
-      assert.equal(address, ROLLUP);
-      assert.equal(functionName, 'getEpochCommittee');
-      assert.deepEqual(args, [42n]);
-      assert.equal(blockNumber, 100n);
-      return [TARGET, PROPOSER];
+    async readContract({ functionName }) {
+      calls.push(functionName);
+      if (functionName === 'getRound') return [false, 2n];
+      throw new Error(`unexpected ${functionName}`);
     },
   };
 
-  assert.deepEqual(await scanner.getEpochCommitteeWithClient(client, {
-    epoch: '42',
-    rollupAddress: ROLLUP,
-    blockNumber: '100',
-    blockHash: BLOCK_HASH,
-  }), {
-    epoch: '42',
-    committee: [TARGET.toLowerCase(), PROPOSER.toLowerCase()],
-    rollupAddress: ROLLUP.toLowerCase(),
-    blockNumber: '100',
-    blockHash: BLOCK_HASH,
-  });
-  assert.equal(blockReads, 2);
+  const round = await scanRound(client, roundInput({ quorum: 3n }));
+
+  assert.deepEqual(calls, ['getRound']);
+  assert.equal(round.status, 'below-quorum');
+  assert.deepEqual(round.actions, []);
+  assert.equal(round.payloadAddress, null);
 });
 
-test('scanWithClient isolates a broken pending stack and marks source coverage degraded', async () => {
-  const snapshot = await createScanner().scanWithClient(fakeL1Client({ brokenPendingStack: true }));
+test('quorum reads the final tally and preserves every raw action with committee provenance', async () => {
+  const calls = [];
+  const client = {
+    async readContract({ functionName }) {
+      calls.push(functionName);
+      if (functionName === 'getRound') return [false, 3n];
+      if (functionName === 'getSlashTargetCommittees') {
+        return [[TARGET, TARGET], [SECOND_TARGET]];
+      }
+      if (functionName === 'getTally') {
+        return [
+          { validator: TARGET, slashAmount: 10n },
+          { validator: TARGET, slashAmount: 20n },
+          { validator: SECOND_TARGET, slashAmount: 30n },
+        ];
+      }
+      if (functionName === 'getPayloadAddress') return PAYLOAD;
+      if (functionName === 'vetoedPayloads') return false;
+      throw new Error(`unexpected ${functionName}`);
+    },
+  };
 
-  assert.equal(snapshot.stacks.length, 1);
-  assert.equal(snapshot.stacks[0].role, 'active');
-  assert.equal(snapshot.degraded, true);
-  assert.deepEqual(snapshot.stackErrors.map(({ role, slasherAddress }) => ({ role, slasherAddress })), [
-    { role: 'pending', slasherAddress: PENDING_SLASHER },
+  const round = await scanRound(client, roundInput({ quorum: 3n }));
+
+  assert.deepEqual(calls, [
+    'getRound',
+    'getSlashTargetCommittees',
+    'getTally',
+    'getPayloadAddress',
+    'vetoedPayloads',
   ]);
-  assert.match(snapshot.stackErrors[0].error, /no contract code at pending Slasher/);
-});
-
-test('scanWithClient distinguishes pause protection from a round that survives resume', async () => {
-  const protectedSnapshot = await createScanner().scanWithClient(fakeL1Client({ pausedExecutableRound: 'protected' }));
-  const protectedRound = protectedSnapshot.stacks[0].rounds[0];
-  assert.equal(protectedRound.status, 'newly-executable');
-  assert.equal(protectedRound.isExecutionPaused, true);
-  assert.equal(protectedRound.isProtected, true);
-  assert.equal(protectedSnapshot.stacks[0].pauseEndsAtSlot, '80');
-
-  const survivingSnapshot = await createScanner().scanWithClient(fakeL1Client({ pausedExecutableRound: 'survives' }));
-  const survivingRound = survivingSnapshot.stacks[0].rounds[0];
-  assert.equal(survivingRound.isExecutionPaused, true);
-  assert.equal(survivingRound.isProtected, false);
-  assert.equal(survivingSnapshot.stacks[0].pauseEndsAtSlot, '75');
-});
-
-test('confirmed Slashed log scan uses bounded chunks and Registry-resolved historical emitters', async () => {
-  const scanner = new L1Scanner({
-    rpcUrls: ['https://rpc.example'],
-    chainId: 1,
-    registryAddress: REGISTRY,
-    confirmations: 0,
-    slashLogLookbackBlocks: 25,
-    slashLogChunkSize: 10,
-    slashLogOverlapBlocks: 2,
-    slashLogReorgRewindBlocks: 20,
-    maxHeadAgeMs: 60_000,
-    now: () => 1_000_000,
-  });
-  const client = fakeSlashLogClient();
-
-  const first = await scanner.scanSlashLogChunkWithClient(client);
-  assert.equal(first.fromBlock, '76');
-  assert.equal(first.toBlock, '85');
-  assert.equal(first.hasMore, true);
-  assert.equal(first.initialBackfill, true);
-  assert.deepEqual(first.rollupAddresses, [ROLLUP.toLowerCase(), SECOND_ROLLUP.toLowerCase()]);
-  assert.deepEqual(first.logs.map((log) => [log.blockNumber, log.rollupAddress, log.sequencer, log.amount]), [
-    ['78', ROLLUP.toLowerCase(), TARGET.toLowerCase(), '10'],
-    ['84', SECOND_ROLLUP.toLowerCase(), TARGET.toLowerCase(), '20'],
-  ]);
-
-  const second = await scanner.scanSlashLogChunkWithClient(client, {
-    lastBlockNumber: first.toBlock,
-    lastBlockHash: first.toBlockHash,
-    metadata: {
-      rollupAddresses: first.rollupAddresses,
-      initialBackfill: true,
-    },
-  });
-  assert.equal(second.fromBlock, '84', 'the overlap is rescanned deliberately');
-  assert.equal(second.toBlock, '93', 'the range remains bounded to one chunk');
-  assert.equal(second.initialBackfill, true);
-});
-
-test('confirmed Slashed log scan rewinds a mismatched persisted checkpoint', async () => {
-  const scanner = new L1Scanner({
-    rpcUrls: ['https://rpc.example'],
-    chainId: 1,
-    registryAddress: REGISTRY,
-    confirmations: 0,
-    slashLogLookbackBlocks: 25,
-    slashLogChunkSize: 30,
-    slashLogOverlapBlocks: 2,
-    slashLogReorgRewindBlocks: 20,
-    maxHeadAgeMs: 60_000,
-    now: () => 1_000_000,
-  });
-
-  const result = await scanner.scanSlashLogChunkWithClient(fakeSlashLogClient({ headNumber: 110n }), {
-    lastBlockNumber: '100',
-    lastBlockHash: `0x${'ff'.repeat(32)}`,
-    metadata: { rollupAddresses: [SECOND_ROLLUP] },
-  });
-  assert.equal(result.reorgDetected, true);
-  assert.equal(result.fromBlock, '81');
-  assert.equal(result.toBlock, '110');
-});
-
-test('confirmed Slashed log ranges never trust an emitter carried only in old metadata', async () => {
-  const scanner = new L1Scanner({
-    rpcUrls: ['https://rpc.example'],
-    chainId: 1,
-    registryAddress: REGISTRY,
-    confirmations: 0,
-    slashLogLookbackBlocks: 25,
-    slashLogChunkSize: 10,
-    slashLogOverlapBlocks: 2,
-    slashLogReorgRewindBlocks: 20,
-    maxHeadAgeMs: 60_000,
-    now: () => 1_000_000,
-  });
-
-  const result = await scanner.scanSlashLogChunkWithClient(fakeSlashLogClient(), {
-    lastBlockNumber: '85',
-    lastBlockHash: blockHash(85n),
-    metadata: { rollupAddresses: [PENDING_SLASHER] },
-  });
-
-  assert.deepEqual(result.rollupAddresses, [SECOND_ROLLUP.toLowerCase()]);
-  assert.equal(result.logs.every((log) => log.rollupAddress === SECOND_ROLLUP.toLowerCase()), true);
-});
-
-test('confirmed Slashed log scan refuses to checkpoint a range whose tip changes mid-scan', async () => {
-  const scanner = new L1Scanner({
-    rpcUrls: ['https://rpc.example'],
-    chainId: 1,
-    registryAddress: REGISTRY,
-    confirmations: 0,
-    slashLogLookbackBlocks: 10,
-    slashLogChunkSize: 10,
-    slashLogOverlapBlocks: 2,
-    slashLogReorgRewindBlocks: 20,
-    maxHeadAgeMs: 60_000,
-    now: () => 1_000_000,
-  });
-  await assert.rejects(
-    scanner.scanSlashLogChunkWithClient(fakeSlashLogClient({ replaceCheckpoint: true })),
-    /confirmed L1 log checkpoint 100 changed during scan/,
-  );
-});
-
-test('initial Slashed log backfill checkpoints empty ranges before Registry deployment', async () => {
-  const scanner = new L1Scanner({
-    rpcUrls: ['https://rpc.example'],
-    chainId: 1,
-    registryAddress: REGISTRY,
-    confirmations: 0,
-    slashLogLookbackBlocks: 100,
-    slashLogChunkSize: 10,
-    slashLogOverlapBlocks: 2,
-    slashLogReorgRewindBlocks: 20,
-    maxHeadAgeMs: 60_000,
-    now: () => 1_000_000,
-  });
-
-  const result = await scanner.scanSlashLogChunkWithClient(fakeSlashLogClient({ registryDeploymentBlock: 50n }));
-  assert.equal(result.fromBlock, '1');
-  assert.equal(result.toBlock, '10');
-  assert.equal(result.hasMore, true);
-  assert.deepEqual(result.rollupAddresses, []);
-  assert.deepEqual(result.logs, []);
-});
-
-test('Slashed log scanning gives a hanging RPC a bounded slice before failover', async () => {
-  const attempts = [];
-  const scanner = new L1Scanner({
-    rpcUrls: ['https://slow.example', 'https://healthy.example'],
-    chainId: 1,
-    registryAddress: REGISTRY,
-    confirmations: 0,
-    slashLogLookbackBlocks: 10,
-    slashLogChunkSize: 10,
-    slashLogOverlapBlocks: 2,
-    slashLogReorgRewindBlocks: 20,
-    slashLogProviderTimeoutMs: 20,
-    maxHeadAgeMs: 60_000,
-    now: () => 1_000_000,
-    clientFactory(_url, signal, providerIndex) {
-      attempts.push(providerIndex);
-      return providerIndex === 0
-        ? { getChainId: () => rejectWhenAborted(signal) }
-        : fakeSlashLogClient();
-    },
-  });
-
-  const result = await scanner.scanSlashLogChunk();
-  assert.deepEqual(attempts, [0, 1]);
-  assert.equal(result.toBlock, '100');
-  assert.equal(scanner.nextLogProviderIndex, 1);
-});
-
-test('a global backfill deadline rotates the next poll away from the hanging RPC', async () => {
-  const controller = new AbortController();
-  const scanner = new L1Scanner({
-    rpcUrls: ['https://slow.example', 'https://healthy.example'],
-    chainId: 1,
-    registryAddress: REGISTRY,
-    confirmations: 0,
-    slashLogLookbackBlocks: 10,
-    slashLogChunkSize: 10,
-    slashLogOverlapBlocks: 2,
-    slashLogReorgRewindBlocks: 20,
-    slashLogProviderTimeoutMs: 10_000,
-    maxHeadAgeMs: 60_000,
-    now: () => 1_000_000,
-    clientFactory(_url, signal) {
-      return { getChainId: () => rejectWhenAborted(signal) };
-    },
-  });
-  setTimeout(() => controller.abort(new Error('backfill budget elapsed')), 10);
-
-  await assert.rejects(scanner.scanSlashLogChunk({}, controller.signal), /backfill budget elapsed/);
-  assert.equal(scanner.nextLogProviderIndex, 1);
-});
-
-function createScanner() {
-  return new L1Scanner({
-    rpcUrls: ['https://rpc.example'],
-    chainId: 1,
-    registryAddress: REGISTRY,
-    confirmations: 1,
-    maxHeadAgeMs: 60_000,
-    maxFutureSkewMs: 1_000,
-    now: () => 1_000_000,
-  });
-}
-
-function fakeL1Client({ replacementHash, brokenPendingStack = false, pausedExecutableRound = null } = {}) {
-  let confirmedBlockReads = 0;
-  const head = {
-    number: 101n,
-    hash: `0x${'ef'.repeat(32)}`,
-    timestamp: 1_000n,
-  };
-  const confirmed = {
-    number: 100n,
-    hash: BLOCK_HASH,
-    timestamp: 988n,
-  };
-  return {
-    confirmedBlockReads: () => confirmedBlockReads,
-    async getChainId() {
-      return 1;
-    },
-    async getBlock({ blockTag, blockNumber }) {
-      if (blockTag === 'latest') return head;
-      assert.equal(blockNumber, 100n);
-      confirmedBlockReads += 1;
-      return confirmedBlockReads > 1 && replacementHash
-        ? { ...confirmed, hash: replacementHash }
-        : confirmed;
-    },
-    async getBytecode({ address }) {
-      if (brokenPendingStack && address.toLowerCase() === PENDING_SLASHER.toLowerCase()) return '0x';
-      return '0x01';
-    },
-    async readContract({ address, functionName, args = [] }) {
-      const normalized = address.toLowerCase();
-      if (normalized === REGISTRY.toLowerCase() && functionName === 'getCanonicalRollup') return ROLLUP;
-      if (normalized === ROLLUP.toLowerCase()) {
-        if (functionName === 'getSlotAt') {
-          return args[0] === 950n ? 50n : pausedExecutableRound === 'protected' ? 80n : 75n;
-        }
-        return {
-          getVersion: 2n,
-          getSlasher: SLASHER,
-          getPendingSlasher: brokenPendingStack ? [PENDING_SLASHER, 1_100n] : [`0x${'00'.repeat(20)}`, 0n],
-          getLegacySlasher: [`0x${'00'.repeat(20)}`, 0n],
-          getCurrentSlot: pausedExecutableRound ? 70n : 0n,
-          getCurrentEpoch: 0n,
-          getGenesisTime: 100n,
-          getSlotDuration: 12n,
-          getEpochDuration: 32n,
-        }[functionName];
-      }
-      if (normalized === SLASHER.toLowerCase()) {
-        return {
-          PROPOSER,
-          isSlashingEnabled: !pausedExecutableRound,
-          slashingDisabledUntil: pausedExecutableRound ? 1_050n : 0n,
-          SLASHING_DISABLE_DURATION: pausedExecutableRound ? 100n : 300n,
-          vetoedPayloads: false,
-        }[functionName];
-      }
-      if (normalized === PROPOSER.toLowerCase()) {
-        if (functionName === 'getRound') {
-          return pausedExecutableRound && args[0] === 4n ? [false, 3n] : [false, 0n];
-        }
-        return {
-          INSTANCE: ROLLUP,
-          SLASHER,
-          getCurrentRound: pausedExecutableRound ? 7n : 0n,
-          QUORUM: 3n,
-          ROUND_SIZE: 10n,
-          ROUND_SIZE_IN_EPOCHS: 1n,
-          EXECUTION_DELAY_IN_ROUNDS: 2n,
-          LIFETIME_IN_ROUNDS: 3n,
-          SLASH_OFFSET_IN_ROUNDS: 1n,
-          COMMITTEE_SIZE: 4n,
-          getSlashTargetCommittees: [[TARGET, PROPOSER, SLASHER, ROLLUP]],
-          getVotes: '0x01',
-          getTally: [{ validator: TARGET, slashAmount: 1_000n }],
-          getPayloadAddress: PAYLOAD,
-        }[functionName];
-      }
-      throw new Error(`Unexpected ${functionName} call to ${address}`);
-    },
-  };
-}
-
-function fakeSlashLogClient({
-  headNumber = 100n,
-  replaceCheckpoint = false,
-  registryDeploymentBlock = 0n,
-} = {}) {
-  let explicitHeadReads = 0;
-  const updates = [{
-    address: REGISTRY,
-    blockNumber: 83n,
-    blockHash: blockHash(83n),
-    transactionHash: transactionHash(83n),
-    logIndex: 0,
-    args: { instance: SECOND_ROLLUP, version: 2n },
-  }];
-  const slashes = [
+  assert.deepEqual(round.actions, [
     {
-      address: ROLLUP,
-      blockNumber: 78n,
-      blockHash: blockHash(78n),
-      transactionHash: transactionHash(78n),
-      logIndex: 1,
-      args: { attester: TARGET, amount: 10n },
+      validator: TARGET.toLowerCase(),
+      amount: '10',
+      actionIndex: 0,
+      epoch: '0',
+      epochIndex: 0,
+      committeeIndex: 0,
     },
     {
-      address: SECOND_ROLLUP,
-      blockNumber: 84n,
-      blockHash: blockHash(84n),
-      transactionHash: transactionHash(84n),
-      logIndex: 2,
-      args: { attester: TARGET, amount: 20n },
+      validator: TARGET.toLowerCase(),
+      amount: '20',
+      actionIndex: 1,
+      epoch: '0',
+      epochIndex: 0,
+      committeeIndex: 1,
     },
-  ];
+    {
+      validator: SECOND_TARGET.toLowerCase(),
+      amount: '30',
+      actionIndex: 2,
+      epoch: '1',
+      epochIndex: 1,
+      committeeIndex: 0,
+    },
+  ]);
+});
+
+test('action annotation does not merge duplicate validator actions', () => {
+  assert.equal(annotateSlashActions(
+    [
+      { validator: TARGET, slashAmount: 1n },
+      { validator: TARGET, slashAmount: 2n },
+    ],
+    [[TARGET, TARGET]],
+    ['42'],
+  ).length, 2);
+});
+
+function roundInput({ quorum }) {
   return {
-    async getChainId() {
-      return 1;
+    proposerAddress: PROPOSER,
+    slasherAddress: SLASHER,
+    blockNumber: 100n,
+    round: 2n,
+    currentRound: 2n,
+    currentSlot: 20n,
+    config: {
+      quorum,
+      roundSize: 10n,
+      roundSizeInEpochs: 2n,
+      executionDelayInRounds: 2n,
+      lifetimeInRounds: 4n,
+      slashOffsetInRounds: 2n,
     },
-    async getBlock({ blockTag, blockNumber }) {
-      if (blockTag === 'latest') {
-        return { number: headNumber, hash: blockHash(headNumber), timestamp: 1_000n };
-      }
-      if (blockNumber === headNumber) {
-        explicitHeadReads += 1;
-        if (replaceCheckpoint && explicitHeadReads > 0) {
-          return { number: blockNumber, hash: `0x${'cd'.repeat(32)}`, timestamp: 1_000n };
-        }
-      }
-      return { number: blockNumber, hash: blockHash(blockNumber), timestamp: 1_000n };
-    },
-    async getBytecode({ blockNumber }) {
-      return blockNumber < registryDeploymentBlock ? '0x' : '0x01';
-    },
-    async readContract({ functionName, blockNumber }) {
-      assert.equal(functionName, 'getCanonicalRollup');
-      return blockNumber < 83n ? ROLLUP : SECOND_ROLLUP;
-    },
-    async getLogs({ address, event, fromBlock, toBlock }) {
-      const rows = event.name === 'CanonicalRollupUpdated' ? updates : slashes;
-      return rows.filter((log) =>
-        log.address.toLowerCase() === address.toLowerCase() &&
-        log.blockNumber >= fromBlock &&
-        log.blockNumber <= toBlock
-      );
-    },
+    isSlashingEnabled: true,
   };
-}
-
-function blockHash(blockNumber) {
-  return `0x${BigInt(blockNumber).toString(16).padStart(64, '0')}`;
-}
-
-function transactionHash(blockNumber) {
-  return `0x${(BigInt(blockNumber) + 1_000n).toString(16).padStart(64, '0')}`;
-}
-
-function rejectWhenAborted(signal) {
-  return new Promise((resolve, reject) => {
-    if (signal.aborted) {
-      reject(signal.reason);
-      return;
-    }
-    signal.addEventListener('abort', () => reject(signal.reason), { once: true });
-  });
 }

@@ -69,13 +69,17 @@ function readPushPayload(data) {
 function buildNotification(payload) {
   const metadata = payload.data && typeof payload.data === 'object' ? payload.data : {};
   const title = safeText(payload.title, `${APP_NAME} alert`, 120);
-  const body = safeText(payload.body, 'A watched sequencer has a new slashing event.', 600);
-  const eventId = safeIdentifier(payload.eventId || metadata.eventId);
-  const network = (payload.network || metadata.network) === 'testnet' ? 'testnet' : 'mainnet';
+  const body = safeText(
+    payload.body,
+    'This notification was incomplete. Open Slashmon to check the current evidence.',
+    600,
+  );
+  const incidentId = safeIdentifier(payload.incidentId || metadata.incidentId);
+  const validator = safeAddress(payload.validator || metadata.validator);
   const url = typeof payload.url === 'string'
     ? payload.url
     : typeof metadata.url === 'string' ? metadata.url : '';
-  const tag = safeIdentifier(payload.tag) || eventId || `slashmon-${network}`;
+  const tag = safeIdentifier(payload.tag) || incidentId || 'slashmon-alert';
 
   return {
     title,
@@ -85,7 +89,7 @@ function buildNotification(payload) {
       badge: ICON_PATH,
       tag,
       renotify: true,
-      data: { eventId, network, url },
+      data: { incidentId, validator, url },
     },
   };
 }
@@ -105,18 +109,12 @@ function safeTargetUrl(data) {
     }
   }
 
-  const network = data && data.network === 'testnet' ? 'testnet' : 'mainnet';
+  const linkedValidator = safeAddress(url.searchParams.get('validator'));
   url.hash = '';
-  url.searchParams.set('view', 'pingme');
-  url.searchParams.set('network', network);
+  url.search = '';
 
-  const eventId = safeIdentifier(data && data.eventId) || safeIdentifier(url.searchParams.get('event'));
-  if (eventId) {
-    url.searchParams.set('event', eventId);
-  }
-  else {
-    url.searchParams.delete('event');
-  }
+  const validator = safeAddress(data && data.validator) || linkedValidator;
+  if (validator) url.searchParams.set('validator', validator);
 
   return url.href;
 }
@@ -133,4 +131,12 @@ function safeIdentifier(value) {
   }
   const trimmed = value.trim();
   return /^[a-zA-Z0-9:_-]{1,200}$/.test(trimmed) ? trimmed : '';
+}
+
+function safeAddress(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  const trimmed = value.trim();
+  return /^0x[0-9a-fA-F]{40}$/.test(trimmed) ? trimmed.toLowerCase() : '';
 }

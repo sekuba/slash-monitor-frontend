@@ -11,7 +11,7 @@ const PUSH_HOSTS = [
 ];
 const PUSH_HOST_SUFFIXES = ['.push.apple.com', '.notify.windows.com'];
 
-export function normalizeAddress(value, label = 'sequencer') {
+export function normalizeAddress(value, label = 'validator') {
   if (typeof value !== 'string' || !ADDRESS_PATTERN.test(value)) {
     throw new InputError('invalid_address', `${label} must be a 20-byte hex address`);
   }
@@ -24,10 +24,10 @@ export function normalizeAddresses(value, max = 100) {
   }
   const addresses = [...new Set(value.map((address) => normalizeAddress(address)))];
   if (addresses.length === 0) {
-    throw new InputError('empty_addresses', 'At least one sequencer address is required');
+    throw new InputError('empty_addresses', 'At least one validator address is required');
   }
   if (addresses.length > max) {
-    throw new InputError('too_many_addresses', `At most ${max} sequencer addresses may be watched`);
+    throw new InputError('too_many_addresses', `At most ${max} validator addresses may be watched`);
   }
   return addresses;
 }

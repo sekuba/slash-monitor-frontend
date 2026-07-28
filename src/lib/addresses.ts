@@ -29,7 +29,7 @@ export function parseAddressList(input: string, maximum = 100): ParsedAddressLis
     }
 
     if (addresses.length > maximum) {
-        errors.push(`Watch at most ${maximum} sequencer addresses per list`);
+        errors.push(`Watch at most ${maximum} validator addresses per list`);
     }
 
     return {

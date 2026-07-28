@@ -1,126 +1,209 @@
 # Architecture
 
-Slashmon is a watcher, not an oracle. Its two product surfaces have different
-availability and trust models.
+Slashmon is a monitor, not an oracle. Its two views overlap deliberately but
+have different availability and evidence.
 
 ```text
-Monitor (browser) ── public Ethereum RPC ── canonical Aztec contracts
+Independent L1 check ── public Ethereum RPC ── Registry → Rollup
+                                                   └── Slasher → SlashingProposer
 
-PINGME (browser) ── HTTP API ── backend ┬─ Aztec node + admin RPC
-                                       ├─ Ethereum RPC
-                                       ├─ SQLite duty index + journal + outbox
-                                       └─ Telegram / Web Push
+Live monitor ── HTTPS API ── fixed-network backend ┬── the same L1 contracts
+                                                   ├── one Aztec node
+                                                   ├── SQLite + durable outbox
+                                                   └── Telegram / Web Push
 ```
 
-## Monitor
+## Evidence boundaries
 
-Monitor runs entirely in the browser. Starting from the configured Registry,
-it resolves the current Rollup, Slasher, and SlashingProposer, validates their
-links, and reads round state at pinned L1 blocks. It derives votes, quorum,
-payload targets, vetoes, pauses, execution windows, and rotations from public
-contract state.
+| Evidence | What Slashmon may claim | What it must not claim |
+| --- | --- | --- |
+| Node observation | This Aztec node recorded an offense for a validator. | That Ethereum voters agreed, or that a slash will happen. |
+| L1 vote and tally | A designated proposer cast a slot vote; the current tally requests concrete actions after quorum. | That the node observation caused the vote, or that every vote supports the displayed target. |
+| Predicted payload | The current action list deterministically maps to this exact payload address. | That a payload contract already exists before execution, or that the list cannot change while voting is open. |
+| Slasher controls | This exact payload address is vetoed, or execution is globally paused until a timestamp. | That every future payload is blocked. A different payload is different, and the pause can be changed. |
+| Rollup `Slashed` log | This amount was actually removed from this validator in this canonical transaction. | That an executed round necessarily removed the tally's full proposed amount. |
 
-Monitor does not use backend snapshots or notification credentials. Reloading
-it reconstructs the current view from L1. RPC failures remain visible instead
-of being replaced with cached data presented as fresh.
+A node offense is mutable local evidence. Aztec watchers can add and clear
+offenses, and the local store expires them. The hosted view therefore labels
+their source and resolution instead of merging them into an L1 case. Any amount
+is the node-configured penalty for that offense type, not an L1 tally or
+confirmed loss. Relevant
+implementations are
+[`slash_offenses_collector.ts`][slash-offenses-collector],
+[`offenses_store.ts`][offenses-store], and [`types.ts`][slashing-types].
 
-## PINGME and backend
+On L1, the current checkpoint proposer may submit at most one encoded vote per
+slot. Each committee position has two bits for zero to three slash units. Votes
+for a larger unit count also count toward smaller amounts. `VoteCast` identifies
+the round, slot, and proposer but not its targets; the contract's tally over the
+encoded votes and target committees is the target-level evidence. See
+[`SlashingProposer.sol`][slashing-proposer].
+The round's `voteCount` is submitted slot votes, not unique voters or support
+for a particular validator.
 
-PINGME manages address watches and displays the backend event journal. The
-backend owns alert continuity because a browser may sleep or be closed.
+After tallying, `getPayloadAddress` predicts the CREATE2 address for the exact
+round and action list. The clone is deployed only inside `executeRound`, then
+immediately passed to the Slasher. A veto in
+[`Slasher.sol`][slasher]
+is permanent for that exact address, but voting can still produce a different
+address. The global pause is temporary and can be cleared or extended by the
+vetoer. Neither mechanism extends the round's execution lifetime.
 
-There are three event sources:
+The authoritative loss is the canonical Rollup's `Slashed(attester, amount)`
+log, defined by
+[`IStaking.sol`][staking-interface].
+The Rollup can cap a requested amount to the remaining stake, and an action can
+complete without producing a slash when the validator is no longer slashable.
+The Slasher also accepts governance calls, so Slashmon does not assign a loss
+to a round without same-transaction evidence. An executed tally and an actual
+loss are therefore separate records. See
+[`StakingLib.sol`][staking-lib].
 
-- `aztec_node` events are early, node-local offense observations. They are
-  useful positive signals but are always `pending`.
-- `aztec_sentinel` events are bounded precursor signals: the first observed
-  miss in an epoch and a completed duty-bearing epoch above the configured
-  inactivity target. The database keeps every duty, while alert volume stays
-  bounded to at most these two transitions per sequencer and epoch.
-- `ethereum_l1` events come from coherently pinned canonical contract reads or
-  confirmed `Slashed` logs. They are `confirmed`.
+Aztec's operator documentation provides the protocol overview:
 
-All three observation sources are present in the public journal. The public
-sequencer-record endpoint is an address-scoped view of that journal plus the
-latest confirmed protocol timing snapshot. Authenticated watch-list event
-reads use the same address index. Catch-up and notification-test artifacts
-remain endpoint-scoped.
+- [Slashing and offenses](https://docs.aztec.network/operate/operators/sequencer-management/slashing_and_offenses)
+- [Validator identity model](https://docs.aztec.network/operate/operators/concepts/identity-model)
 
-The backend checks node chain, Registry, and Rollup identity before trusting
-admin results. It retains prior state when a source fails. An offense can
-disappear only after a ready, fresh, non-regressing node cursor advances past
-that offense's slot or epoch.
+Slashmon uses **validator** for the staking/attester identity. That same
+identity can be selected to propose or sequence; those roles do not imply
+different watched addresses.
 
-Sentinel collection is forward-first and epoch-gated. Minute polls check node
-sync, but make no stats or committee calls until an epoch is ready after both
-the node's two-slot processing lag and configured epoch-end buffer. The
-collector then resolves that epoch's committee at its already-confirmed L1
-block and issues bounded exact-range `aztec_getValidatorStats` calls only for
-those members. Thus work scales with committee size, not the registered
-validator set.
+## Canonical case model
 
-The same three-epoch default window bounds L1 committee lookup and Aztec node
-history lookup on initial start or after a cursor gap. Committee membership is
-persisted even for zero-duty members; every returned node aggregate is checked
-against its exact slot history. A gap beyond the window starts a new coverage
-generation so unknown epochs cannot extend a precursor streak. The admin
-offense feed remains authoritative for actual offense registration.
+A slashing case belongs to one deployment stack and round. Its phase is one of
+`voting`, `review`, `ready`, `paused`, or `closed`; its terminal outcome can be
+`vetoed`, `executed`, `expired`, `stack-retired`, or `no-consensus`. Phase,
+payload state, node evidence, and actual loss remain separate fields.
 
-The L1 scanner resolves active, pending, and still-authorized legacy slashing
-stacks. It distinguishes a round's timing window from the Slasher's global
-pause: delayed, protected-through-scheduled-expiry, vetoed, and currently
-executable are not interchangeable states. Actual stake removed is reported
-from confirmed `Slashed(attester, amount)` logs, not inferred from a proposed
-payload amount.
+The phase is derived from pinned L1 state:
 
-L1 vote words allocate two bits per target to slash units; they do not encode
-offense type. When an L1 round mentions an address, the journal therefore
-attaches separately labelled node evidence only when the address and target
-epoch match exactly and the node observation predates the L1 event. Multiple
-offenses or precursor records can be retained for one target.
+1. **Voting** — the round is still accepting votes. A displayed tally is
+   provisional.
+2. **Review** — voting has closed and the strict execution delay has not passed.
+3. **Ready** — execution is permitted and the round is within its lifetime.
+4. **Paused** — the round is otherwise ready, but the Slasher's global pause is
+   currently active.
+5. **Closed** — the round executed, expired, its final exact payload was vetoed
+   after voting closed, or its slashing stack lost Rollup authorization.
 
-Confirmed-log scanning uses a durable block/hash checkpoint, bounded initial
-lookback, overlapping reads, and reorg rewind. Orphaned unsent alerts are
-cancelled and target-scoped correction events are created. Backfill work is
-time-bounded so fresh round snapshots are not starved.
+A closed round with no quorum-backed actions is “voting closed · no slash
+requested.” A round can execute with no matching `Slashed` log, which is
+“round executed · no slash recorded,” not a confirmed slash.
 
-## Journal and outbox
+### Repeated validator actions
 
-SQLite is the backend's consistency boundary. In one transaction it:
+The tally is position-based. The same validator address can occupy positions in
+multiple target-epoch committees and produce multiple actions in one round.
+Slashmon groups them for the main display:
 
-1. records a stable event and its target addresses;
-2. matches enabled, verified endpoints on the same network; and
-3. inserts unique delivery jobs.
+- `proposedAmount` is the sum of the address's actions;
+- `actionCount` preserves how many actions were combined; and
+- target epochs stay on the case while raw actions remain internal evidence.
 
-Workers lease jobs and retry according to severity. Delivery is at-least-once:
-a provider may accept a message immediately before the backend crashes, causing
-one duplicate after restart. Avoiding that narrow duplicate would require
-risking a silent miss.
+Confirmed loss is grouped independently by chain, block hash, transaction
+hash, and validator. Amounts from matching `Slashed` logs are summed and the
+log count is retained. Grouping prevents one transaction from appearing as
+several incidents without hiding that several onchain actions occurred.
 
-Web Push endpoints receive a private verification message before real alerts.
-Telegram verifies the configured bot identity before advertising links or
-sending incidents. One-time Telegram links are hashed, expiring, and consumed
-atomically. The bot uses durable long-poll offsets, so no public webhook is
-needed.
+### Slasher rotation
+
+The current Rollup can expose an active, pending, and legacy Slasher:
+
+- the active stack is executable;
+- an outgoing legacy stack is executable only through its recorded
+  authorization deadline; and
+- a pending stack is not yet authorized and is excluded from risk cases.
+
+After the legacy deadline, its open cases become `stack-retired`. The relevant
+authorization logic is in
+[`StakingLib.sol`][staking-lib]
+and the accessors are in
+[`Rollup.sol`][rollup].
+
+## Independent L1 check
+
+The browser starts from the configured Registry, resolves the canonical Rollup
+and slashing stacks, validates their links, and reads each snapshot at a pinned
+Ethereum block two blocks behind the latest head. It reconstructs current cases
+after every refresh and stores no server-side state.
+
+It can verify canonical deployment identity, round timing, vote counts,
+tallies, predicted addresses, exact vetoes, the global pause, rotations, and
+public logs. It cannot recover target bytes from `VoteCast`, identify an
+offense reason, inspect P2P evidence, know council intent, or provide a
+probability of execution. RPC errors and observation time remain visible.
+Its recent-loss check is bounded to the displayed block range and the current
+canonical Rollup. The hosted scanner maintains receipt history across Rollup
+upgrades.
+
+## Hosted backend
+
+One backend process serves one configured network. Its database is bound to the
+network, chain, and Registry; changing identity requires a fresh database. It:
+
+1. checks that the public and admin endpoints describe the expected Aztec node
+   and canonical Rollup;
+2. records the node's current offense observations;
+3. scans the active and still-authorized legacy L1 stacks at pinned blocks;
+4. follows canonical Rollup `Slashed` logs with overlap and reorg correction;
+5. serves compact monitor and validator records; and
+6. matches watched addresses into a durable Telegram/Web Push outbox.
+
+SQLite is the consistency boundary for watch changes, incident creation,
+target matching, and delivery jobs. Delivery is at-least-once: a provider can
+accept an alert immediately before a crash, causing one repeat after restart.
+Stable incident IDs let recipients recognize that narrow duplicate.
+
+## Sparse alert policy
+
+The page may show intermediate detail without turning every refresh into a
+notification. A watched validator receives an incident only for a meaningful
+transition:
+
+- its first current node observation;
+- its first quorum-backed L1 candidate;
+- the candidate becoming executable;
+- its exact payload being vetoed or its execution window expiring;
+- confirmed loss, grouped per transaction and validator; or
+- a canonical-chain correction to a previously reported loss.
+
+Slashmon does not alert on every slot vote, unchanged poll, ordinary tally
+refresh, round execution without confirmed loss, or historical backfill. A
+channel test is clearly labelled as a test rather than an incident.
+
+Every incident names the watched validator, transition, and relevant round or
+epoch. It links to the validator view and, when available,
+the exact transaction, block, or payload. Operator-facing amounts are formatted
+as AZTEC rather than raw 18-decimal integers, and proposed and actual amounts
+are never presented as interchangeable. A compact stable incident ID is
+included for duplicate recognition.
+
+## Interface constraints
+
+Both views render the same case components and status vocabulary. The frontend
+keeps Slashmon's neobrutalist palette, hard borders, and offset shadows, while
+meaning always comes from text as well as color. Source, freshness, and manual
+refresh stay visible; contract addresses and other advanced evidence stay
+available without dominating the first screen.
 
 ## Security boundaries
 
-- Frontend `VITE_*` settings are public. All RPC secrets and provider tokens
-  stay in the backend environment.
-- The subscription management token is a bearer capability stored in
-  origin-wide browser storage. Production PINGME needs a dedicated origin with
-  no third-party JavaScript.
-- The Aztec admin endpoint stays private. Only the HTTPS API is proxied from the
-  backend's loopback listener.
-- The public journal exposes public-address observations, not watches,
-  endpoints, tokens, or delivery state. Capability-scoped journal reads reveal
-  only events matching that watch.
-- The database is bound to one network, chain, and Registry.
+- Every frontend `VITE_*` value is public. Provider credentials stay in the
+  backend environment.
+- The Aztec admin endpoint remains private. Only the loopback HTTP API is
+  exposed through the HTTPS proxy.
+- The alert-management token is a bearer capability stored by browser origin.
+  It never appears in a URL.
+- Public API records contain public protocol observations, not watch
+  membership, channel endpoints, tokens, or delivery state.
+- One Node 24 process owns one SQLite file. Multiple processes would race
+  Telegram polling and external delivery even if SQLite serialized writes.
 
-## Deployment model
-
-The supported shape is one Node 24 process, one SQLite file, one local
-Cloudflare Tunnel connector, one Aztec node, and one or more Ethereum RPCs.
-Running two backend processes against the same identity is unsupported because
-Telegram polling and provider delivery would race even if SQLite serialized
-writes.
+[slash-offenses-collector]: https://github.com/AztecProtocol/aztec-packages/blob/def7152aa13dc0f880f24e45ce39442908170878/yarn-project/slasher/src/slash_offenses_collector.ts
+[offenses-store]: https://github.com/AztecProtocol/aztec-packages/blob/def7152aa13dc0f880f24e45ce39442908170878/yarn-project/slasher/src/stores/offenses_store.ts
+[slashing-types]: https://github.com/AztecProtocol/aztec-packages/blob/def7152aa13dc0f880f24e45ce39442908170878/yarn-project/stdlib/src/slashing/types.ts
+[slashing-proposer]: https://github.com/AztecProtocol/aztec-packages/blob/def7152aa13dc0f880f24e45ce39442908170878/l1-contracts/src/core/slashing/SlashingProposer.sol
+[slasher]: https://github.com/AztecProtocol/aztec-packages/blob/def7152aa13dc0f880f24e45ce39442908170878/l1-contracts/src/core/slashing/Slasher.sol
+[staking-interface]: https://github.com/AztecProtocol/aztec-packages/blob/def7152aa13dc0f880f24e45ce39442908170878/l1-contracts/src/core/interfaces/IStaking.sol
+[staking-lib]: https://github.com/AztecProtocol/aztec-packages/blob/def7152aa13dc0f880f24e45ce39442908170878/l1-contracts/src/core/libraries/rollup/StakingLib.sol
+[rollup]: https://github.com/AztecProtocol/aztec-packages/blob/def7152aa13dc0f880f24e45ce39442908170878/l1-contracts/src/core/Rollup.sol

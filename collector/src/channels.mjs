@@ -2,9 +2,10 @@ import { createHash } from 'node:crypto';
 import webpush from 'web-push';
 
 import {
-  dashtecReferenceLines,
   etherscanReferenceLines,
   formatNotificationBody,
+  eventValidators,
+  notificationContent,
 } from './notification-content.mjs';
 
 const MIN_RETRY_AFTER_MS = 1_000;
@@ -42,14 +43,17 @@ export class WebPushChannel {
     }
     const subscription = parseJson(delivery.endpointConfig, 'stored Web Push subscription');
     const event = delivery.event;
+    const content = notificationContent(event);
+    const incidentId = event.incidentId ?? event.id;
     const payload = JSON.stringify({
-      title: event.title,
+      title: content.title,
       body: formatNotificationBody(event).slice(0, 600),
-      tag: `slashmon-${event.id}`,
+      tag: `slashmon-${incidentId}`,
       icon: './favicon.svg',
       badge: './favicon.svg',
       data: {
         eventId: event.id,
+        incidentId,
         network: event.network,
         url: notificationPath(event),
       },
@@ -59,7 +63,7 @@ export class WebPushChannel {
         vapidDetails: this.vapid,
         TTL: WEB_PUSH_TTL_SECONDS,
         urgency: ['critical', 'warning'].includes(event.severity) ? 'high' : 'normal',
-        topic: createHash('sha256').update(event.id).digest('base64url').slice(0, 32),
+        topic: createHash('sha256').update(incidentId).digest('base64url').slice(0, 32),
         timeout: this.timeoutMs,
       }), signal);
       return { providerMessageId: response?.headers?.location ?? null };
@@ -333,14 +337,14 @@ export class TelegramChannel {
       throw new DeliveryError('Telegram bot identity is not validated yet', { scope: 'channel' });
     }
     const event = delivery.event;
+    const content = notificationContent(event);
     const icon = event.severity === 'critical' ? '🚨' : event.severity === 'warning' ? '⚠️' : '🛰️';
     const url = new URL(notificationPath(event), this.publicUrl).toString();
     const references = [
-      `Slashmon event: ${url}`,
-      ...dashtecReferenceLines(event),
+      `Slashmon: ${url}`,
       ...etherscanReferenceLines(event),
     ];
-    const message = `${icon} ${event.title}\n\n${formatNotificationBody(event)}\n\n` +
+    const message = `${icon} ${content.title}\n\n${formatNotificationBody(event)}\n\n` +
       references.join('\n');
     const priority = event.source === 'test' ? 'low' : 'alert';
     const result = await this.client.sendMessage(delivery.destination, message, signal, { priority });
@@ -349,8 +353,9 @@ export class TelegramChannel {
 }
 
 export function notificationPath(event) {
-  const params = new URLSearchParams({ view: 'pingme', network: event.network, event: event.id });
-  return `?${params.toString()}`;
+  const targets = eventValidators(event);
+  if (targets.length !== 1) return './';
+  return `./?${new URLSearchParams({ validator: targets[0] }).toString()}`;
 }
 
 function parseJson(value, label) {

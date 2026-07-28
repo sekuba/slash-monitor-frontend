@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { OffenseCollector, validateNodeIdentity } from '../src/collector.mjs';
-import { OffenseRepository } from '../src/database.mjs';
+import { SlashmonRepository } from '../src/database.mjs';
 import { parseOffenseSnapshot } from '../src/offenses.mjs';
 import { OFFENSE_A, OFFENSE_B, silentLogger } from './helpers.mjs';
 
@@ -22,7 +22,7 @@ test('node identity comparisons ignore Ethereum address casing', () => {
 });
 
 test('collector retains data while the node is unavailable and recovers', async (t) => {
-  const repository = new OffenseRepository(':memory:');
+  const repository = new SlashmonRepository(':memory:');
   t.after(() => repository.close());
   const [offense] = parseOffenseSnapshot([OFFENSE_A]);
   repository.recordSuccessfulPoll([offense], { observedAt: 1_000 });
@@ -52,26 +52,26 @@ test('collector retains data while the node is unavailable and recovers', async 
     expectedRegistryAddress: REGISTRY,
     pollIntervalMs: 1_000,
     maxBackoffMs: 2_000,
-    withdrawAfterMissedPolls: 2,
+    resolveAfterMissedPolls: 2,
     logger: silentLogger,
     now: () => now,
   });
 
   const failed = await collector.runOnce();
   assert.equal(failed.ok, false);
-  assert.equal(repository.getOffense(offense.id).missedPolls, 0);
+  assert.equal(offenseById(repository, offense.id).missedPolls, 0);
   assert.equal(repository.getSyncState().consecutiveFailures, 1);
 
   now = 3_000;
   const recovered = await collector.runOnce();
   assert.equal(recovered.ok, true);
   assert.equal(repository.getSyncState().consecutiveFailures, 0);
-  assert.equal(repository.getOffense(offense.id).missedPolls, 1);
-  assert.equal(repository.getOffense(offense.id).status, 'active');
+  assert.equal(offenseById(repository, offense.id).missedPolls, 1);
+  assert.equal(offenseById(repository, offense.id).status, 'active');
 });
 
-test('collector trusts no pending offense until L1 establishes the canonical Rollup', async (t) => {
-  const repository = new OffenseRepository(':memory:');
+test('collector trusts no node offense until L1 establishes the canonical Rollup', async (t) => {
+  const repository = new SlashmonRepository(':memory:');
   t.after(() => repository.close());
   let nodeCalls = 0;
   let offenseCalls = 0;
@@ -94,7 +94,7 @@ test('collector trusts no pending offense until L1 establishes the canonical Rol
     expectedRegistryAddress: REGISTRY,
     pollIntervalMs: 1_000,
     maxBackoffMs: 2_000,
-    withdrawAfterMissedPolls: 2,
+    resolveAfterMissedPolls: 2,
     logger: silentLogger,
     now: () => 10_000,
   });
@@ -104,14 +104,14 @@ test('collector trusts no pending offense until L1 establishes the canonical Rol
   assert.match(blocked.error, /Canonical L1 Rollup is unavailable/);
   assert.equal(nodeCalls, 0);
   assert.equal(offenseCalls, 0);
-  assert.equal(repository.getCounts().total, 0);
+  assert.equal(repository.listOffenses({ status: 'all' }).length, 0);
 
   repository.recordSourceSuccess('l1', { rollupAddress: ROLLUP }, 10_000);
   const accepted = await collector.runOnce();
   assert.equal(accepted.ok, true);
   assert.equal(nodeCalls, 1);
   assert.equal(offenseCalls, 1);
-  assert.equal(repository.getCounts().active, 1);
+  assert.equal(repository.listOffenses({ status: 'active' }).length, 1);
 });
 
 test('collector rejects offenses from a node with the wrong chain, Registry, or canonical Rollup', async (t) => {
@@ -135,7 +135,7 @@ test('collector rejects offenses from a node with the wrong chain, Registry, or 
 
   for (const scenario of cases) {
     await t.test(scenario.name, async (subtest) => {
-      const repository = new OffenseRepository(':memory:');
+      const repository = new SlashmonRepository(':memory:');
       subtest.after(() => repository.close());
       const [offense] = parseOffenseSnapshot([OFFENSE_A]);
       repository.recordSuccessfulPoll([offense], { observedAt: 1_000 });
@@ -156,7 +156,7 @@ test('collector rejects offenses from a node with the wrong chain, Registry, or 
         expectedRegistryAddress: REGISTRY,
         pollIntervalMs: 1_000,
         maxBackoffMs: 2_000,
-        withdrawAfterMissedPolls: 2,
+        resolveAfterMissedPolls: 2,
         logger: silentLogger,
         now: () => 2_000,
       });
@@ -165,14 +165,14 @@ test('collector rejects offenses from a node with the wrong chain, Registry, or 
       assert.equal(result.ok, false);
       assert.match(result.error, scenario.error);
       assert.equal(offenseCalls, 0);
-      assert.equal(repository.getOffense(offense.id).status, 'active');
-      assert.equal(repository.getOffense(offense.id).missedPolls, 0);
+      assert.equal(offenseById(repository, offense.id).status, 'active');
+      assert.equal(offenseById(repository, offense.id).missedPolls, 0);
     });
   }
 });
 
 test('negative offense evidence advances only with the matching L2 cursor', async (t) => {
-  const repository = new OffenseRepository(':memory:');
+  const repository = new SlashmonRepository(':memory:');
   t.after(() => repository.close());
   const [epochOffense, slotOffense] = parseOffenseSnapshot([OFFENSE_A, OFFENSE_B]);
   repository.recordSuccessfulPoll([epochOffense, slotOffense], { observedAt: 900_000 });
@@ -182,31 +182,31 @@ test('negative offense evidence advances only with the matching L2 cursor', asyn
   const collector = createCollector({ repository, now: () => now, sync: () => sync, offenses: () => [] });
 
   assert.equal((await collector.runOnce()).ok, true);
-  assert.equal(repository.getOffense(epochOffense.id).missedPolls, 1);
-  assert.equal(repository.getOffense(slotOffense.id).missedPolls, 1);
+  assert.equal(offenseById(repository, epochOffense.id).missedPolls, 1);
+  assert.equal(offenseById(repository, slotOffense.id).missedPolls, 1);
 
   now += 1_000;
   sync = { ...sync, l1Timestamp: '1001' };
   assert.equal((await collector.runOnce()).ok, true);
-  assert.equal(repository.getOffense(epochOffense.id).missedPolls, 1);
-  assert.equal(repository.getOffense(slotOffense.id).missedPolls, 1);
+  assert.equal(offenseById(repository, epochOffense.id).missedPolls, 1);
+  assert.equal(offenseById(repository, slotOffense.id).missedPolls, 1);
 
   now += 1_000;
   sync = { ...sync, l1Timestamp: '1002', l2Slot: '10001' };
   await collector.runOnce();
-  assert.equal(repository.getOffense(epochOffense.id).missedPolls, 1);
-  assert.equal(repository.getOffense(slotOffense.id).missedPolls, 2);
+  assert.equal(offenseById(repository, epochOffense.id).missedPolls, 1);
+  assert.equal(offenseById(repository, slotOffense.id).missedPolls, 2);
 
   now += 1_000;
   sync = { ...sync, l1Timestamp: '1003', l2Slot: '10002', l2Epoch: '51' };
   await collector.runOnce();
-  assert.equal(repository.getOffense(epochOffense.id).missedPolls, 2);
-  assert.equal(repository.getOffense(slotOffense.id).status, 'withdrawn');
+  assert.equal(offenseById(repository, epochOffense.id).missedPolls, 2);
+  assert.equal(offenseById(repository, slotOffense.id).status, 'resolved');
 
   now += 1_000;
   sync = { ...sync, l1Timestamp: '1004', l2Slot: '10003', l2Epoch: '52' };
   await collector.runOnce();
-  assert.equal(repository.getOffense(epochOffense.id).status, 'withdrawn');
+  assert.equal(offenseById(repository, epochOffense.id).status, 'resolved');
 });
 
 test('unready, stale, stalled, or regressing sync retains absences but accepts positive offenses', async (t) => {
@@ -239,7 +239,7 @@ test('unready, stale, stalled, or regressing sync retains absences but accepts p
 
   for (const scenario of scenarios) {
     await t.test(scenario.name, async (subtest) => {
-      const repository = new OffenseRepository(':memory:');
+      const repository = new SlashmonRepository(':memory:');
       subtest.after(() => repository.close());
       const [positive, missing] = parseOffenseSnapshot([OFFENSE_A, OFFENSE_B]);
       repository.recordSuccessfulPoll([missing], { observedAt: 900_000 });
@@ -256,7 +256,7 @@ test('unready, stale, stalled, or regressing sync retains absences but accepts p
         syncMaxL2StallMs: 5_000,
       });
       assert.equal((await collector.runOnce()).ok, true);
-      assert.equal(repository.getOffense(missing.id).missedPolls, 1);
+      assert.equal(offenseById(repository, missing.id).missedPolls, 1);
 
       now = scenario.now;
       sync = scenario.sync;
@@ -264,9 +264,9 @@ test('unready, stale, stalled, or regressing sync retains absences but accepts p
       const result = await collector.runOnce();
       assert.equal(result.ok, false);
       assert.match(result.error, scenario.error);
-      assert.equal(repository.getOffense(missing.id).status, 'active');
-      assert.equal(repository.getOffense(missing.id).missedPolls, 1);
-      assert.equal(repository.getOffense(positive.id).status, 'active');
+      assert.equal(offenseById(repository, missing.id).status, 'active');
+      assert.equal(offenseById(repository, missing.id).missedPolls, 1);
+      assert.equal(offenseById(repository, positive.id).status, 'active');
       assert.equal(repository.getSyncState().consecutiveFailures, 1);
     });
   }
@@ -300,8 +300,13 @@ function createCollector({
     syncMaxFutureSkewMs: 1_000,
     pollIntervalMs: 1_000,
     maxBackoffMs: 2_000,
-    withdrawAfterMissedPolls: 3,
+    resolveAfterMissedPolls: 3,
     logger: silentLogger,
     now,
   });
+}
+
+function offenseById(repository, id) {
+  return repository.listOffenses({ status: 'all', limit: 1_000 })
+    .find((offense) => offense.id === id);
 }

@@ -10,7 +10,6 @@ import {
 } from './l1-abis.mjs';
 
 const MAX_RESOLVED_ROLLUPS = 256;
-const MAX_EPOCH_COMMITTEE_SIZE = 4_096;
 
 export class L1Scanner {
   constructor({
@@ -66,95 +65,6 @@ export class L1Scanner {
     this.now = now;
     this.nextProviderIndex = 0;
     this.nextLogProviderIndex = 0;
-    this.nextCommitteeProviderIndex = 0;
-  }
-
-  /**
-   * Resolve one historical committee against the exact confirmed L1 checkpoint
-   * already accepted by the normal L1 collector. The before/after hash checks
-   * prevent a provider from mixing a replacement block into the result.
-   */
-  async getEpochCommittee(checkpoint, signal) {
-    const errors = [];
-    for (let offset = 0; offset < this.rpcUrls.length; offset += 1) {
-      const providerIndex = (this.nextCommitteeProviderIndex + offset) % this.rpcUrls.length;
-      const timeoutSignal = AbortSignal.timeout(this.requestTimeoutMs);
-      const providerSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
-      const client = this.clientFactory(this.rpcUrls[providerIndex], providerSignal, providerIndex);
-      try {
-        const result = await this.getEpochCommitteeWithClient(client, checkpoint);
-        this.nextCommitteeProviderIndex = providerIndex;
-        return result;
-      } catch (error) {
-        if (signal?.aborted) throw error;
-        if (timeoutSignal.aborted) {
-          errors.push(`provider ${providerIndex + 1}: committee lookup timed out after ${this.requestTimeoutMs}ms`);
-          continue;
-        }
-        errors.push(`provider ${providerIndex + 1}: ${sanitizeRpcError(error)}`);
-      }
-    }
-    throw new Error(`Every configured L1 RPC failed the epoch committee lookup (${errors.join('; ')})`);
-  }
-
-  async getEpochCommitteeWithClient(client, checkpoint = {}) {
-    const epoch = requireUnsignedBigInt(checkpoint.epoch, 'committee epoch');
-    const blockNumber = requireUnsignedBigInt(checkpoint.blockNumber, 'committee L1 block number');
-    if (typeof checkpoint.blockHash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(checkpoint.blockHash)) {
-      throw new Error('committee L1 block hash must be a 32-byte hex value');
-    }
-    const blockHash = checkpoint.blockHash.toLowerCase();
-    const rollupAddress = getAddress(checkpoint.rollupAddress);
-    requireNonZero(rollupAddress, 'committee Rollup');
-
-    const actualChainId = await client.getChainId();
-    if (actualChainId !== this.chainId) {
-      throw new Error(`chain id ${actualChainId}, expected ${this.chainId}`);
-    }
-    const pinnedBlock = await client.getBlock({ blockNumber });
-    if (!pinnedBlock.hash || pinnedBlock.hash.toLowerCase() !== blockHash) {
-      throw new Error(`confirmed L1 committee checkpoint ${blockNumber} is no longer canonical`);
-    }
-    requireCode(
-      await client.getBytecode({ address: rollupAddress, blockNumber }),
-      'committee Rollup',
-      rollupAddress,
-    );
-    const rawCommittee = await read(
-      client,
-      rollupAddress,
-      rollupAbi,
-      'getEpochCommittee',
-      blockNumber,
-      [epoch],
-    );
-    if (!Array.isArray(rawCommittee) || rawCommittee.length === 0) {
-      throw new Error(`L1 returned an empty committee for epoch ${epoch}`);
-    }
-    if (rawCommittee.length > MAX_EPOCH_COMMITTEE_SIZE) {
-      throw new Error(
-        `L1 returned ${rawCommittee.length} committee members; maximum is ${MAX_EPOCH_COMMITTEE_SIZE}`,
-      );
-    }
-    const committee = rawCommittee.map((value) => {
-      const address = getAddress(value);
-      requireNonZero(address, 'committee member');
-      return address.toLowerCase();
-    });
-    if (new Set(committee).size !== committee.length) {
-      throw new Error(`L1 returned duplicate committee members for epoch ${epoch}`);
-    }
-    const verifiedBlock = await client.getBlock({ blockNumber });
-    if (!verifiedBlock.hash || verifiedBlock.hash.toLowerCase() !== blockHash) {
-      throw new Error(`confirmed L1 committee checkpoint ${blockNumber} changed during lookup`);
-    }
-    return {
-      epoch: epoch.toString(),
-      committee,
-      rollupAddress: rollupAddress.toLowerCase(),
-      blockNumber: blockNumber.toString(),
-      blockHash,
-    };
   }
 
   async scan(previous = {}, signal) {
@@ -411,7 +321,6 @@ export class L1Scanner {
     const [
       rollupVersion,
       activeSlasherValue,
-      pendingSlasherValue,
       legacySlasherValue,
       currentSlot,
       currentEpoch,
@@ -421,7 +330,6 @@ export class L1Scanner {
     ] = await Promise.all([
       read(client, rollupAddress, rollupAbi, 'getVersion', blockNumber),
       read(client, rollupAddress, rollupAbi, 'getSlasher', blockNumber),
-      read(client, rollupAddress, rollupAbi, 'getPendingSlasher', blockNumber),
       read(client, rollupAddress, rollupAbi, 'getLegacySlasher', blockNumber),
       read(client, rollupAddress, rollupAbi, 'getCurrentSlot', blockNumber),
       read(client, rollupAddress, rollupAbi, 'getCurrentEpoch', blockNumber),
@@ -431,18 +339,12 @@ export class L1Scanner {
     ]);
 
     const activeSlasher = getAddress(activeSlasherValue);
-    const pendingSlasher = getAddress(pendingSlasherValue[0]);
     const legacySlasher = getAddress(legacySlasherValue[0]);
     requireNonZero(activeSlasher, 'active Slasher');
 
     const stackInputs = [{ role: 'active', slasherAddress: activeSlasher }];
-    if (pendingSlasher !== zeroAddress) {
-      stackInputs.push({
-        role: 'pending',
-        slasherAddress: pendingSlasher,
-        readyAt: pendingSlasherValue[1].toString(),
-      });
-    }
+    // A pending Slasher cannot execute and therefore is not a current risk
+    // source. It becomes relevant only after the Rollup promotes it to active.
     if (legacySlasher !== zeroAddress && legacySlasherValue[1] >= block.timestamp) {
       stackInputs.push({
         role: 'legacy',
@@ -452,14 +354,6 @@ export class L1Scanner {
     }
 
     const uniqueStacks = deduplicateStacks(stackInputs);
-    const previousRoundCursors = new Map(
-      !reorgDetected && Array.isArray(previous.metadata?.roundCursors)
-        ? previous.metadata.roundCursors.map((cursor) => [
-          `${String(cursor.proposerAddress).toLowerCase()}:${cursor.round}`,
-          cursor,
-        ])
-        : [],
-    );
     const stacks = [];
     const stackErrors = [];
     for (const input of uniqueStacks) {
@@ -469,11 +363,10 @@ export class L1Scanner {
           rollupAddress,
           currentSlot,
           blockNumber,
-          previousRoundCursors,
         }));
       } catch (error) {
         // The active stack is the canonical safety signal and must be coherent.
-        // A broken queued/legacy stack is isolated and reported as degraded so
+        // A broken legacy stack is isolated and reported as degraded so
         // it cannot freeze active monitoring for its whole authorization window.
         if (input.role === 'active') throw error;
         stackErrors.push({
@@ -514,7 +407,7 @@ export class L1Scanner {
   }
 
   async scanStack(client, input) {
-    const { role, slasherAddress, rollupAddress, currentSlot, blockNumber, previousRoundCursors } = input;
+    const { role, slasherAddress, rollupAddress, currentSlot, blockNumber } = input;
     requireCode(await client.getBytecode({ address: slasherAddress, blockNumber }), `${role} Slasher`, slasherAddress);
     const proposerAddress = getAddress(await read(client, slasherAddress, slasherAbi, 'PROPOSER', blockNumber));
     requireNonZero(proposerAddress, `${role} SlashingProposer`);
@@ -587,12 +480,8 @@ export class L1Scanner {
           round,
           currentRound,
           currentSlot,
-          role,
           config,
           isSlashingEnabled,
-          pauseStartedAtSlot,
-          pauseEndsAtSlot,
-          previousRound: previousRoundCursors?.get(`${proposerAddress.toLowerCase()}:${round}`),
         });
         if (scanned.ballotCount !== '0' || scanned.isExecuted || scanned.actions.length > 0) {
           rounds.push(scanned);
@@ -652,7 +541,7 @@ export class L1Scanner {
   }
 }
 
-async function scanRound(client, input) {
+export async function scanRound(client, input) {
   const {
     proposerAddress,
     slasherAddress,
@@ -660,22 +549,28 @@ async function scanRound(client, input) {
     round,
     currentRound,
     currentSlot,
-    role,
     config,
     isSlashingEnabled,
-    pauseStartedAtSlot,
-    pauseEndsAtSlot,
-    previousRound,
   } = input;
   const roundResult = await read(client, proposerAddress, slashingProposerAbi, 'getRound', blockNumber, [round]);
   const [isExecuted, ballotCount] = roundResult;
   let committees = [];
-  let earlyTargets = [];
   let actions = [];
   let payloadAddress = null;
   let isVetoed = false;
 
-  if (isExecuted || ballotCount > 0n) {
+  const targetEpochs = [];
+  if (round >= config.slashOffsetInRounds) {
+    const startEpoch = (round - config.slashOffsetInRounds) * config.roundSizeInEpochs;
+    for (let offset = 0n; offset < config.roundSizeInEpochs; offset += 1n) {
+      targetEpochs.push((startEpoch + offset).toString());
+    }
+  }
+
+  // Below quorum, a ballot count is not validator-specific evidence. Avoid the
+  // committee and per-vote reads entirely; they were expensive and produced
+  // noisy "first vote" alerts that could not claim a slash candidate existed.
+  if (isExecuted || ballotCount >= config.quorum) {
     committees = await read(
       client,
       proposerAddress,
@@ -684,32 +579,10 @@ async function scanRound(client, input) {
       blockNumber,
       [round],
     );
-    if (ballotCount > 0n) {
-      const previousCount = previousRound && BigInt(previousRound.ballotCount) <= ballotCount
-        ? BigInt(previousRound.ballotCount)
-        : 0n;
-      const encodedVotes = await readVotes(
-        client,
-        proposerAddress,
-        blockNumber,
-        round,
-        previousCount,
-        ballotCount,
-      );
-      earlyTargets = mergeEarlyTargets(
-        previousCount > 0n ? previousRound.earlyTargets ?? [] : [],
-        decodeEarlyTargets(encodedVotes, committees, config.committeeSize),
-      );
-    }
-  }
-  if (isExecuted || ballotCount >= config.quorum) {
     const result = await read(client, proposerAddress, slashingProposerAbi, 'getTally', blockNumber, [round, committees]);
-    actions = result.map((action) => ({
-      sequencer: getAddress(action.validator).toLowerCase(),
-      amount: action.slashAmount.toString(),
-    }));
+    actions = annotateSlashActions(result, committees, targetEpochs);
     if (actions.length > 0) {
-      const contractActions = actions.map((action) => ({ validator: action.sequencer, slashAmount: BigInt(action.amount) }));
+      const contractActions = actions.map((action) => ({ validator: action.validator, slashAmount: BigInt(action.amount) }));
       payloadAddress = getAddress(await read(
         client,
         proposerAddress,
@@ -729,128 +602,74 @@ async function scanRound(client, input) {
     currentRound,
     currentSlot,
     isExecuted,
+    isVetoed,
     hasActions: actions.length > 0,
     executableSlot,
     lifetimeInRounds: config.lifetimeInRounds,
     executionDelayInRounds: config.executionDelayInRounds,
   });
-  const status = role === 'pending' && !isExecuted && ['newly-executable', 'executable'].includes(proposerStatus)
-    ? 'pending-activation'
-    : proposerStatus;
-  const targetEpochs = [];
-  if (round >= config.slashOffsetInRounds) {
-    const startEpoch = (round - config.slashOffsetInRounds) * config.roundSizeInEpochs;
-    for (let offset = 0n; offset < config.roundSizeInEpochs; offset += 1n) {
-      targetEpochs.push((startEpoch + offset).toString());
-    }
-  }
+  const status = proposerStatus;
   const isExecutionPaused = !isSlashingEnabled && !isExecuted;
-  const isProtected = !isExecuted && isRoundProtectedByPause({
-    round,
-    slashOffsetInRounds: config.slashOffsetInRounds,
-    expirySlot,
-    isSlashingEnabled,
-    pauseStartedAtSlot,
-    pauseEndsAtSlot,
-  });
 
   return {
     round: round.toString(),
     ballotCount: ballotCount.toString(),
     isExecuted,
     status,
-    committees: committees.map((committee) => committee.map((address) => getAddress(address).toLowerCase())),
-    earlyTargets,
     actions,
     payloadAddress,
     isVetoed,
     executableSlot: executableSlot.toString(),
     expirySlot: expirySlot.toString(),
     targetEpochs,
-    isAuthorized: role !== 'pending',
+    isAuthorized: true,
     proposerStatus,
     isExecutionPaused,
-    isProtected,
   };
 }
 
-async function readVotes(client, proposerAddress, blockNumber, round, startIndex, ballotCount) {
-  const votes = [];
-  const batchSize = 32n;
-  for (let start = startIndex; start < ballotCount; start += batchSize) {
-    const end = start + batchSize > ballotCount ? ballotCount : start + batchSize;
-    const requests = [];
-    for (let index = start; index < end; index += 1n) {
-      requests.push(read(
-        client,
-        proposerAddress,
-        slashingProposerAbi,
-        'getVotes',
-        blockNumber,
-        [round, index],
-      ));
+export function annotateSlashActions(rawActions, committees, targetEpochs) {
+  const flattened = [];
+  for (let epochIndex = 0; epochIndex < committees.length; epochIndex += 1) {
+    const committee = committees[epochIndex] ?? [];
+    for (let committeeIndex = 0; committeeIndex < committee.length; committeeIndex += 1) {
+      flattened.push({
+        address: getAddress(committee[committeeIndex]).toLowerCase(),
+        epochIndex,
+        committeeIndex,
+        epoch: targetEpochs[epochIndex] ?? null,
+      });
     }
-    votes.push(...await Promise.all(requests));
   }
-  return votes;
-}
 
-export function mergeEarlyTargets(previousTargets, addedTargets) {
-  const merged = new Map();
-  for (const target of [...previousTargets, ...addedTargets]) {
-    const sequencer = String(target.sequencer).toLowerCase();
-    const current = merged.get(sequencer) ?? {
-      sequencer,
-      voteCount: 0,
-      maxSlashUnits: 0,
-      unitVoteCounts: [0, 0, 0],
+  let cursor = 0;
+  return rawActions.map((action, actionIndex) => {
+    const validator = getAddress(action.validator).toLowerCase();
+    let provenance = null;
+    for (let index = cursor; index < flattened.length; index += 1) {
+      if (flattened[index].address !== validator) continue;
+      provenance = flattened[index];
+      cursor = index + 1;
+      break;
+    }
+    return {
+      validator,
+      amount: action.slashAmount.toString(),
+      actionIndex,
+      epoch: provenance?.epoch ?? null,
+      epochIndex: provenance?.epochIndex ?? null,
+      committeeIndex: provenance?.committeeIndex ?? null,
     };
-    current.voteCount += Number(target.voteCount ?? 0);
-    current.maxSlashUnits = Math.max(current.maxSlashUnits, Number(target.maxSlashUnits ?? 0));
-    for (let index = 0; index < 3; index += 1) {
-      current.unitVoteCounts[index] += Number(target.unitVoteCounts?.[index] ?? 0);
-    }
-    merged.set(sequencer, current);
-  }
-  return [...merged.values()].sort((a, b) => a.sequencer.localeCompare(b.sequencer));
-}
-
-export function decodeEarlyTargets(encodedVotes, committees, committeeSizeInput) {
-  const committeeSize = Number(committeeSizeInput);
-  if (!Number.isSafeInteger(committeeSize) || committeeSize <= 0) return [];
-  const tallies = new Map();
-  for (const encoded of encodedVotes) {
-    if (typeof encoded !== 'string' || !/^0x[0-9a-fA-F]*$/.test(encoded)) continue;
-    const bytes = Buffer.from(encoded.slice(2), 'hex');
-    const validatorCount = committees.length * committeeSize;
-    for (let index = 0; index < validatorCount; index += 1) {
-      const byte = bytes[Math.floor(index / 4)] ?? 0;
-      const units = (byte >> ((index % 4) * 2)) & 0b11;
-      if (units === 0) continue;
-      const epochIndex = Math.floor(index / committeeSize);
-      const committeeIndex = index % committeeSize;
-      const rawAddress = committees[epochIndex]?.[committeeIndex];
-      if (!rawAddress) continue;
-      const sequencer = getAddress(rawAddress).toLowerCase();
-      const tally = tallies.get(sequencer) ?? {
-        sequencer,
-        voteCount: 0,
-        maxSlashUnits: 0,
-        unitVoteCounts: [0, 0, 0],
-      };
-      tally.voteCount += 1;
-      tally.maxSlashUnits = Math.max(tally.maxSlashUnits, units);
-      tally.unitVoteCounts[units - 1] += 1;
-      tallies.set(sequencer, tally);
-    }
-  }
-  return [...tallies.values()].sort((a, b) => a.sequencer.localeCompare(b.sequencer));
+  });
 }
 
 export function calculateStatus(input) {
   if (input.isExecuted) return 'executed';
+  if (input.isVetoed && input.currentRound > input.round) return 'vetoed';
+  if (!input.hasActions) {
+    return input.currentRound > input.round ? 'no-consensus' : 'below-quorum';
+  }
   if (input.currentRound > input.round + input.lifetimeInRounds) return 'expired';
-  if (!input.hasActions) return 'below-quorum';
   const isPastDelay = input.currentRound > input.round + input.executionDelayInRounds;
   if (isPastDelay && input.currentSlot >= input.executableSlot) {
     return input.currentRound === input.round + input.executionDelayInRounds + 1n
@@ -860,26 +679,15 @@ export function calculateStatus(input) {
   return 'quorum-reached';
 }
 
-export function isRoundProtectedByPause(input) {
-  if (
-    input.isSlashingEnabled ||
-    input.pauseStartedAtSlot === null ||
-    input.pauseEndsAtSlot === null ||
-    input.round < input.slashOffsetInRounds
-  ) {
-    return false;
-  }
-  return input.expirySlot > input.pauseStartedAtSlot && input.expirySlot <= input.pauseEndsAtSlot;
-}
-
 async function read(client, address, abi, functionName, blockNumber, args = []) {
   return client.readContract({ address, abi, functionName, args, blockNumber });
 }
 
 export function deduplicateStacks(stacks) {
   const bySlasher = new Map();
-  const rolePriority = { active: 3, legacy: 2, pending: 1 };
+  const rolePriority = { active: 2, legacy: 1 };
   for (const stack of stacks) {
+    if (!(stack.role in rolePriority)) continue;
     const key = stack.slasherAddress.toLowerCase();
     const existing = bySlasher.get(key);
     if (!existing) {
@@ -887,12 +695,8 @@ export function deduplicateStacks(stacks) {
       continue;
     }
 
-    // The same Slasher can appear in more than one rotation slot. In
-    // particular, governance can queue the still-authorized legacy Slasher as
-    // the next pending one. Scan it once, but keep the authorized role so its
-    // drain-window rounds do not become non-executable merely because the
-    // pending tuple was returned first. Preserve both rotation timestamps for
-    // operator context.
+    // The same contract can be both active and still listed as legacy during a
+    // rotation boundary. Scan it once and prefer the active role.
     const preferred = (rolePriority[stack.role] ?? 0) > (rolePriority[existing.role] ?? 0)
       ? stack
       : existing;
@@ -916,12 +720,6 @@ function readOptionalBigInt(value) {
   } catch {
     return undefined;
   }
-}
-
-function requireUnsignedBigInt(value, label) {
-  const parsed = readOptionalBigInt(value);
-  if (parsed === undefined || parsed < 0n) throw new Error(`${label} must be an unsigned integer`);
-  return parsed;
 }
 
 function normalizeSlashLog(log, expectedEmitter) {
@@ -952,7 +750,7 @@ function normalizeSlashLog(log, expectedEmitter) {
     blockHash: log.blockHash.toLowerCase(),
     transactionHash: log.transactionHash.toLowerCase(),
     logIndex,
-    sequencer: getAddress(log.args.attester).toLowerCase(),
+    validator: getAddress(log.args.attester).toLowerCase(),
     amount: amount.toString(),
   };
 }

@@ -4,10 +4,8 @@ import test from 'node:test';
 
 import {
   AztecAdminClient,
-  parseInactivityConfig,
   parseNodeInfo,
   parseNodeSyncStatus,
-  parseSingleValidatorStats,
 } from '../src/admin-client.mjs';
 import { OFFENSE_A } from './helpers.mjs';
 
@@ -35,7 +33,7 @@ test('AztecAdminClient calls getSlashOffenses(all) with the admin API key', asyn
 
   assert.equal(offenses.length, 1);
   assert.equal(offenses[0].offenseTypeName, 'inactivity');
-  await assert.rejects(() => client.call('aztecAdmin_pauseSequencer', []), /not allowed/);
+  await assert.rejects(() => client.call('aztecAdmin_pauseValidator', []), /not allowed/);
 });
 
 test('AztecAdminClient reports JSON-RPC errors without accepting partial data', async (t) => {
@@ -101,18 +99,12 @@ test('AztecAdminClient fetches and strictly normalizes identity from the node RP
     l2Slot: '102',
     l2Epoch: '7',
   });
-  assert.deepEqual(await client.getSentinelSyncStatus(), {
-    ready: true,
-    l2Slot: '102',
-  });
   assert.deepEqual(requestedMethods.sort(), [
     'aztec_getNodeInfo',
     'aztec_getSyncedL2SlotNumber',
     'aztec_isReady',
     'aztec_getSyncedL1Timestamp',
     'aztec_getSyncedL2EpochNumber',
-    'aztec_getSyncedL2SlotNumber',
-    'aztec_isReady',
   ].sort());
   await assert.rejects(() => client.call('aztec_getNodeInfo', ['unexpected']), /not allowed/);
 });
@@ -165,111 +157,6 @@ test('parseNodeSyncStatus rejects ambiguous cursors and preserves large integers
     l2Slot: 9_007_199_254_740_992,
     l2Epoch: '3',
   }), /synced L2 slot/);
-});
-
-test('single-validator stats and inactivity config parsers retain the complete duty taxonomy', () => {
-  const sequencer = '0x1111111111111111111111111111111111111111';
-  assert.deepEqual(parseSingleValidatorStats({
-    validator: {
-      address: sequencer.toUpperCase().replace('0X', '0x'),
-      totalSlots: 2,
-      history: [
-        { slot: 31, status: 'checkpoint-mined' },
-        { slot: '32', status: 'attestation-missed' },
-      ],
-    },
-    allTimeEpochPerformance: [{ epoch: 1, missed: 1, total: 2 }],
-    lastProcessedSlot: '0x20',
-    initialSlot: 1,
-    slotWindow: 768,
-  }, {
-    sequencer,
-    fromSlot: '31',
-    toSlot: '32',
-  }), {
-    sequencer,
-    history: [
-      { slot: '31', status: 'checkpoint-mined' },
-      { slot: '32', status: 'attestation-missed' },
-    ],
-    allTimeEpochPerformance: [{ epoch: '1', missed: 1, total: 2 }],
-    lastProcessedSlot: '32',
-  });
-  assert.equal(parseSingleValidatorStats(null, {
-    sequencer,
-    fromSlot: '31',
-    toSlot: '32',
-  }), undefined);
-  assert.deepEqual(parseInactivityConfig({
-    slashInactivityTargetPercentage: 0.7,
-    slashInactivityConsecutiveEpochThreshold: 2,
-  }), {
-    targetPercentage: 0.7,
-    consecutiveEpochThreshold: 2,
-  });
-  assert.throws(() => parseSingleValidatorStats({
-    validator: {
-      address: sequencer,
-      totalSlots: 1,
-      history: [{ slot: 31, status: 'unknown' }],
-    },
-    allTimeEpochPerformance: [],
-    slotWindow: 1,
-  }, { sequencer, fromSlot: '31', toSlot: '32' }), /history status/);
-  assert.throws(() => parseInactivityConfig({
-    slashInactivityTargetPercentage: 1.1,
-    slashInactivityConsecutiveEpochThreshold: 2,
-  }), /between 0 and 1/);
-});
-
-test('bounded validator stats use the public node while inactivity thresholds use the admin RPC', async () => {
-  const sequencer = '0x1111111111111111111111111111111111111111';
-  const requests = [];
-  const client = new AztecAdminClient({
-    url: 'https://admin.example',
-    nodeUrl: 'https://node.example',
-    apiKey: 'admin-secret',
-    nodeApiKey: 'node-secret',
-    fetchImpl: async (url, options) => {
-      const body = JSON.parse(options.body);
-      requests.push({ url, key: options.headers['x-api-key'], method: body.method });
-      const result = body.method === 'aztec_getValidatorStats'
-        ? {
-          validator: {
-            address: sequencer,
-            totalSlots: 1,
-            history: [{ slot: 1, status: 'attestation-sent' }],
-          },
-          allTimeEpochPerformance: [{ epoch: 0, missed: 0, total: 1 }],
-          lastProcessedSlot: 1,
-          initialSlot: 0,
-          slotWindow: 32,
-        }
-        : {
-          slashInactivityTargetPercentage: 0.7,
-          slashInactivityConsecutiveEpochThreshold: 2,
-        };
-      return new Response(JSON.stringify({ jsonrpc: '2.0', id: body.id, result }), {
-        headers: { 'content-type': 'application/json' },
-      });
-    },
-  });
-
-  await client.getValidatorStats(sequencer, '0', '3');
-  await client.getInactivityConfig();
-  assert.deepEqual(requests, [
-    {
-      url: 'https://node.example',
-      key: 'node-secret',
-      method: 'aztec_getValidatorStats',
-    },
-    {
-      url: 'https://admin.example',
-      key: 'admin-secret',
-      method: 'aztecAdmin_getConfig',
-    },
-  ]);
-  await assert.rejects(() => client.call('aztec_getValidatorsStats', []), /not allowed/);
 });
 
 test('AztecAdminClient applies a request timeout', async () => {

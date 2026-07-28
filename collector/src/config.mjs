@@ -2,7 +2,6 @@ import path from 'node:path';
 import { createECDH } from 'node:crypto';
 
 const DEFAULT_ADMIN_POLL_INTERVAL_MS = 15_000;
-const DEFAULT_SENTINEL_POLL_INTERVAL_MS = 60_000;
 const DEFAULT_L1_POLL_INTERVAL_MS = 30_000;
 const DEFAULT_DATABASE_PATH = './data/slashmon.sqlite';
 const NETWORK_DEFAULTS = {
@@ -44,45 +43,9 @@ export function loadConfig(env = process.env, cwd = process.cwd()) {
     staleAfterMs: 60_000,
     syncMaxL1AgeMs: 5 * 60_000,
     syncMaxL2StallMs: 5 * 60_000,
-    withdrawAfterMissedPolls: 3,
+    resolveAfterMissedPolls: 3,
     maxOffensesPerPoll: 100_000,
     maxResponseBytes: 2 * 1024 * 1024,
-    maxSingleValidatorStatsResponseBytes: readInteger(
-      env,
-      'AZTEC_SENTINEL_VALIDATOR_MAX_RESPONSE_BYTES',
-      2 * 1024 * 1024,
-      1024,
-      16 * 1024 * 1024,
-    ),
-    sentinelPollIntervalMs: readInteger(
-      env,
-      'AZTEC_SENTINEL_POLL_INTERVAL_MS',
-      DEFAULT_SENTINEL_POLL_INTERVAL_MS,
-      5_000,
-      60 * 60_000,
-    ),
-    sentinelLookbackEpochs: readInteger(
-      env,
-      'AZTEC_SENTINEL_LOOKBACK_EPOCHS',
-      3,
-      1,
-      24,
-    ),
-    sentinelEpochEndBufferSlots: readInteger(
-      env,
-      'AZTEC_SENTINEL_EPOCH_END_BUFFER_SLOTS',
-      2,
-      0,
-      10_000,
-    ),
-    sentinelValidatorConcurrency: readInteger(
-      env,
-      'AZTEC_SENTINEL_VALIDATOR_CONCURRENCY',
-      8,
-      1,
-      128,
-    ),
-
     l1RpcUrls,
     l1ChainId: networkDefaults.chainId,
     l1RegistryAddress: readAddress(
@@ -147,30 +110,30 @@ export function loadConfig(env = process.env, cwd = process.cwd()) {
       1,
       100_000,
     ),
-    subscriptionCreateMaxPerHourPerClient: readInteger(
+    watchlistCreateMaxPerHourPerClient: readInteger(
       env,
-      'BACKEND_SUBSCRIPTION_CREATE_MAX_PER_HOUR_PER_IP',
+      'BACKEND_WATCHLIST_CREATE_MAX_PER_HOUR_PER_IP',
       3,
       1,
       100_000,
     ),
-    subscriptionCreateMaxPerDayPerClient: readInteger(
+    watchlistCreateMaxPerDayPerClient: readInteger(
       env,
-      'BACKEND_SUBSCRIPTION_CREATE_MAX_PER_DAY_PER_IP',
+      'BACKEND_WATCHLIST_CREATE_MAX_PER_DAY_PER_IP',
       10,
       1,
       1_000_000,
     ),
-    subscriptionCreateMaxPerHourGlobal: readInteger(
+    watchlistCreateMaxPerHourGlobal: readInteger(
       env,
-      'BACKEND_SUBSCRIPTION_CREATE_MAX_PER_HOUR_GLOBAL',
+      'BACKEND_WATCHLIST_CREATE_MAX_PER_HOUR_GLOBAL',
       10,
       1,
       1_000_000,
     ),
-    subscriptionCreateMaxPerDayGlobal: readInteger(
+    watchlistCreateMaxPerDayGlobal: readInteger(
       env,
-      'BACKEND_SUBSCRIPTION_CREATE_MAX_PER_DAY_GLOBAL',
+      'BACKEND_WATCHLIST_CREATE_MAX_PER_DAY_GLOBAL',
       50,
       1,
       10_000_000,
@@ -225,7 +188,7 @@ export function loadConfig(env = process.env, cwd = process.cwd()) {
       10_000_000,
     ),
     trustLoopbackProxy: readBoolean(env.BACKEND_TRUST_PROXY, false, 'BACKEND_TRUST_PROXY'),
-    maxSequencersPerWatchlist: 100,
+    maxWatchlistAddresses: 100,
 
     deliveryPollIntervalMs: 1_000,
     deliveryBatchSize: 50,

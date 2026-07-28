@@ -38,8 +38,8 @@ export function parseOffense(value, index = 0) {
   }
 
   // Aztec's admin wire schema still calls this field `validator`.
-  const sequencer = parseAddress(value.validator, index);
-  const amount = parseUnsignedBigInt(value.amount, `amount at index ${index}`);
+  const validator = parseAddress(value.validator, index);
+  const penalty = parseUnsignedBigInt(value.amount, `amount at index ${index}`);
   const epochOrSlot = parseUnsignedBigInt(value.epochOrSlot, `epochOrSlot at index ${index}`);
   const offenseType = Number(value.offenseType);
   if (!Number.isSafeInteger(offenseType) || offenseType < 0 || offenseType > 255) {
@@ -47,12 +47,12 @@ export function parseOffense(value, index = 0) {
   }
 
   const [offenseTypeName, timeUnit] = OFFENSE_METADATA.get(offenseType) ?? [`unknown_${offenseType}`, 'unknown'];
-  const id = offenseId({ sequencer, offenseType, epochOrSlot });
+  const id = offenseId({ validator, offenseType, epochOrSlot });
 
   return {
     id,
-    sequencer,
-    amount: amount.toString(),
+    validator,
+    penalty: penalty.toString(),
     offenseType,
     offenseTypeName,
     epochOrSlot: epochOrSlot.toString(),
@@ -60,15 +60,15 @@ export function parseOffense(value, index = 0) {
   };
 }
 
-export function offenseId({ sequencer, offenseType, epochOrSlot }) {
+export function offenseId({ validator, offenseType, epochOrSlot }) {
   return createHash('sha256')
-    .update(`${sequencer.toLowerCase()}|${offenseType}|${epochOrSlot.toString()}`)
+    .update(`${validator.toLowerCase()}|${offenseType}|${epochOrSlot.toString()}`)
     .digest('hex');
 }
 
 function parseAddress(value, index) {
   if (typeof value !== 'string' || !ADDRESS_PATTERN.test(value)) {
-    throw new Error(`sequencer at index ${index} must be a 20-byte hex address`);
+    throw new Error(`validator at index ${index} must be a 20-byte hex address`);
   }
   return value.toLowerCase();
 }

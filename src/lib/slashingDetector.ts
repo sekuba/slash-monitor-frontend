@@ -1,17 +1,20 @@
 import type { Address } from 'viem';
-import type { DetectedSlashing, MonitorIssue, ResolvedMonitorConfig, RoundInfo, RoundStatus, SlashAction } from '@/types/slashing';
+import type {
+    DetectedL1Round,
+    MonitorIssue,
+    ResolvedMonitorConfig,
+    RoundInfo,
+    SlashAction,
+} from '@/types/slashing';
 import { L1Monitor } from './l1Monitor';
 import {
     buildRoundsToCheck,
     calculateExecutableSlot,
     calculateExpirySlot,
-    calculateRoundStatus,
-    countUniqueValidators,
     getTargetEpochs,
 } from './slashingLifecycle';
 
 interface DetailedRound {
-    committees: Address[][];
     slashActions: SlashAction[];
     payloadAddress: Address;
     isVetoed: boolean;
@@ -19,8 +22,7 @@ interface DetailedRound {
 
 interface RoundCandidate {
     round: bigint;
-    roundInfo: RoundInfo;
-    base: DetectedSlashing;
+    base: DetectedL1Round;
 }
 
 export class SlashingDetector {
@@ -32,30 +34,14 @@ export class SlashingDetector {
         this.l1Monitor = l1Monitor;
     }
 
-    calculateRoundStatus(round: bigint, currentRound: bigint, currentSlot: bigint, isExecuted: boolean, hasSlashActions: boolean): RoundStatus {
-        return calculateRoundStatus(round, currentRound, currentSlot, isExecuted, hasSlashActions, this.config);
-    }
-
-    calculateExecutableSlot(round: bigint): bigint {
-        return calculateExecutableSlot(round, this.config);
-    }
-
-    calculateExpirySlot(round: bigint): bigint {
-        return calculateExpirySlot(round, this.config);
-    }
-
-    getTargetEpochs(votingRound: bigint): bigint[] {
-        return getTargetEpochs(votingRound, this.config);
-    }
-
-    async detectExecutableRounds(currentRound: bigint, currentSlot: bigint): Promise<{
-        detectedSlashings: DetectedSlashing[];
+    async detectRounds(currentRound: bigint): Promise<{
+        detectedRounds: DetectedL1Round[];
         issues: MonitorIssue[];
     }> {
         const roundsToCheck = this.buildRoundsToCheck(currentRound);
         const issues: MonitorIssue[] = [];
-        const simpleRounds: DetectedSlashing[] = [];
-        const detailedRounds = new Map<bigint, DetectedSlashing>();
+        const simpleRounds: DetectedL1Round[] = [];
+        const detailedRounds = new Map<bigint, DetectedL1Round>();
         const roundsNeedingDetails: RoundCandidate[] = [];
         const roundInfoResults = await this.l1Monitor.getRounds(roundsToCheck);
 
@@ -71,9 +57,9 @@ export class SlashingDetector {
                 continue;
             }
 
-            const base = this.createBaseDetection(roundInfoResult.data, currentRound, currentSlot);
+            const base = this.createBaseDetection(roundInfoResult.data);
             if (!this.shouldLoadDetails(base)) {
-                if (round === currentRound || roundInfoResult.data.ballotCount > 0n) {
+                if (roundInfoResult.data.ballotCount > 0n) {
                     simpleRounds.push(base);
                 }
                 continue;
@@ -81,27 +67,30 @@ export class SlashingDetector {
 
             roundsNeedingDetails.push({
                 round,
-                roundInfo: roundInfoResult.data,
                 base,
             });
         }
 
         if (roundsNeedingDetails.length > 0) {
-            await this.loadRoundDetails(roundsNeedingDetails, currentRound, currentSlot, detailedRounds, simpleRounds, issues);
+            await this.loadRoundDetails(
+                roundsNeedingDetails,
+                detailedRounds,
+                simpleRounds,
+                issues,
+            );
         }
 
         return {
-            detectedSlashings: [...simpleRounds, ...detailedRounds.values()].sort((a, b) => Number(b.round - a.round)),
+            detectedRounds: [...simpleRounds, ...detailedRounds.values()]
+                .sort((a, b) => Number(b.round - a.round)),
             issues,
         };
     }
 
     private async loadRoundDetails(
         rounds: RoundCandidate[],
-        currentRound: bigint,
-        currentSlot: bigint,
-        detailedRounds: Map<bigint, DetectedSlashing>,
-        simpleRounds: DetectedSlashing[],
+        detailedRounds: Map<bigint, DetectedL1Round>,
+        simpleRounds: DetectedL1Round[],
         issues: MonitorIssue[]
     ) {
         const committeeResults = await this.l1Monitor.batchGetSlashTargetCommittees(rounds.map(({ round }) => round));
@@ -111,7 +100,6 @@ export class SlashingDetector {
             const candidate = rounds[index];
             if (!committeeResult.success) {
                 const message = `Unable to load slash committees: ${committeeResult.error.message}`;
-                simpleRounds.push(this.buildPartialDetection(candidate.base, currentRound, currentSlot, message));
                 issues.push(this.createIssue('round-details', message, candidate.round));
                 return;
             }
@@ -135,7 +123,6 @@ export class SlashingDetector {
             const candidate = tallyCandidates[index];
             if (!tallyResult.success) {
                 const message = `Unable to load slash actions: ${tallyResult.error.message}`;
-                simpleRounds.push(this.buildPartialDetection(candidate.base, currentRound, currentSlot, message));
                 issues.push(this.createIssue('round-details', message, candidate.round));
                 return;
             }
@@ -163,113 +150,54 @@ export class SlashingDetector {
             const candidate = payloadCandidates[index];
             if (!payloadResult.success) {
                 const message = `Unable to load payload status: ${payloadResult.error.message}`;
-                simpleRounds.push(this.buildPartialDetection(
-                    candidate.base,
-                    currentRound,
-                    currentSlot,
-                    message,
-                    candidate.committees,
-                    candidate.slashActions
-                ));
                 issues.push(this.createIssue('round-details', message, candidate.round));
                 return;
             }
 
             const details: DetailedRound = {
-                committees: candidate.committees,
                 slashActions: candidate.slashActions,
                 payloadAddress: payloadResult.data.payloadAddress,
                 isVetoed: payloadResult.data.isVetoed,
             };
 
-            detailedRounds.set(candidate.round, this.buildDetailedDetection(candidate.base, details, currentRound, currentSlot));
+            detailedRounds.set(
+                candidate.round,
+                this.buildDetailedDetection(candidate.base, details),
+            );
         });
     }
 
-    private createBaseDetection(roundInfo: RoundInfo, currentRound: bigint, currentSlot: bigint): DetectedSlashing {
+    private createBaseDetection(roundInfo: RoundInfo): DetectedL1Round {
         return {
             round: roundInfo.round,
-            status: this.calculateRoundStatus(roundInfo.round, currentRound, currentSlot, roundInfo.isExecuted, false),
             ballotCount: roundInfo.ballotCount,
             isExecuted: roundInfo.isExecuted,
             isVetoed: false,
-            verificationStatus: 'verified',
+            slashActions: [],
+            slotWhenExecutable: calculateExecutableSlot(roundInfo.round, this.config),
+            slotWhenExpires: calculateExpirySlot(roundInfo.round, this.config),
+            targetEpochs: getTargetEpochs(roundInfo.round, this.config),
         };
     }
 
     private buildDetailedDetection(
-        base: DetectedSlashing,
+        base: DetectedL1Round,
         details: DetailedRound,
-        currentRound: bigint,
-        currentSlot: bigint
-    ): DetectedSlashing {
-        const totalSlashAmount = details.slashActions.reduce((sum, action) => sum + action.slashAmount, 0n);
-        const affectedValidatorCount = countUniqueValidators(details.slashActions);
-
+    ): DetectedL1Round {
         return {
             ...base,
-            status: this.calculateRoundStatus(base.round, currentRound, currentSlot, base.isExecuted, true),
-            verificationStatus: 'verified',
-            committees: details.committees,
             slashActions: details.slashActions,
             payloadAddress: details.payloadAddress,
             isVetoed: details.isVetoed,
-            slotWhenExecutable: this.calculateExecutableSlot(base.round),
-            slotWhenExpires: this.calculateExpirySlot(base.round),
-            secondsUntilExecutable: this.calculateSecondsUntilSlot(this.calculateExecutableSlot(base.round), currentSlot),
-            secondsUntilExpires: this.calculateSecondsUntilSlot(this.calculateExpirySlot(base.round), currentSlot),
-            lastUpdatedTimestamp: Date.now(),
-            targetEpochs: this.getTargetEpochs(base.round),
-            totalSlashAmount,
-            affectedValidatorCount,
         };
     }
 
-    private buildPartialDetection(
-        base: DetectedSlashing,
-        currentRound: bigint,
-        currentSlot: bigint,
-        issue: string,
-        committees?: Address[][],
-        slashActions?: SlashAction[]
-    ): DetectedSlashing {
-        const totalSlashAmount = slashActions?.reduce((sum, action) => sum + action.slashAmount, 0n);
-        const affectedValidatorCount = slashActions ? countUniqueValidators(slashActions) : undefined;
-
-        return {
-            ...base,
-            status: slashActions && slashActions.length > 0
-                ? this.calculateRoundStatus(base.round, currentRound, currentSlot, base.isExecuted, true)
-                : base.status,
-            verificationStatus: 'partial',
-            issues: [issue],
-            committees,
-            slashActions,
-            slotWhenExecutable: this.calculateExecutableSlot(base.round),
-            slotWhenExpires: this.calculateExpirySlot(base.round),
-            secondsUntilExecutable: this.calculateSecondsUntilSlot(this.calculateExecutableSlot(base.round), currentSlot),
-            secondsUntilExpires: this.calculateSecondsUntilSlot(this.calculateExpirySlot(base.round), currentSlot),
-            lastUpdatedTimestamp: Date.now(),
-            targetEpochs: this.getTargetEpochs(base.round),
-            totalSlashAmount,
-            affectedValidatorCount,
-        };
-    }
-
-    private shouldLoadDetails(slashing: DetectedSlashing) {
-        return slashing.isExecuted || slashing.ballotCount >= BigInt(this.config.quorum);
+    private shouldLoadDetails(round: DetectedL1Round) {
+        return round.isExecuted || round.ballotCount >= BigInt(this.config.quorum);
     }
 
     private buildRoundsToCheck(currentRound: bigint): bigint[] {
         return buildRoundsToCheck(currentRound, this.config);
-    }
-
-    private calculateSecondsUntilSlot(targetSlot: bigint, currentSlot: bigint): number {
-        if (targetSlot <= currentSlot) {
-            return 0;
-        }
-
-        return Number(targetSlot - currentSlot) * this.config.slotDuration;
     }
 
     private createIssue(scope: MonitorIssue['scope'], message: string, round?: bigint): MonitorIssue {

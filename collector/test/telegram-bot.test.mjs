@@ -4,7 +4,7 @@ import test from 'node:test';
 import { TelegramBot } from '../src/telegram-bot.mjs';
 import { DeliveryError } from '../src/channels.mjs';
 import { hashToken } from '../src/security.mjs';
-import { SEQUENCER_A, SEQUENCER_B } from './helpers.mjs';
+import { VALIDATOR_A, VALIDATOR_B } from './helpers.mjs';
 
 const LINK_TOKEN = 'A'.repeat(43);
 
@@ -14,7 +14,7 @@ test('TelegramBot consumes an opaque deep link without exposing it in the reply'
   const repository = {
     consumeTelegramLink(tokenHash, chatId, now) {
       consumed = { tokenHash, chatId, now };
-      return { network: 'mainnet', addresses: [SEQUENCER_A, SEQUENCER_B] };
+      return { network: 'mainnet', addresses: [VALIDATOR_A, VALIDATOR_B] };
     },
   };
   const bot = new TelegramBot({
@@ -37,8 +37,8 @@ test('TelegramBot consumes an opaque deep link without exposing it in the reply'
     now: 50_000,
   });
   assert.equal(sent.chatId, '9007199254740991');
-  assert.match(sent.text, /Linked\. Watching 2 sequencers on mainnet/);
-  assert.match(sent.text, new RegExp(SEQUENCER_A));
+  assert.match(sent.text, /Linked\. Watching 2 validators\./);
+  assert.match(sent.text, new RegExp(VALIDATOR_A));
   assert.doesNotMatch(sent.text, new RegExp(LINK_TOKEN));
 });
 
@@ -98,7 +98,7 @@ test('TelegramBot persists the update offset after a durable command even if its
     getWatchlistByTelegramChat() {
       return {
         network: 'mainnet',
-        addresses: [SEQUENCER_A],
+        addresses: [VALIDATOR_A],
         telegramEnabled: true,
       };
     },
@@ -275,7 +275,7 @@ test('TelegramBot ignores unlinked chatter, unknown commands, and reply floods',
       getWatchlistByTelegramChat() {
         return linked ? {
           network: 'mainnet',
-          addresses: [SEQUENCER_A],
+          addresses: [VALIDATOR_A],
           telegramEnabled: true,
         } : null;
       },

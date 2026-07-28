@@ -194,13 +194,13 @@ export class TelegramBot {
     }
     const watchlist = this.repository.consumeTelegramLink(tokenHash, chatId, this.now());
     if (!watchlist) return null;
-    return `Linked. Watching ${watchlist.addresses.length} sequencer${watchlist.addresses.length === 1 ? '' : 's'} on ${watchlist.network}.\n\n${formatAddresses(watchlist.addresses)}`;
+    return `Linked. Watching ${watchlist.addresses.length} validator${watchlist.addresses.length === 1 ? '' : 's'}.\n\n${formatAddresses(watchlist.addresses)}`;
   }
 
   describe(chatId, knownWatchlist) {
     const watchlist = knownWatchlist ?? this.repository.getWatchlistByTelegramChat(chatId);
     if (!watchlist) return null;
-    return `${watchlist.telegramEnabled ? 'Alerts live' : 'Alerts paused'} for ${watchlist.addresses.length} sequencer${watchlist.addresses.length === 1 ? '' : 's'} on ${watchlist.network}.\n\n${formatAddresses(watchlist.addresses)}`;
+    return `${watchlist.telegramEnabled ? 'Alerts live' : 'Alerts paused'} for ${watchlist.addresses.length} validator${watchlist.addresses.length === 1 ? '' : 's'}.\n\n${formatAddresses(watchlist.addresses)}`;
   }
 
   takeCommandReplySlot(chatId) {
@@ -258,7 +258,7 @@ function formatAddresses(addresses) {
 
 function helpText() {
   return [
-    'Slashmon watches for node-local offenses and onchain slashing payloads.',
+    'Slashmon watches Aztec node offenses, L1 slash proposals, and confirmed slashes.',
     '',
     '/list — show the linked watchlist',
     '/pause — silence Telegram alerts',
@@ -267,6 +267,6 @@ function helpText() {
     '/delete — unlink this chat',
     '/help — show this text',
     '',
-    'Addresses are managed in the Slashmon PWA. Pending node offenses are early signals, not L1 proof.',
+    'Addresses are managed in Slashmon. Node offenses are early signals, not L1 proposals.',
   ].join('\n');
 }

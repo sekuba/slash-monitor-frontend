@@ -1,21 +1,21 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { OffenseRepository } from '../src/database.mjs';
+import { SlashmonRepository } from '../src/database.mjs';
 import { L1Collector } from '../src/l1-collector.mjs';
-import { SEQUENCER_A } from './helpers.mjs';
+import { VALIDATOR_A } from './helpers.mjs';
 
 const WATCHLIST_ID = '11111111-1111-4111-8111-111111111111';
 
-test('L1 collector catches up confirmed slash logs from its durable chunk checkpoint', async () => {
-  const repository = new OffenseRepository(':memory:');
+test('L1 collector catches up slash history without alerting on backfill', async () => {
+  const repository = new SlashmonRepository(':memory:');
   let logCalls = 0;
   try {
     repository.createWatchlist({
       id: WATCHLIST_ID,
       managementTokenHash: 'a'.repeat(64),
       network: 'mainnet',
-      addresses: [SEQUENCER_A],
+      addresses: [VALIDATOR_A],
       now: 1,
     });
     repository.upsertEndpoint({ watchlistId: WATCHLIST_ID, kind: 'telegram', destination: '42', now: 2 });
@@ -60,18 +60,26 @@ test('L1 collector catches up confirmed slash logs from its durable chunk checkp
     assert.equal(result.slashLogs.inserted, 1);
     assert.equal(logCalls, 2);
     assert.equal(repository.getSourceState('l1_slash_logs').lastBlockNumber, '4');
-    assert.equal(repository.getDeliveryCounts().pending, 1);
+    assert.equal(repository.db.prepare(`
+      SELECT COUNT(*) AS count FROM deliveries WHERE status = 'pending'
+    `).get().count, 0);
     assert.equal(
-      repository.listEvents({ network: 'mainnet' }).data.some((event) => event.type === 'l1_slash_confirmed'),
-      true,
+      repository.db.prepare(`
+        SELECT 1 FROM events WHERE type = 'l1_slash_confirmed'
+      `).get() !== undefined,
+      false,
     );
+    assert.equal(repository.listSlashOutcomes({
+      network: 'mainnet',
+      canonical: true,
+    }).length, 1);
   } finally {
     repository.close();
   }
 });
 
 test('log backfill yields at its time budget so the next fresh snapshot is not starved', async () => {
-  const repository = new OffenseRepository(':memory:');
+  const repository = new SlashmonRepository(':memory:');
   let snapshots = 0;
   try {
     const scanner = {
@@ -156,7 +164,7 @@ function slashLog(block) {
     blockHash: hash(block),
     transactionHash: hash(block + 1_000),
     logIndex: 0,
-    sequencer: SEQUENCER_A,
+    validator: VALIDATOR_A,
     amount: '42',
   };
 }
