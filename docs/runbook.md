@@ -2,7 +2,9 @@
 
 The supported production shape is one Node 24 backend, one SQLite file, one
 Aztec node, one or more Ethereum RPCs, and a local Cloudflare Tunnel connector.
-Do not run two backend processes for the same installation.
+Do not run two backend processes for the same installation. The disposable
+parallel test installation documented below uses a different service, release
+tree, environment, port, and SQLite state.
 
 ## Prepare
 
@@ -50,6 +52,7 @@ Run the deployment script from a clean checkout as its normal owner:
 scripts/deploy-backend.sh --fresh
 scripts/deploy-backend.sh --upgrade
 scripts/deploy-backend.sh --reset-db
+scripts/deploy-backend.sh --parallel
 ```
 
 - `--fresh` creates the first installation and removes any existing Slashmon
@@ -60,6 +63,9 @@ scripts/deploy-backend.sh --reset-db
 - `--reset-db` archives the existing database, then starts the release with an
   empty current schema. Watches, channels, observations, and scan cursors start
   empty.
+- `--parallel` creates or replaces an isolated test backend on
+  `127.0.0.1:8791`. It always starts from an empty testing database and does
+  not stop or modify the live service.
 
 The live database is `/var/lib/slashmon/slashmon.sqlite`; archived copies are
 under `/var/backups/slashmon`. Startup accepts an empty database or exactly the
@@ -74,6 +80,48 @@ There is deliberately no cross-release API compatibility layer. Deploy a
 schema-changing backend with `--reset-db` and the frontend from the same commit
 in one maintenance window. The hosted view can be unavailable between those
 two steps; the independent L1 view remains backend-free.
+
+## Parallel backend test
+
+Create a private sidecar environment and copy in the same read-only Aztec and
+Ethereum connection settings as production:
+
+```bash
+sudo install -m 0600 \
+  collector/deploy/slashmon-backend-testing.env.example \
+  /etc/slashmon-backend-testing.env
+sudoedit /etc/slashmon-backend-testing.env
+scripts/deploy-backend.sh --parallel
+```
+
+The parallel mode is intentionally isolated:
+
+- service: `slashmon-backend-testing.service`;
+- release tree: `/opt/slashmon-testing`;
+- database: `/var/lib/slashmon-testing/slashmon.sqlite`;
+- environment: `/etc/slashmon-backend-testing.env`; and
+- listener: `127.0.0.1:8791`, enforced by the deployment script.
+
+Leave notification credentials empty initially. To test delivery, use a
+separate Telegram bot and VAPID keypair; two backends must not poll the same
+Telegram bot.
+
+Forward the sidecar to the development machine:
+
+```bash
+ssh -N -L 8791:127.0.0.1:8791 YOUR_SERVER
+```
+
+Point the local Vite proxy at the forwarded listener:
+
+```dotenv
+VITE_API_BASE_URL=
+SLASHMON_DEV_API_PROXY_TARGET=http://127.0.0.1:8791
+```
+
+Then run `fnm use 24` and `pnpm dev`, and open
+`http://localhost:5173`. Re-running `--parallel` replaces only the disposable
+testing database and preserves the live installation unchanged.
 
 ## HTTPS tunnel
 

@@ -2,19 +2,14 @@
 
 set -Eeuo pipefail
 
-readonly service='slashmon-backend.service'
-readonly environment_file='/etc/slashmon-backend.env'
-readonly release_root='/opt/slashmon/releases'
-readonly current_link='/opt/slashmon/current'
 readonly system_node='/usr/local/bin/node'
-readonly database='/var/lib/slashmon/slashmon.sqlite'
-readonly backup_root='/var/backups/slashmon'
 
-if (( $# != 1 )) || [[ "$1" != '--fresh' && "$1" != '--upgrade' && "$1" != '--reset-db' ]]; then
+if (( $# != 1 )) || [[ "$1" != '--fresh' && "$1" != '--upgrade' && "$1" != '--reset-db' && "$1" != '--parallel' ]]; then
   cat <<'EOF'
 Usage: scripts/deploy-backend.sh --fresh
        scripts/deploy-backend.sh --upgrade
        scripts/deploy-backend.sh --reset-db
+       scripts/deploy-backend.sh --parallel
 
 Deploy the checked-out Slashmon backend from a clean commit.
 
@@ -29,13 +24,35 @@ release, and preserves all state and earlier releases.
 release, then removes only the live database. Watches, monitor history, and
 delivery state start empty; the timestamped backup and earlier releases remain.
 
-All modes reduce /etc/slashmon-backend.env to settings supported by the
+--parallel installs an isolated, disposable testing backend on loopback port
+8791. It resets only /var/lib/slashmon-testing and never stops, changes, or
+reads the live service, database, environment, current link, or release tree.
+
+All modes reduce their selected environment file to settings supported by the
 current backend. Run this from a clean checkout as its normal owner, not root.
 EOF
   exit 2
 fi
 
 readonly mode="$1"
+if [[ "$mode" == '--parallel' ]]; then
+  service='slashmon-backend-testing.service'
+  environment_file='/etc/slashmon-backend-testing.env'
+  release_root='/opt/slashmon-testing/releases'
+  current_link='/opt/slashmon-testing/current'
+  database='/var/lib/slashmon-testing/slashmon.sqlite'
+  backup_root='/var/backups/slashmon-testing'
+  service_definition='slashmon-backend-testing.service'
+else
+  service='slashmon-backend.service'
+  environment_file='/etc/slashmon-backend.env'
+  release_root='/opt/slashmon/releases'
+  current_link='/opt/slashmon/current'
+  database='/var/lib/slashmon/slashmon.sqlite'
+  backup_root='/var/backups/slashmon'
+  service_definition='slashmon-backend.service'
+fi
+readonly service environment_file release_root current_link database backup_root service_definition
 
 if (( EUID == 0 )); then
   echo 'Run this as the checkout owner, not as root; the script uses sudo where needed.' >&2
@@ -87,7 +104,11 @@ fi
 
 sudo -v
 if ! sudo test -f "$environment_file"; then
-  echo "$environment_file is missing. Install and fill collector/deploy/slashmon-backend.env.example first." >&2
+  if [[ "$mode" == '--parallel' ]]; then
+    echo "$environment_file is missing. Install and fill collector/deploy/slashmon-backend-testing.env.example first." >&2
+  else
+    echo "$environment_file is missing. Install and fill collector/deploy/slashmon-backend.env.example first." >&2
+  fi
   exit 1
 fi
 if [[ "$mode" == '--upgrade' || "$mode" == '--reset-db' ]]; then
@@ -170,6 +191,13 @@ done < <(sudo cat -- "$environment_file")
 settings[SLASHMON_NETWORK]="${settings[SLASHMON_NETWORK]:-mainnet}"
 settings[BACKEND_TRUST_PROXY]="${settings[BACKEND_TRUST_PROXY]:-false}"
 settings[BACKEND_LOG_LEVEL]="${settings[BACKEND_LOG_LEVEL]:-info}"
+if [[ "$mode" == '--parallel' ]]; then
+  # These deployment-owned values keep the testing instance loopback-only and
+  # prevent a copied production environment from colliding with the live API.
+  settings[BACKEND_BIND_HOST]='127.0.0.1'
+  settings[BACKEND_PORT]='8791'
+  settings[BACKEND_TRUST_PROXY]='false'
+fi
 
 required_settings=(
   SLASHMON_PUBLIC_URL
@@ -218,7 +246,7 @@ pnpm --dir "$staging_release" install --prod --frozen-lockfile
 
 if sudo test -d "$release_path"; then
   for release_file in \
-    collector/deploy/slashmon-backend.service \
+    "collector/deploy/$service_definition" \
     collector/src/main.mjs \
     collector/node_modules/web-push/package.json; do
     if ! sudo test -f "$release_path/$release_file"; then
@@ -270,28 +298,59 @@ if [[ "$mode" == '--upgrade' || "$mode" == '--reset-db' ]]; then
     echo "Resetting the live database; backup retained at $backup_path"
     sudo rm -f -- "$database" "${database}-wal" "${database}-shm"
   fi
+elif [[ "$mode" == '--parallel' ]]; then
+  echo 'Resetting only the isolated Slashmon testing state...'
 else
   echo 'Permanently removing Slashmon state...'
 fi
 
 sudo install -o root -g root -m 0600 "$environment_tmp" "$environment_file"
 sudo install -m 0644 \
-  "$release_path/collector/deploy/slashmon-backend.service" \
+  "$release_path/collector/deploy/$service_definition" \
   "/etc/systemd/system/$service"
 sudo systemctl daemon-reload
 
-if [[ "$mode" == '--fresh' ]]; then
+if [[ "$mode" == '--fresh' || "$mode" == '--parallel' ]]; then
   sudo systemctl clean --what=state "$service"
+fi
+if [[ "$mode" == '--fresh' ]]; then
   sudo rm -rf -- "$backup_root"
 fi
 
 sudo ln -sfn "$release_path" "$current_link"
 sudo systemctl enable --now "$service"
 
+backend_ready() {
+  "$system_node" --input-type=module --eval "
+    const baseUrl = process.argv[1];
+    try {
+      const [statusResponse, monitorResponse] = await Promise.all([
+        fetch(baseUrl + '/api/status', { signal: AbortSignal.timeout(5_000) }),
+        fetch(baseUrl + '/api/monitor', { signal: AbortSignal.timeout(5_000) }),
+      ]);
+      if (!statusResponse.ok || !monitorResponse.ok) process.exit(1);
+      const [status, monitor] = await Promise.all([
+        statusResponse.json(),
+        monitorResponse.json(),
+      ]);
+      const ready =
+        status.status === 'healthy' &&
+        status.sources?.node?.status === 'healthy' &&
+        status.sources?.l1?.status === 'healthy' &&
+        monitor.network === status.network &&
+        monitor.protocol !== null &&
+        monitor.coverage?.cases?.complete === true &&
+        monitor.coverage?.slashes?.complete === true;
+      process.exit(ready ? 0 : 1);
+    } catch {
+      process.exit(1);
+    }
+  " "$local_api"
+}
+
 ready=false
-for _attempt in {1..30}; do
-  if curl --fail --silent "$local_api/api/status" >/dev/null &&
-    curl --fail --silent "$local_api/api/monitor" >/dev/null; then
+for _attempt in {1..120}; do
+  if backend_ready; then
     ready=true
     break
   fi
@@ -299,7 +358,7 @@ for _attempt in {1..30}; do
 done
 
 if [[ "$ready" != true ]]; then
-  echo 'The new backend did not become ready. No automatic rollback is available.' >&2
+  echo 'The new backend did not become healthy with complete case and slash coverage. No automatic rollback is available.' >&2
   sudo systemctl status "$service" --no-pager >&2 || true
   sudo journalctl -u "$service" --since '10 minutes ago' --no-pager >&2 || true
   exit 1
@@ -309,6 +368,8 @@ if [[ "$mode" == '--upgrade' ]]; then
   echo "Slashmon backend $revision is live. Database backup: $backup_path"
 elif [[ "$mode" == '--reset-db' ]]; then
   echo "Slashmon backend $revision is live with a reset database. Previous database: $backup_path"
+elif [[ "$mode" == '--parallel' ]]; then
+  echo "Slashmon testing backend $revision is ready at $local_api with a fresh isolated database."
 else
   echo "Slashmon backend $revision is live with a fresh database."
 fi
