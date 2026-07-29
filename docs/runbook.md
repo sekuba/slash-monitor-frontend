@@ -94,6 +94,10 @@ sudoedit /etc/slashmon-backend-testing.env
 scripts/deploy-backend.sh --parallel
 ```
 
+The example starts with a 600-block confirmed-log lookback to limit initial L1
+RPC load. The sidecar then advances its durable cursor and accumulates later
+history for as long as it runs.
+
 The parallel mode is intentionally isolated:
 
 - service: `slashmon-backend-testing.service`;
