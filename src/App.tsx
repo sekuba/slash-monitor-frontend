@@ -19,6 +19,7 @@ import type { ProtocolSnapshot } from '../shared/protocol/index.ts';
 
 const MAINNET_REGISTRY_ADDRESS = '0x35b22e09Ee0390539439E24f06Da43D83f90e298' as Address;
 const TESTNET_REGISTRY_ADDRESS = '0xA0BFb1B494FB49041e5c6e8c2C1BE09cD171c6Ba' as Address;
+const MONITOR_SESSION_CACHE_MS = 10 * 60 * 1_000;
 
 const createConfig = (isTestnet: boolean, rpcOverride: string | null): MonitorConfigInput => {
     const chainId = isTestnet ? 11155111 : 1;
@@ -44,6 +45,9 @@ export function App() {
         testnet: getRpcOverride(11_155_111),
     }));
     const [scannerGeneration, setScannerGeneration] = useState(0);
+    const [isScannerMounted, setIsScannerMounted] = useState(
+        () => location.view === 'monitor',
+    );
     const [protocolGuide, setProtocolGuide] = useState<{
         isOpen: boolean;
         protocol: ProtocolSnapshot | null;
@@ -67,12 +71,10 @@ export function App() {
         const next = urlForView(window.location.href, view);
         window.history.pushState({}, '', next);
         if (location.view !== view) setCurrentProtocol(null);
-        if (location.view === 'pingme' && view !== 'pingme') {
-            restartScanner();
-        }
+        if (view === 'monitor') setIsScannerMounted(true);
         setLocation(parseAppSearch(next.search));
         window.scrollTo({ top: 0, behavior: 'smooth' });
-    }, [location.view, restartScanner]);
+    }, [location.view]);
 
     const toggleNetwork = useCallback(() => {
         const network = isTestnet ? 'mainnet' : 'testnet';
@@ -129,14 +131,24 @@ export function App() {
     useEffect(() => {
         const handlePopState = () => {
             const next = parseAppSearch(window.location.search);
-            if (next.network !== location.network || (location.view === 'pingme' && next.view === 'monitor')) {
+            if (next.network !== location.network) {
                 restartScanner();
             }
+            if (next.view === 'monitor') setIsScannerMounted(true);
             setLocation(next);
         };
         window.addEventListener('popstate', handlePopState);
         return () => window.removeEventListener('popstate', handlePopState);
-    }, [location.network, location.view, restartScanner]);
+    }, [location.network, restartScanner]);
+
+    useEffect(() => {
+        if (location.view === 'monitor' || !isScannerMounted) return;
+        const timeout = window.setTimeout(() => {
+            resetMonitor();
+            setIsScannerMounted(false);
+        }, MONITOR_SESSION_CACHE_MS);
+        return () => window.clearTimeout(timeout);
+    }, [isScannerMounted, location.view, resetMonitor]);
 
     return (
         <div className="min-h-screen bg-brand-black text-white">
@@ -150,6 +162,13 @@ export function App() {
                 onNavigate={navigateTo}
                 onOpenProtocolGuide={() => openProtocolGuide(currentProtocol)}
             />
+            {isScannerMounted && (
+                <ScannerRuntime
+                    key={`${location.network}:${scannerGeneration}`}
+                    config={config}
+                    active={location.view === 'monitor'}
+                />
+            )}
             {location.view === 'pingme' ? (
                 <main className="mx-auto max-w-7xl px-4 py-8">
                     <BackendOverview
@@ -164,28 +183,31 @@ export function App() {
                     />
                 </main>
             ) : (
-                <>
-                    <ScannerRuntime key={`${location.network}:${scannerGeneration}`} config={config} />
-                    <Dashboard
-                        key={`${location.network}:${location.watchlistAddresses.join(',')}`}
-                        configInput={config}
-                        network={location.network}
-                        linkedAddresses={location.watchlistAddresses}
-                        selectedCaseId={location.selectedCaseId}
-                        onResetRpc={resetRpc}
-                        onToggleNetwork={toggleNetwork}
-                        onUpdateRpc={updateRpc}
-                        onWatchlistChange={updateWatchlist}
-                        onOpenProtocolGuide={openProtocolGuide}
-                        onProtocolChange={updateCurrentProtocol}
-                    />
-                </>
+                <Dashboard
+                    key={`${location.network}:${location.watchlistAddresses.join(',')}`}
+                    configInput={config}
+                    network={location.network}
+                    linkedAddresses={location.watchlistAddresses}
+                    selectedCaseId={location.selectedCaseId}
+                    onResetRpc={resetRpc}
+                    onToggleNetwork={toggleNetwork}
+                    onUpdateRpc={updateRpc}
+                    onWatchlistChange={updateWatchlist}
+                    onOpenProtocolGuide={openProtocolGuide}
+                    onProtocolChange={updateCurrentProtocol}
+                />
             )}
         </div>
     );
 }
 
-function ScannerRuntime({ config }: { config: MonitorConfigInput }) {
-    useSlashingMonitor(config);
+function ScannerRuntime({
+    config,
+    active,
+}: {
+    config: MonitorConfigInput;
+    active: boolean;
+}) {
+    useSlashingMonitor(config, active);
     return null;
 }

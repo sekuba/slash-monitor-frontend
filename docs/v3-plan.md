@@ -181,6 +181,9 @@ newest-to-oldest. Successful RPC ranges grow, rejected ranges shrink, rate
 limits pause without discarding progress, and later polls cover only new blocks
 plus a reorg overlap. The UI reports scan coverage and keeps an uninspected
 receipt distinct from an inspected receipt with no `Slashed` log.
+Switching to PINGME pauses Monitor RPC work and retains its scanner session in
+memory for 10 minutes. Returning refreshes the head and resumes incrementally;
+the cache expires or is discarded when its RPC, network, or deployment changes.
 Visible sequencer addresses link to the matching Dashtec network.
 Watchlist cases appear before the public case feed. PINGME places source health
 last because it describes the reliability of the whole page.

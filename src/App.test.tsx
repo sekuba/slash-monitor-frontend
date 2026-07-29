@@ -60,10 +60,13 @@ describe('top-level view isolation', () => {
 
         renderToStaticMarkup(<App />);
 
-        expect(scannerSpy).toHaveBeenCalledWith(expect.objectContaining({
-            chainId: 1,
-            l1RpcUrl: 'https://rpc.example/mainnet',
-        }));
+        expect(scannerSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                chainId: 1,
+                l1RpcUrl: 'https://rpc.example/mainnet',
+            }),
+            true,
+        );
     });
 
 });

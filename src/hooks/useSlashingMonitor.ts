@@ -24,7 +24,10 @@ const MAX_EXECUTION_SCAN_MS = 15_000;
 const ETHEREUM_BLOCK_TIME_SECONDS = 12n;
 const EXECUTION_LOOKBACK_SAFETY_BLOCKS = 5_000n;
 
-export function useSlashingMonitor(config: MonitorConfigInput) {
+export function useSlashingMonitor(
+    config: MonitorConfigInput,
+    active = true,
+) {
     const {
         initialize,
         setIsScanning,
@@ -37,7 +40,7 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
     const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const isFirstScanRef = useRef(true);
     const isPollingRef = useRef(false);
-    const isActiveRef = useRef(true);
+    const isActiveRef = useRef(active);
     const runGenerationRef = useRef(0);
 
     const initializeMonitor = useCallback(async (generation: number) => {
@@ -231,6 +234,15 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
     }, [applySnapshot, initializeMonitor, setIsScanning, setMonitorFailure]);
 
     useEffect(() => {
+        if (!active) {
+            isActiveRef.current = false;
+            if (timeoutRef.current) {
+                clearTimeout(timeoutRef.current);
+                timeoutRef.current = null;
+            }
+            return;
+        }
+
         let cancelled = false;
         const generation = runGenerationRef.current + 1;
         runGenerationRef.current = generation;
@@ -255,12 +267,26 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
 
         const start = async () => {
             try {
-                const initialState = await initializeMonitor(generation);
-                if (cancelled || generation !== runGenerationRef.current) {
-                    return;
+                while (isPollingRef.current) {
+                    if (cancelled || generation !== runGenerationRef.current) {
+                        return;
+                    }
+                    await waitForPollToStop();
                 }
-
-                await poll(initialState, generation);
+                if (
+                    l1MonitorRef.current &&
+                    detectorRef.current &&
+                    useSlashingStore.getState().isInitialized
+                ) {
+                    await poll(undefined, generation);
+                }
+                else {
+                    const initialState = await initializeMonitor(generation);
+                    if (cancelled || generation !== runGenerationRef.current) {
+                        return;
+                    }
+                    await poll(initialState, generation);
+                }
                 if (!cancelled && generation === runGenerationRef.current) {
                     scheduleNextPoll();
                 }
@@ -288,13 +314,19 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
             if (runGenerationRef.current === generation) {
                 runGenerationRef.current += 1;
             }
-            isPollingRef.current = false;
             if (timeoutRef.current) {
                 clearTimeout(timeoutRef.current);
                 timeoutRef.current = null;
             }
         };
-    }, [initializeMonitor, poll, setInitializationError, setIsScanning, setMonitorFailure]);
+    }, [
+        active,
+        initializeMonitor,
+        poll,
+        setInitializationError,
+        setIsScanning,
+        setMonitorFailure,
+    ]);
 }
 
 function buildSnapshot(
@@ -427,4 +459,8 @@ function assertCurrentRun(expected: number, actual: number): void {
 
 function yieldToBrowser(): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function waitForPollToStop(): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, 50));
 }

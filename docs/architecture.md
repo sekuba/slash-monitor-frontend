@@ -54,6 +54,13 @@ that its outcome is still being scanned; it never treats missing coverage as
 proof that no `Slashed` log exists. A stronger user-supplied RPC can complete
 the same bounded scan faster without changing case semantics.
 
+Switching to PINGME pauses Monitor without making background RPC requests. Its
+in-memory scanner, coverage cursor, and projected evidence remain available for
+10 minutes. Returning within that window refreshes the L1 head and continues
+incrementally. Expiry, an RPC change, a network change, or a deployment change
+starts a clean scanner session. This cache is never persisted to browser
+storage.
+
 Its unavoidable limitations are visible:
 
 - an L1-only case starts at voting; it cannot see duty misses or node
