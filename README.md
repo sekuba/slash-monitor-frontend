@@ -42,8 +42,8 @@ reveals voting and stake outcomes but not the underlying offense.
   warning-to-stake-removal lifecycle
 - [Monitor architecture](docs/architecture.md) — trust boundaries, case
   linking, and requirements for the refactor
-- [V3 plan](docs/v3-plan.md) — opinionated case-first re-architecture and
-  clean-break delivery sequence
+- [V3 architecture record](docs/v3-plan.md) — the implemented case-first
+  clean break and its acceptance contract
 - [Notification contract](docs/notifications.md) — what an alert may claim at
   each stage
 - [Privacy](docs/privacy.md) and [production runbook](docs/runbook.md)

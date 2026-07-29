@@ -1,0 +1,143 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { CaseRepository } from '../src/case-repository.mjs';
+import { L1Collector } from '../src/l1-collector.mjs';
+import { SEQUENCER_A } from './helpers.mjs';
+import {
+  PROPOSER,
+  REGISTRY,
+  hash,
+  protocolSnapshot,
+  targetRound,
+} from './v3-fixtures.mjs';
+
+test('confirmed Slashed logs attach only to an exact execution case', async () => {
+  const repository = createRepository();
+  let logCalls = 0;
+  const scanner = {
+    async scan() {
+      return protocolSnapshot({
+        rounds: [targetRound({ sequencer: SEQUENCER_A, targetEpoch: '24' })],
+      });
+    },
+    async scanSlashLogChunk(previous) {
+      logCalls += 1;
+      if (!previous.lastBlockNumber) {
+        return slashChunk({
+          from: 1,
+          to: 2,
+          confirmed: 4,
+          hasMore: true,
+          logs: [slashLog(1)],
+          initial: true,
+          initialBackfill: true,
+        });
+      }
+      assert.equal(previous.lastBlockNumber, '2');
+      return slashChunk({ from: 3, to: 4, confirmed: 4, hasMore: false, logs: [] });
+    },
+  };
+  const collector = new L1Collector({
+    scanner,
+    repository,
+    network: 'mainnet',
+    pollIntervalMs: 1_000,
+    maxBackoffMs: 10_000,
+    maxSlashLogChunksPerPoll: 5,
+    maxSlashLogRunMs: 5_000,
+    logger: silentLogger,
+    now: () => 1_700_000_200_000,
+  });
+
+  const result = await collector.runOnce();
+  assert.equal(result.ok, true);
+  assert.equal(result.slashLogs.inserted, 1);
+  assert.equal(logCalls, 2);
+  assert.equal(repository.getSourceState('l1_slash_logs').lastBlockNumber, '4');
+  const [item] = repository.getSequencerRecord(SEQUENCER_A, 'mainnet').cases;
+  assert.equal(item.targetEpoch, '24');
+  assert.equal(item.state.stage, 'stake_removed');
+  assert.equal(item.state.actualAmount, '42');
+  repository.close();
+});
+
+test('log backfill yields so every poll starts with a fresh L1 snapshot', async () => {
+  const repository = createRepository();
+  let snapshots = 0;
+  const scanner = {
+    async scan() {
+      snapshots += 1;
+      return protocolSnapshot({ block: 200 + snapshots });
+    },
+    async scanSlashLogChunk(_previous, signal) {
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(resolve, 10_000);
+        signal.addEventListener('abort', () => {
+          clearTimeout(timer);
+          reject(signal.reason);
+        }, { once: true });
+      });
+    },
+  };
+  const collector = new L1Collector({
+    scanner,
+    repository,
+    network: 'mainnet',
+    pollIntervalMs: 1_000,
+    maxBackoffMs: 10_000,
+    maxSlashLogChunksPerPoll: 25,
+    maxSlashLogRunMs: 20,
+    logger: silentLogger,
+    now: () => 1_700_000_200_000,
+  });
+
+  assert.equal((await collector.runOnce()).slashLogs.yielded, true);
+  assert.equal((await collector.runOnce()).slashLogs.yielded, true);
+  assert.equal(snapshots, 2);
+  repository.close();
+});
+
+function createRepository() {
+  const repository = new CaseRepository(':memory:');
+  repository.bindRuntimeIdentity({
+    network: 'mainnet',
+    chainId: 1,
+    registryAddress: REGISTRY,
+  });
+  return repository;
+}
+
+function slashChunk({ from, to, confirmed, logs, hasMore, initial = false, initialBackfill = false }) {
+  return {
+    chainId: 1,
+    fromBlock: String(from),
+    toBlock: String(to),
+    toBlockHash: hash(to),
+    confirmedBlockNumber: String(confirmed),
+    registryAddress: REGISTRY,
+    rollupAddresses: ['0x2222222222222222222222222222222222222222'],
+    logs,
+    hasMore,
+    initial,
+    initialBackfill,
+    reorgDetected: false,
+  };
+}
+
+function slashLog(block) {
+  return {
+    rollupAddress: '0x2222222222222222222222222222222222222222',
+    blockNumber: String(block),
+    blockHash: hash(block),
+    transactionHash: hash(block + 1_000),
+    logIndex: 0,
+    sequencer: SEQUENCER_A,
+    amount: '42',
+    executionCandidates: [{ proposerAddress: PROPOSER, round: '14' }],
+    transactionSlashIndex: 0,
+    ejected: false,
+  };
+}
+
+const silentLogger = { debug() {}, info() {}, warn() {}, error() {} };

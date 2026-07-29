@@ -95,7 +95,7 @@ test('TelegramBot persists the update offset after a durable command even if its
       calls.push(['enabled', chatId, enabled, now]);
       return true;
     },
-    getWatchlistByTelegramChat() {
+    getWatchByTelegramChat() {
       return {
         network: 'mainnet',
         addresses: [SEQUENCER_A],
@@ -272,7 +272,7 @@ test('TelegramBot ignores unlinked chatter, unknown commands, and reply floods',
   let now = 10_000;
   const bot = new TelegramBot({
     repository: {
-      getWatchlistByTelegramChat() {
+      getWatchByTelegramChat() {
         return linked ? {
           network: 'mainnet',
           addresses: [SEQUENCER_A],

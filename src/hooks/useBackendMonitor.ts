@@ -1,238 +1,118 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { SlashmonApiError, slashmonApi } from '@/api/client';
-import {
-    loadSubscriptionCredentials,
-    subscribeToSubscriptionScope,
-    type StoredSubscriptionCredentials,
-} from '@/lib/subscriptionStorage';
-import type { BackendConfig, BackendStatus, EventPage, MonitorEvent, MonitorNetwork } from '@/types/backendApi';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { slashmonApi } from '@/api/client';
+import { loadWatchCredentials, onWatchChanged } from '@/lib/watchStorage';
+import type {
+    BackendConfig,
+    BackendStatus,
+    ManagedWatch,
+    MonitorNetwork,
+    NetworkCases,
+} from '@/types/backendApi';
 
 const POLL_INTERVAL_MS = 15_000;
 
-interface BackendMonitorState {
+interface State {
     config: BackendConfig | null;
     status: BackendStatus | null;
-    events: EventPage | null;
-    scopeKey: string | null;
+    networkData: NetworkCases | null;
+    watch: ManagedWatch | null;
     isLoading: boolean;
     error: string | null;
-    selectedEventError: string | null;
     lastReceivedAt: number | null;
 }
 
-const initialState: BackendMonitorState = {
+const initialState: State = {
     config: null,
     status: null,
-    events: null,
-    scopeKey: null,
+    networkData: null,
+    watch: null,
     isLoading: true,
     error: null,
-    selectedEventError: null,
     lastReceivedAt: null,
 };
 
-export function useBackendMonitor(
-    network: MonitorNetwork,
-    selectedEventId: string | null,
-) {
-    const [state, setState] = useState<BackendMonitorState>(initialState);
-    const [credentialSnapshot, setCredentialSnapshot] = useState(() => ({
-        network,
-        credentials: loadSubscriptionCredentials(network),
-    }));
+export function useBackendMonitor(network: MonitorNetwork) {
+    const [state, setState] = useState<State>(initialState);
     const abortRef = useRef<AbortController | null>(null);
-    const credentials = useMemo(
-        () => credentialSnapshot.network === network
-            ? credentialSnapshot.credentials
-            : loadSubscriptionCredentials(network),
-        [credentialSnapshot, network],
+    const [credentials, setCredentials] = useState(
+        () => loadWatchCredentials(network),
     );
-    const scopeKey = credentials ? `${network}:watchlist:${credentials.id}` : `${network}:public`;
 
-    useEffect(() => subscribeToSubscriptionScope(network, () => {
-        setCredentialSnapshot({
-            network,
-            credentials: loadSubscriptionCredentials(network),
-        });
-    }), [network]);
+    useEffect(() => onWatchChanged(
+        network,
+        () => setCredentials(loadWatchCredentials(network)),
+    ), [network]);
 
     const refresh = useCallback(async () => {
         abortRef.current?.abort();
         const controller = new AbortController();
         abortRef.current = controller;
-
-        const scopedRequests = createBackendReadRequests(
-            slashmonApi,
-            network,
-            credentials,
-            selectedEventId,
-            controller.signal,
-        );
-        const [config, status, events, selectedEvent] = await Promise.allSettled([
-            slashmonApi.getConfig(controller.signal),
-            scopedRequests.status,
-            scopedRequests.events,
-            scopedRequests.selectedEvent,
-        ]);
-
-        if (!controller.signal.aborted) {
-            const failures = [config, status, events]
-                .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
-                .map((result) => toErrorMessage(result.reason));
-            const receivedAnything = [config, status, events, selectedEvent]
-                .some((result) => result.status === 'fulfilled');
-
-            setState((previous) => {
-                const previousStatus = previous.scopeKey === scopeKey ? previous.status : null;
-                const previousEvents = previous.scopeKey === scopeKey ? previous.events : null;
-                const receivedStatus = status.status === 'fulfilled'
-                    ? status.value
-                    : previousStatus;
-                const baseEvents = events.status === 'fulfilled'
-                    ? events.value
-                    : previousEvents;
-                const receivedSelectedEvent = selectedEvent.status === 'fulfilled'
-                    ? selectedEvent.value
-                    : null;
-                const nextEvents = baseEvents
-                    ? prependSelectedEvent(baseEvents, receivedSelectedEvent)
-                    : receivedSelectedEvent
-                        ? { data: [receivedSelectedEvent], nextCursor: null }
-                        : null;
-                const selectedEventIsAvailable = Boolean(
-                    selectedEventId && (
-                        receivedSelectedEvent?.id === selectedEventId ||
-                        (events.status === 'fulfilled' && baseEvents?.data.some((event) => event.id === selectedEventId))
-                    ),
+        try {
+            const [config, status, networkData, watch] = await Promise.all([
+                slashmonApi.getConfig(controller.signal),
+                slashmonApi.getStatus(controller.signal),
+                slashmonApi.getNetwork(controller.signal),
+                credentials
+                    ? slashmonApi.getWatch(
+                        credentials.id,
+                        credentials.managementToken,
+                        controller.signal,
+                    )
+                    : Promise.resolve(null),
+            ]);
+            if (controller.signal.aborted) return;
+            if (config.network !== network) {
+                throw new Error(
+                    `This PINGME backend monitors ${config.network}, not ${network}.`,
                 );
-                return {
-                    config: config.status === 'fulfilled' ? config.value : previous.config,
-                    status: receivedStatus,
-                    events: nextEvents,
-                    scopeKey,
-                    isLoading: false,
-                    error: failures.length > 0 ? failures[0] : null,
-                    selectedEventError: !selectedEventId || selectedEventIsAvailable
-                        ? null
-                        : selectedEventFailureMessage(
-                            selectedEvent.status === 'rejected' ? selectedEvent.reason : null,
-                        ),
-                    lastReceivedAt: receivedAnything ? Date.now() : previous.lastReceivedAt,
-                };
+            }
+            setState({
+                config,
+                status,
+                networkData,
+                watch,
+                isLoading: false,
+                error: null,
+                lastReceivedAt: Date.now(),
             });
         }
-
-        if (abortRef.current === controller) {
-            abortRef.current = null;
+        catch (error) {
+            if (controller.signal.aborted) return;
+            setState({
+                config: null,
+                status: null,
+                networkData: null,
+                watch: null,
+                isLoading: false,
+                error: error instanceof Error
+                    ? error.message
+                    : 'Unable to reach the Slashmon backend',
+                lastReceivedAt: null,
+            });
         }
-    }, [credentials, network, scopeKey, selectedEventId]);
+        finally {
+            if (abortRef.current === controller) abortRef.current = null;
+        }
+    }, [credentials, network]);
 
     useEffect(() => {
-        const initialRefresh = window.setTimeout(() => void refresh(), 0);
+        const initialTimer = window.setTimeout(() => void refresh(), 0);
         const timer = window.setInterval(() => {
-            if (document.visibilityState === 'visible') {
-                void refresh();
-            }
+            if (document.visibilityState === 'visible') void refresh();
         }, POLL_INTERVAL_MS);
-        const handleOnline = () => void refresh();
-        const handleVisibility = () => {
-            if (document.visibilityState === 'visible') {
-                void refresh();
-            }
+        const handleVisible = () => {
+            if (document.visibilityState === 'visible') void refresh();
         };
-        window.addEventListener('online', handleOnline);
-        document.addEventListener('visibilitychange', handleVisibility);
-
+        window.addEventListener('online', refresh);
+        document.addEventListener('visibilitychange', handleVisible);
         return () => {
-            window.clearTimeout(initialRefresh);
+            window.clearTimeout(initialTimer);
             window.clearInterval(timer);
-            window.removeEventListener('online', handleOnline);
-            document.removeEventListener('visibilitychange', handleVisibility);
+            window.removeEventListener('online', refresh);
+            document.removeEventListener('visibilitychange', handleVisible);
             abortRef.current?.abort();
-            abortRef.current = null;
         };
-    }, [network, refresh]);
+    }, [refresh]);
 
-    const scopeIsCurrent = state.scopeKey === scopeKey;
-    return {
-        ...state,
-        status: scopeIsCurrent ? state.status : null,
-        events: scopeIsCurrent ? state.events : null,
-        error: scopeIsCurrent ? state.error : null,
-        selectedEventError: scopeIsCurrent ? state.selectedEventError : null,
-        isLoading: state.isLoading || !scopeIsCurrent,
-        hasWatchlistCapability: Boolean(credentials),
-        refresh,
-    };
-}
-
-type BackendReadClient = Pick<
-    typeof slashmonApi,
-    | 'getStatus'
-    | 'getEvents'
-    | 'getEvent'
-    | 'getSubscriptionEvents'
-    | 'getSubscriptionEvent'
->;
-
-interface BackendReadRequests {
-    status: Promise<BackendStatus>;
-    events: Promise<EventPage>;
-    selectedEvent: Promise<MonitorEvent | null>;
-}
-
-export function createBackendReadRequests(
-    api: BackendReadClient,
-    network: MonitorNetwork,
-    credentials: StoredSubscriptionCredentials | null,
-    selectedEventId: string | null,
-    signal?: AbortSignal,
-): BackendReadRequests {
-    if (credentials) {
-        return {
-            status: api.getStatus(network, signal),
-            events: api.getSubscriptionEvents(
-                credentials.id,
-                credentials.managementToken,
-                network,
-                signal,
-            ),
-            selectedEvent: selectedEventId
-                ? api.getSubscriptionEvent(
-                    credentials.id,
-                    selectedEventId,
-                    credentials.managementToken,
-                    network,
-                    signal,
-                )
-                : Promise.resolve(null),
-        };
-    }
-
-    return {
-        status: api.getStatus(network, signal),
-        events: api.getEvents(network, signal),
-        selectedEvent: selectedEventId
-            ? api.getEvent(selectedEventId, network, signal)
-            : Promise.resolve(null),
-    };
-}
-
-function prependSelectedEvent(page: EventPage, selected: EventPage['data'][number] | null): EventPage {
-    if (!selected || page.data.some((event) => event.id === selected.id)) return page;
-    return { ...page, data: [selected, ...page.data] };
-}
-
-function toErrorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : 'Unable to reach the Slashmon backend';
-}
-
-export function selectedEventFailureMessage(error: unknown): string {
-    if (error instanceof SlashmonApiError && (error.status === 401 || error.status === 403)) {
-        return 'This notification-linked event is not authorized for the watch credential stored in this browser.';
-    }
-    if (error instanceof SlashmonApiError && error.status === 404) {
-        return 'This notification-linked event is unavailable. It may belong to another network or no longer be retained.';
-    }
-    return 'This notification-linked event could not be loaded. It may be unavailable, inaccessible, or no longer retained.';
+    return { ...state, credentials, refresh };
 }

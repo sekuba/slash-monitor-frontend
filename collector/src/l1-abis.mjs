@@ -26,6 +26,15 @@ export const slashedEvent = {
   ],
 };
 
+export const roundExecutedEvent = {
+  type: 'event',
+  name: 'RoundExecuted',
+  inputs: [
+    { name: 'round', type: 'uint256', indexed: true },
+    { name: 'slashCount', type: 'uint256', indexed: false },
+  ],
+};
+
 export const rollupAbi = [
   fn('getVersion', [], [out('uint256')]),
   fn('getSlasher', [], [out('address')]),
@@ -33,11 +42,21 @@ export const rollupAbi = [
   fn('getLegacySlasher', [], [out('address', 'slasher'), out('uint256', 'authorizedUntil')]),
   fn('getCurrentSlot', [], [out('uint256')]),
   fn('getCurrentEpoch', [], [out('uint256')]),
+  fn('getStatus', [input('address', '_attester')], [out('uint8')]),
   fn('getGenesisTime', [], [out('uint256')]),
   fn('getSlotAt', [input('uint256', '_timestamp')], [out('uint256')]),
   fn('getEpochDuration', [], [out('uint256')]),
   fn('getSlotDuration', [], [out('uint256')]),
   fn('getEpochCommittee', [input('uint256', '_epoch')], [out('address[]')], 'nonpayable'),
+  fn('getEscapeHatchForEpoch', [input('uint256', '_epoch')], [out('address')]),
+];
+
+export const escapeHatchAbi = [
+  fn(
+    'isHatchOpen',
+    [input('uint256', '_epoch')],
+    [out('bool', 'isOpen'), out('address', 'proposer')],
+  ),
 ];
 
 export const slasherAbi = [

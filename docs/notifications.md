@@ -9,8 +9,8 @@ should be able to answer, without decoding contract data:
 4. Is the reason local evidence or an L1 fact?
 5. Where can the underlying evidence be inspected?
 
-An alert links to the exact case and transition, not just the PINGME landing
-page.
+An alert links to the exact case whose transition triggered it, not just the
+PINGME landing page.
 
 ## Claims allowed at each stage
 
@@ -50,16 +50,16 @@ timestamp match is insufficient.
 
 Every alert includes:
 
-- watched sequencer address and operator label, when configured;
+- watched sequencer address;
 - case stage and previous stage;
 - exact slot, epoch, target epoch, or slashing round as applicable;
 - source (`this Aztec node`, `Sentinel`, or `Ethereum L1`);
-- source observation time and freshness;
+- source observation time; current freshness is shown when the case opens;
 - actual AZTEC amount or candidate AZTEC amount, explicitly distinguished;
 - the next transition and countdown, when deterministic; and
 - the exact Slashmon case URL.
 
-Event-specific evidence is:
+Stage-specific evidence is:
 
 | Event family | Required facts |
 | --- | --- |

@@ -7,11 +7,10 @@ import { useSlashingMonitor } from './hooks/useSlashingMonitor';
 import {
     parseAppSearch,
     urlForNetwork,
-    urlForSequencer,
+    urlForCase,
     urlForView,
     type AppView,
 } from './lib/navigation';
-import { normalizeRpcUrls } from './lib/rpc';
 import { clearRpcOverride, getRpcOverride, setRpcOverride } from './lib/rpcOverride';
 import { useSlashingStore } from './store/slashingStore';
 import type { MonitorConfigInput } from './types/slashing';
@@ -26,7 +25,7 @@ const createConfig = (isTestnet: boolean, rpcOverride: string | null): MonitorCo
         : (import.meta.env.VITE_L1_RPC_URL || '');
 
     return {
-        l1RpcUrl: normalizeRpcUrls(rpcOverride || defaultL1RpcUrl),
+        l1RpcUrl: (rpcOverride || defaultL1RpcUrl).trim(),
         chainId,
         registryAddress: (
             isTestnet
@@ -74,19 +73,11 @@ export function App() {
         setLocation(parseAppSearch(next.search));
     }, [isTestnet, restartScanner]);
 
-    const selectSequencer = useCallback((sequencer: Address | null) => {
-        if (
-            sequencer &&
-            location.selectedSequencer?.toLowerCase() === sequencer.toLowerCase()
-        ) {
-            document.getElementById('sequencer-record-timeline')
-                ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            return;
-        }
-        const next = urlForSequencer(window.location.href, sequencer);
+    const selectCase = useCallback((caseId: string | null) => {
+        const next = urlForCase(window.location.href, caseId);
         window.history.pushState({}, '', next);
         setLocation(parseAppSearch(next.search));
-    }, [location.selectedSequencer]);
+    }, []);
 
     const updateRpc = useCallback((url: string) => {
         const savedUrl = setRpcOverride(config.chainId, url);
@@ -121,16 +112,18 @@ export function App() {
             {location.view === 'pingme' ? (
                 <main className="mx-auto max-w-7xl px-4 py-8">
                     <BackendOverview
+                        key={location.network}
                         network={location.network}
-                        selectedEventId={location.selectedEventId}
-                        selectedSequencer={location.selectedSequencer}
-                        onSelectSequencer={selectSequencer}
+                        selectedCaseId={location.selectedCaseId}
+                        onSelectCase={selectCase}
+                        onOpenMonitor={() => navigateTo('monitor')}
                     />
                 </main>
             ) : (
                 <>
                     <ScannerRuntime key={`${location.network}:${scannerGeneration}`} config={config} />
                     <Dashboard
+                        key={location.network}
                         configInput={config}
                         network={location.network}
                         onResetRpc={resetRpc}

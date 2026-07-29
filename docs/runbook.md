@@ -1,7 +1,7 @@
 # Production runbook
 
 The supported deployment is one Node 24 backend, one SQLite database, one
-private Aztec admin endpoint, one or more Ethereum RPCs, and an HTTPS reverse
+private Aztec admin endpoint, one Ethereum RPC, and an HTTPS reverse
 proxy or Cloudflare Tunnel. Do not run two backend processes for one
 installation: provider delivery and Telegram polling are single-writer work.
 
@@ -21,7 +21,7 @@ Set:
 
 - the network, public PWA URL, and exact CORS origin;
 - public and admin endpoints for the same Aztec node;
-- at least one Ethereum RPC; and
+- one Ethereum RPC; and
 - optional Telegram and Web Push credentials.
 
 Keep the Aztec admin endpoint and all credentials private. Choose
@@ -59,7 +59,7 @@ scripts/deploy-backend.sh --reset-db
 - `--upgrade` stops the writer, checkpoints and verifies SQLite, makes a
   timestamped backup, switches releases, and preserves state.
 - `--reset-db` makes the same verified backup and then removes only the active
-  SQLite database and sidecars. Watches, journals, channels, and cursors start
+  SQLite database and sidecars. Watches, cases, channels, and cursors start
   empty.
 
 There is no automatic rollback or general schema migration. Keep the prior
@@ -72,8 +72,9 @@ visible to the browser.
 
 ## HTTPS boundary
 
-Keep the backend on `127.0.0.1:8790` and expose only `/api/v2/*` over HTTPS.
-Apply request-body, read, mutation, and enrollment rate limits. The PWA origin
+Keep the backend on `127.0.0.1:8790` and expose only `/api/v3/*` over HTTPS.
+Apply proxy-level read limits; the process applies request-body and mutation
+limits. The PWA origin
 must exactly match `BACKEND_CORS_ORIGIN`; `SLASHMON_PUBLIC_URL` is the complete
 installed URL used in notifications.
 

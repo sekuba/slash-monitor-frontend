@@ -10,7 +10,7 @@ const payload = '0x00000000000000000000000000000000000000bb' as Address;
 
 describe('SlashingDetector quorum verification', () => {
     it('does not treat total ballot count as validator quorum', async () => {
-        const fake = createFakeMonitor({ ballotCount: 65n, actions: [] });
+        const fake = createFakeMonitor({ ballotCount: 65n, actions: [], votedEpochs: [0] });
         const result = await new SlashingDetector(config, fake.monitor).detectExecutableRounds(100n, 12_800n);
         const current = result.detectedSlashings.find((round) => round.round === 100n);
 
@@ -23,7 +23,7 @@ describe('SlashingDetector quorum verification', () => {
 
     it('uses nonempty tally output as the evidence that a target reached quorum', async () => {
         const actions: SlashAction[] = [{ validator, slashAmount: 2_000n }];
-        const fake = createFakeMonitor({ ballotCount: 65n, actions });
+        const fake = createFakeMonitor({ ballotCount: 65n, actions, votedEpochs: [0] });
         const result = await new SlashingDetector(config, fake.monitor).detectExecutableRounds(100n, 12_800n);
         const current = result.detectedSlashings.find((round) => round.round === 100n);
 
@@ -37,19 +37,27 @@ describe('SlashingDetector quorum verification', () => {
         expect(fake.calls.payloads).toBe(1);
     });
 
-    it('skips expensive tally calls while fewer total ballots than quorum exist', async () => {
-        const fake = createFakeMonitor({ ballotCount: 64n, actions: [] });
+    it('shows exact pre-quorum targets without constructing a payload', async () => {
+        const fake = createFakeMonitor({ ballotCount: 64n, actions: [], votedEpochs: [0] });
         const result = await new SlashingDetector(config, fake.monitor).detectExecutableRounds(100n, 12_800n);
         const current = result.detectedSlashings.find((round) => round.round === 100n);
 
         expect(current?.status).toBe('below-quorum');
-        expect(fake.calls.committees).toBe(0);
+        expect(current?.targetDetails).toEqual([
+            expect.objectContaining({
+                sequencer: validator,
+                targetEpoch: 392n,
+                voteCount: 64,
+                support: 64,
+            }),
+        ]);
+        expect(fake.calls.committees).toBe(1);
         expect(fake.calls.tallies).toBe(0);
         expect(fake.calls.payloads).toBe(0);
     });
 
     it('marks tally failures partial without asserting quorum', async () => {
-        const fake = createFakeMonitor({ ballotCount: 65n, tallyFailure: true });
+        const fake = createFakeMonitor({ ballotCount: 65n, tallyFailure: true, votedEpochs: [0] });
         const result = await new SlashingDetector(config, fake.monitor).detectExecutableRounds(100n, 12_800n);
         const current = result.detectedSlashings.find((round) => round.round === 100n);
 
@@ -66,12 +74,38 @@ describe('SlashingDetector quorum verification', () => {
             { validator, slashAmount: 2_000n },
             { validator: validator.toUpperCase() as Address, slashAmount: 5_000n },
         ];
-        const fake = createFakeMonitor({ ballotCount: 65n, actions });
+        const fake = createFakeMonitor({ ballotCount: 65n, actions, votedEpochs: [0, 1] });
         const result = await new SlashingDetector(config, fake.monitor).detectExecutableRounds(100n, 12_800n);
         const current = result.detectedSlashings.find((round) => round.round === 100n);
 
         expect(current?.affectedValidatorCount).toBe(1);
         expect(current?.totalSlashAmount).toBe(7_000n);
+    });
+
+    it('keeps an escape-hatch target visible beside a different executable action', async () => {
+        const fake = createFakeMonitor({
+            ballotCount: 65n,
+            actions: [{ validator, slashAmount: 2_000n }],
+            votedEpochs: [0, 1],
+            escapedEpochs: [1],
+        });
+        const result = await new SlashingDetector(
+            config,
+            fake.monitor,
+        ).detectExecutableRounds(100n, 12_800n);
+        const current = result.detectedSlashings.find((round) => round.round === 100n);
+
+        expect(current?.targetDetails).toHaveLength(2);
+        expect(current?.targetDetails?.[0]).toMatchObject({
+            targetEpoch: 392n,
+            amount: 2_000n,
+            actionIndex: 0,
+        });
+        expect(current?.targetDetails?.[1]).toMatchObject({
+            targetEpoch: 393n,
+            amount: undefined,
+            escaped: true,
+        });
     });
 });
 
@@ -99,13 +133,16 @@ const config: ResolvedMonitorConfig = {
     quorum: 65,
     committeeSize: 48,
     slotDuration: 72,
-    epochDuration: 32,
+      epochDuration: 32,
+      l1GenesisTime: 1_700_000_000n,
 };
 
 function createFakeMonitor(options: {
     ballotCount: bigint;
     actions?: SlashAction[];
     tallyFailure?: boolean;
+    votedEpochs?: number[];
+    escapedEpochs?: number[];
 }) {
     const calls = { committees: 0, tallies: 0, payloads: 0 };
     const monitor = {
@@ -123,6 +160,12 @@ function createFakeMonitor(options: {
             calls.committees += 1;
             return rounds.map(() => ({ success: true, data: [[validator], [validator], [validator], [validator]] }));
         },
+        getVotes: async () => Array.from(
+            { length: Number(options.ballotCount) },
+            () => encodedVote(options.votedEpochs ?? []),
+        ),
+        getEscapeHatchFlags: async (epochs: bigint[]) =>
+            epochs.map((_, index) => options.escapedEpochs?.includes(index) ?? false),
         batchGetTally: async (rounds: Array<{ round: bigint }>) => {
             calls.tallies += 1;
             return rounds.map(() => options.tallyFailure
@@ -136,4 +179,13 @@ function createFakeMonitor(options: {
     } as unknown as L1Monitor;
 
     return { monitor, calls };
+}
+
+function encodedVote(epochIndexes: number[]): `0x${string}` {
+    const bytes = new Uint8Array(48);
+    for (const epochIndex of epochIndexes) {
+        const validatorIndex = epochIndex * config.committeeSize;
+        bytes[Math.floor(validatorIndex / 4)] |= 1 << ((validatorIndex % 4) * 2);
+    }
+    return `0x${[...bytes].map((value) => value.toString(16).padStart(2, '0')).join('')}`;
 }

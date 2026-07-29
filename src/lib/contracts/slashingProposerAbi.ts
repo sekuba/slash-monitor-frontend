@@ -18,6 +18,16 @@ export const slashingProposerAbi = [
     },
     {
         type: 'function',
+        name: 'getVotes',
+        stateMutability: 'view',
+        inputs: [
+            { name: '_round', type: 'uint256' },
+            { name: '_index', type: 'uint256' },
+        ],
+        outputs: [{ name: '', type: 'bytes' }],
+    },
+    {
+        type: 'function',
         name: 'isRoundReadyToExecute',
         stateMutability: 'view',
         inputs: [

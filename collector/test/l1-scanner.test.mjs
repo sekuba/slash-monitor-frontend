@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { encodeAbiParameters, encodeEventTopics } from 'viem';
 
 import {
   L1Scanner,
@@ -7,8 +8,10 @@ import {
   decodeEarlyTargets,
   deduplicateStacks,
   isRoundProtectedByPause,
+  matchActionsToTargets,
   mergeEarlyTargets,
 } from '../src/l1-scanner.mjs';
+import { roundExecutedEvent } from '../src/l1-abis.mjs';
 
 const REGISTRY = '0x35b22e09Ee0390539439E24f06Da43D83f90e298';
 const ROLLUP = '0x1000000000000000000000000000000000000001';
@@ -113,18 +116,24 @@ test('decodeEarlyTargets exposes address-level targeting from the first two-bit 
   assert.deepEqual(targets, [
     {
       sequencer: committees[0][0],
+      epochIndex: 0,
+      committeeIndex: 0,
       voteCount: 2,
       maxSlashUnits: 1,
       unitVoteCounts: [2, 0, 0],
     },
     {
       sequencer: committees[0][1],
+      epochIndex: 0,
+      committeeIndex: 1,
       voteCount: 1,
       maxSlashUnits: 2,
       unitVoteCounts: [0, 1, 0],
     },
     {
       sequencer: committees[0][2],
+      epochIndex: 0,
+      committeeIndex: 2,
       voteCount: 1,
       maxSlashUnits: 3,
       unitVoteCounts: [0, 0, 1],
@@ -132,14 +141,83 @@ test('decodeEarlyTargets exposes address-level targeting from the first two-bit 
   ]);
 });
 
-test('mergeEarlyTargets increments an existing per-address vote cursor', () => {
+test('mergeEarlyTargets increments one exact committee-position vote cursor', () => {
   const sequencer = '0x1111111111111111111111111111111111111111';
   assert.deepEqual(mergeEarlyTargets([
-    { sequencer, voteCount: 2, maxSlashUnits: 1, unitVoteCounts: [2, 0, 0] },
+    {
+      sequencer,
+      epochIndex: 0,
+      committeeIndex: 0,
+      voteCount: 2,
+      maxSlashUnits: 1,
+      unitVoteCounts: [2, 0, 0],
+    },
   ], [
-    { sequencer, voteCount: 1, maxSlashUnits: 3, unitVoteCounts: [0, 0, 1] },
+    {
+      sequencer,
+      epochIndex: 0,
+      committeeIndex: 0,
+      voteCount: 1,
+      maxSlashUnits: 3,
+      unitVoteCounts: [0, 0, 1],
+    },
   ]), [
-    { sequencer, voteCount: 3, maxSlashUnits: 3, unitVoteCounts: [2, 0, 1] },
+    {
+      sequencer,
+      epochIndex: 0,
+      committeeIndex: 0,
+      voteCount: 3,
+      maxSlashUnits: 3,
+      unitVoteCounts: [2, 0, 1],
+    },
+  ]);
+});
+
+test('matchActionsToTargets preserves exact target epochs for repeated addresses', () => {
+  const sequencer = '0x1111111111111111111111111111111111111111';
+  assert.deepEqual(matchActionsToTargets([
+    { sequencer, amount: '100' },
+    { sequencer, amount: '300' },
+  ], [
+    {
+      sequencer,
+      epochIndex: 0,
+      committeeIndex: 0,
+      voteCount: 2,
+      maxSlashUnits: 1,
+      unitVoteCounts: [2, 0, 0],
+    },
+    {
+      sequencer,
+      epochIndex: 1,
+      committeeIndex: 0,
+      voteCount: 2,
+      maxSlashUnits: 3,
+      unitVoteCounts: [0, 0, 2],
+    },
+  ], 2), [
+    {
+      sequencer,
+      epochIndex: 0,
+      committeeIndex: 0,
+      voteCount: 2,
+      maxSlashUnits: 1,
+      unitVoteCounts: [2, 0, 0],
+      support: 2,
+      slashUnits: 1,
+      amount: '100',
+    },
+    {
+      sequencer,
+      epochIndex: 1,
+      committeeIndex: 0,
+      voteCount: 2,
+      maxSlashUnits: 3,
+      unitVoteCounts: [0, 0, 2],
+      support: 2,
+      slashUnits: 3,
+      amount: '300',
+    },
   ]);
 });
 
@@ -489,6 +567,7 @@ function fakeL1Client({ replacementHash, brokenPendingStack = false, pausedExecu
           getCurrentSlot: pausedExecutableRound ? 70n : 0n,
           getCurrentEpoch: 0n,
           getGenesisTime: 100n,
+          getEscapeHatchForEpoch: `0x${'00'.repeat(20)}`,
           getSlotDuration: 12n,
           getEpochDuration: 32n,
         }[functionName];
@@ -580,6 +659,7 @@ function fakeSlashLogClient({
       return blockNumber < registryDeploymentBlock ? '0x' : '0x01';
     },
     async readContract({ functionName, blockNumber }) {
+      if (functionName === 'getStatus') return 2;
       assert.equal(functionName, 'getCanonicalRollup');
       return blockNumber < 83n ? ROLLUP : SECOND_ROLLUP;
     },
@@ -590,6 +670,19 @@ function fakeSlashLogClient({
         log.blockNumber >= fromBlock &&
         log.blockNumber <= toBlock
       );
+    },
+    async getTransactionReceipt() {
+      return {
+        logs: [{
+          address: PROPOSER,
+          topics: encodeEventTopics({
+            abi: [roundExecutedEvent],
+            eventName: 'RoundExecuted',
+            args: { round: 7n },
+          }),
+          data: encodeAbiParameters([{ type: 'uint256' }], [1n]),
+        }],
+      };
     },
   };
 }

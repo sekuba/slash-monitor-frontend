@@ -12,7 +12,7 @@ import {
 } from '../src/channels.mjs';
 
 const EVENT = {
-  id: 'event/with spaces',
+  id: 'transition/with spaces',
   network: 'mainnet',
   type: 'onchain_targeted',
   severity: 'critical',
@@ -20,6 +20,7 @@ const EVENT = {
   body: 'A confirmed payload targets 0x1111…1111.',
   targets: ['0x1111111111111111111111111111111111111111'],
   data: {
+    caseId: 'case:mainnet:lineage:0x1111111111111111111111111111111111111111:24',
     chainId: 1,
     blockNumber: '25587802',
     payloadAddress: '0x2222222222222222222222222222222222222222',
@@ -56,9 +57,12 @@ test('WebPushChannel builds a scoped high-urgency payload and returns the provid
     payload.body,
     'Sequencer: 0x1111…1111\nA confirmed payload targets 0x1111…1111.',
   );
-  assert.equal(payload.data.eventId, EVENT.id);
+  assert.equal(payload.data.caseId, EVENT.data.caseId);
   assert.equal(payload.data.url, notificationPath(EVENT));
-  assert.equal(payload.data.url, '?view=pingme&network=mainnet&event=event%2Fwith+spaces');
+  assert.equal(
+    payload.data.url,
+    '?view=pingme&network=mainnet&case=case%3Amainnet%3Alineage%3A0x1111111111111111111111111111111111111111%3A24',
+  );
   assert.equal(captured[2].vapidDetails.privateKey, 'private');
   assert.equal(captured[2].urgency, 'high');
   assert.equal(captured[2].TTL, 24 * 60 * 60);
@@ -287,10 +291,10 @@ test('TelegramClient long polling and TelegramChannel preserve routing semantics
   assert.deepEqual(message.options, { priority: 'alert' });
   assert.match(message.text, /^🚨 Sequencer targeted/);
   assert.match(message.text, /Sequencer: 0x1111…1111/);
-  assert.match(message.text, /Slashmon event: https:\/\/slashmon\.example\/base\/\?view=pingme&network=mainnet&event=event%2Fwith\+spaces/);
+  assert.match(message.text, /Slashmon case: https:\/\/slashmon\.example\/base\/\?view=pingme&network=mainnet&case=case%3Amainnet%3Alineage%3A0x1111111111111111111111111111111111111111%3A24/);
   assert.match(message.text, /Dashtec: https:\/\/dashtec\.xyz\/sequencers\/0x1111111111111111111111111111111111111111/);
   assert.match(message.text, /Etherscan block: https:\/\/etherscan\.io\/block\/25587802/);
-  assert.match(message.text, /Etherscan slash payload: https:\/\/etherscan\.io\/address\/0x2222222222222222222222222222222222222222$/);
+  assert.match(message.text, /Etherscan candidate payload: https:\/\/etherscan\.io\/address\/0x2222222222222222222222222222222222222222$/);
 });
 
 test('TelegramChannel keeps queued alerts retryable until the bot identity is validated', async () => {

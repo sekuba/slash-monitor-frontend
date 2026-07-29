@@ -69,13 +69,13 @@ function readPushPayload(data) {
 function buildNotification(payload) {
   const metadata = payload.data && typeof payload.data === 'object' ? payload.data : {};
   const title = safeText(payload.title, `${APP_NAME} alert`, 120);
-  const body = safeText(payload.body, 'A watched sequencer has a new slashing event.', 600);
-  const eventId = safeIdentifier(payload.eventId || metadata.eventId);
+  const body = safeText(payload.body, 'A watched sequencer has a new slashing case update.', 600);
+  const caseId = safeIdentifier(payload.caseId || metadata.caseId);
   const network = (payload.network || metadata.network) === 'testnet' ? 'testnet' : 'mainnet';
   const url = typeof payload.url === 'string'
     ? payload.url
     : typeof metadata.url === 'string' ? metadata.url : '';
-  const tag = safeIdentifier(payload.tag) || eventId || `slashmon-${network}`;
+  const tag = safeIdentifier(payload.tag) || caseId || `slashmon-${network}`;
 
   return {
     title,
@@ -85,7 +85,7 @@ function buildNotification(payload) {
       badge: ICON_PATH,
       tag,
       renotify: true,
-      data: { eventId, network, url },
+      data: { caseId, network, url },
     },
   };
 }
@@ -110,12 +110,12 @@ function safeTargetUrl(data) {
   url.searchParams.set('view', 'pingme');
   url.searchParams.set('network', network);
 
-  const eventId = safeIdentifier(data && data.eventId) || safeIdentifier(url.searchParams.get('event'));
-  if (eventId) {
-    url.searchParams.set('event', eventId);
+  const caseId = safeIdentifier(data && data.caseId) || safeIdentifier(url.searchParams.get('case'));
+  if (caseId) {
+    url.searchParams.set('case', caseId);
   }
   else {
-    url.searchParams.delete('event');
+    url.searchParams.delete('case');
   }
 
   return url.href;

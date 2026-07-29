@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { CurrentChainState, DetectedSlashing, MonitorAudit, MonitorSnapshot, ResolvedMonitorConfig, SlashingStats } from '@/types/slashing';
+import type { ConfirmedSlash, CurrentChainState, DetectedSlashing, MonitorAudit, MonitorSnapshot, ResolvedMonitorConfig, SlashingStats } from '@/types/slashing';
 
 interface SlashingMonitorStore extends CurrentChainState {
     config: ResolvedMonitorConfig | null;
@@ -7,6 +7,7 @@ interface SlashingMonitorStore extends CurrentChainState {
     initializationError: string | null;
     isScanning: boolean;
     detectedSlashings: Map<bigint, DetectedSlashing>;
+    confirmedSlashes: ConfirmedSlash[];
     stats: SlashingStats;
     audit: MonitorAudit;
     initialize: (config: ResolvedMonitorConfig, state: CurrentChainState) => void;
@@ -36,6 +37,7 @@ const initialAudit: MonitorAudit = {
 
 const initialChainState: CurrentChainState = {
     l1BlockNumber: 0n,
+    l1BlockHash: `0x${'00'.repeat(32)}`,
     l1Timestamp: 0n,
     currentRound: 0n,
     currentSlot: 0n,
@@ -54,6 +56,7 @@ export const useSlashingStore = create<SlashingMonitorStore>((set) => ({
     initializationError: null,
     isScanning: false,
     detectedSlashings: new Map(),
+    confirmedSlashes: [],
     stats: initialStats,
     audit: initialAudit,
     initialize: (config, state) => set({
@@ -61,6 +64,7 @@ export const useSlashingStore = create<SlashingMonitorStore>((set) => ({
         isInitialized: true,
         initializationError: null,
         detectedSlashings: new Map(),
+        confirmedSlashes: [],
         stats: {
             ...initialStats,
             currentRound: state.currentRound,
@@ -92,6 +96,7 @@ export const useSlashingStore = create<SlashingMonitorStore>((set) => ({
         initializationError: null,
         isScanning: false,
         detectedSlashings: new Map(),
+        confirmedSlashes: [],
         stats: initialStats,
         audit: initialAudit,
     }),

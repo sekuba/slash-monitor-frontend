@@ -24,31 +24,21 @@ describe('top-level view isolation', () => {
         const markup = renderToStaticMarkup(<App />);
 
         expect(scannerSpy).not.toHaveBeenCalled();
-        expect(markup).toContain('Connecting To Pingme');
-        expect(markup).toContain('Watch sequencers');
-        expect(markup).not.toContain('PWA Web Push');
-        expect(markup).not.toContain('>Telegram</h3>');
-        expect(markup).not.toContain('Address-First Alerts');
-        expect(markup).not.toContain('Pick the mainnet sequencers');
+        expect(markup).toContain('Loading current cases');
         expect(markup).toContain('Monitor');
         expect(markup).toContain('>PINGME</button>');
-        expect(markup).not.toContain('Debug');
-        expect(markup).not.toContain('On-chain details &amp; RPC');
-        expect(markup).not.toContain('Client scanner network');
         expect(markup).toContain('brutal-button--nav-selected');
     });
 
-    it('keeps the network feed collapsed while a sequencer record is selected', () => {
+    it('keeps exact case links isolated to PINGME without starting the scanner', () => {
         installBrowser(
-            'https://slashmon.example/?view=pingme&sequencer=0x1111111111111111111111111111111111111111',
+            'https://slashmon.example/?view=pingme&case=case%3Amainnet%3Aactive%3A0xabc%3A42',
         );
 
         const markup = renderToStaticMarkup(<App />);
 
         expect(scannerSpy).not.toHaveBeenCalled();
-        expect(markup).toContain('<details');
-        expect(markup).toContain('Network feed');
-        expect(markup).toContain('id="sequencer-record-timeline"');
+        expect(markup).toContain('Loading current cases');
     });
 
     it('treats removed and unknown views as the Monitor', () => {
@@ -57,11 +47,9 @@ describe('top-level view isolation', () => {
         const markup = renderToStaticMarkup(<App />);
 
         expect(scannerSpy).toHaveBeenCalledOnce();
-        expect(markup).not.toContain('Debug');
         expect(markup).toContain('On-chain details &amp; RPC');
-        expect(markup).not.toContain('Client scanner network');
         expect(markup).toContain('Switch client scanner to Mainnet');
-        expect(markup).toContain('INITIALIZING CLIENTSIDE L1 MONITOR');
+        expect(markup).toContain('Verifying the canonical L1 contracts');
     });
 
     it('uses the saved RPC override only for the selected Monitor network', () => {

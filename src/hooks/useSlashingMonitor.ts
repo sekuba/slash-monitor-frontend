@@ -3,9 +3,8 @@ import { zeroAddress } from 'viem';
 import { resolveDeployment } from '@/lib/deployment';
 import { L1Monitor } from '@/lib/l1Monitor';
 import { SlashingDetector } from '@/lib/slashingDetector';
-import { deriveRoundPresentation } from '@/lib/utils';
 import { useSlashingStore } from '@/store/slashingStore';
-import type { CurrentChainState, DetectedSlashing, MonitorAudit, MonitorConfigInput, MonitorIssue, MonitorSnapshot, SlashingStats } from '@/types/slashing';
+import type { ConfirmedSlash, CurrentChainState, DetectedSlashing, MonitorAudit, MonitorConfigInput, MonitorIssue, MonitorSnapshot, SlashingStats } from '@/types/slashing';
 
 class StaleMonitorRunError extends Error {}
 const POLL_INTERVAL_MS = 180_000;
@@ -84,6 +83,7 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
             assertCurrentRun(generation, runGenerationRef.current);
             const previousStoreState = useSlashingStore.getState();
             let detectedSlashings = Array.from(previousStoreState.detectedSlashings.values());
+            let confirmedSlashes = previousStoreState.confirmedSlashes;
             const issues: MonitorIssue[] = [
                 ...preflightIssues,
                 ...buildDeploymentIssues(previousStoreState.config, currentState.l1Timestamp),
@@ -93,6 +93,10 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
                 const detectionResult = await detectorRef.current.detectExecutableRounds(currentState.currentRound, currentState.currentSlot);
                 detectedSlashings = detectionResult.detectedSlashings;
                 issues.push(...detectionResult.issues);
+                confirmedSlashes = await l1MonitorRef.current.getConfirmedSlashes(
+                    detectedSlashings,
+                    slashLookbackBlocks(previousStoreState.config),
+                );
             }
             catch (error) {
                 if (error instanceof StaleMonitorRunError) {
@@ -109,7 +113,12 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
             const audit = buildAudit(issues, previousStoreState.audit.lastSuccessfulAt);
             assertCurrentRun(generation, runGenerationRef.current);
 
-            const snapshot = buildSnapshot(currentState, detectedSlashings, audit);
+            const snapshot = buildSnapshot(
+                currentState,
+                detectedSlashings,
+                confirmedSlashes,
+                audit,
+            );
             applySnapshot(snapshot);
             completed = audit.status !== 'stale' && audit.status !== 'fatal';
 
@@ -201,28 +210,30 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
 function buildSnapshot(
     currentState: CurrentChainState,
     detectedSlashings: DetectedSlashing[],
+    confirmedSlashes: ConfirmedSlash[],
     audit: MonitorAudit
 ): MonitorSnapshot {
     return {
         ...currentState,
         detectedSlashings: new Map(detectedSlashings.map((slashing) => [slashing.round, slashing])),
-        stats: buildStats(currentState, detectedSlashings),
+        confirmedSlashes,
+        stats: buildStats(currentState, detectedSlashings, confirmedSlashes),
         audit,
     };
 }
 
-function buildStats(currentState: CurrentChainState, detectedSlashings: DetectedSlashing[]): SlashingStats {
-    const storeState = useSlashingStore.getState();
-    const activeSlashings = detectedSlashings.filter((slashing) => {
-        const presentation = deriveRoundPresentation(slashing, {
-            config: storeState.config,
-            isSlashingEnabled: currentState.isSlashingEnabled,
-            pauseStartedAtSlot: currentState.pauseStartedAtSlot,
-            pauseEndsAtSlot: currentState.pauseEndsAtSlot,
-        });
-
-        return presentation.isActionable && slashing.round !== currentState.currentRound;
-    }).length;
+function buildStats(
+    currentState: CurrentChainState,
+    detectedSlashings: DetectedSlashing[],
+    confirmedSlashes: ConfirmedSlash[],
+): SlashingStats {
+    const activeSlashings = detectedSlashings.filter((slashing) =>
+        !slashing.isExecuted &&
+        !slashing.isVetoed &&
+        slashing.round !== currentState.currentRound &&
+        slashing.slashActions &&
+        slashing.slashActions.length > 0 &&
+        !['expired'].includes(slashing.status)).length;
 
     return {
         currentRound: currentState.currentRound,
@@ -230,13 +241,24 @@ function buildStats(currentState: CurrentChainState, detectedSlashings: Detected
         activeSlashings,
         vetoedPayloads: detectedSlashings.filter((slashing) => slashing.isVetoed).length,
         executedRounds: detectedSlashings.filter((slashing) => slashing.isExecuted).length,
-        totalValidatorsSlashed: detectedSlashings
-            .filter((slashing) => slashing.isExecuted)
-            .reduce((sum, slashing) => sum + (slashing.affectedValidatorCount ?? 0), 0),
-        totalSlashAmount: detectedSlashings
-            .filter((slashing) => slashing.isExecuted)
-            .reduce((sum, slashing) => sum + (slashing.totalSlashAmount ?? 0n), 0n),
+        totalValidatorsSlashed: new Set(
+            confirmedSlashes.map((slash) => slash.sequencer.toLowerCase()),
+        ).size,
+        totalSlashAmount: confirmedSlashes.reduce(
+            (sum, slash) => sum + slash.amount,
+            0n,
+        ),
     };
+}
+
+function slashLookbackBlocks(
+    config: ReturnType<typeof useSlashingStore.getState>['config'],
+): bigint {
+    if (!config) return 50_000n;
+    const seconds = BigInt(config.lifetimeInRounds) *
+        BigInt(config.slashingRoundSize) *
+        BigInt(config.slotDuration);
+    return seconds / 12n + 5_000n;
 }
 
 function buildAudit(issues: MonitorIssue[], previousLastSuccessfulAt: number | null): MonitorAudit {

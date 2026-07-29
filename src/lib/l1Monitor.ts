@@ -1,11 +1,31 @@
-import { createPublicClient, type Address, type PublicClient } from 'viem';
-import type { CurrentChainState, RoundInfo, RuntimeMonitorConfig, SlashAction, SlashingContractParameters } from '@/types/slashing';
+import {
+    createPublicClient,
+    decodeEventLog,
+    parseAbiItem,
+    zeroAddress,
+    type Address,
+    type PublicClient,
+} from 'viem';
+import type {
+    ConfirmedSlash,
+    CurrentChainState,
+    DetectedSlashing,
+    RoundInfo,
+    RuntimeMonitorConfig,
+    SlashAction,
+    SlashingContractParameters,
+} from '@/types/slashing';
 import { slashingProposerAbi } from './contracts/slashingProposerAbi';
 import { rollupAbi } from './contracts/rollupAbi';
 import { slasherAbi } from './contracts/slasherAbi';
+import { escapeHatchAbi } from './contracts/escapeHatchAbi';
 import { assertFreshL1Head, deploymentsMatch, resolveDeploymentWithClient } from './deployment';
 import { createCall, multicall, type MulticallResult } from './multicall';
 import { createPublicRpcTransport } from './rpc';
+
+const roundExecutedEvent = parseAbiItem(
+    'event RoundExecuted(uint256 indexed round, uint256 slashCount)',
+);
 
 export class L1Monitor {
     private readonly publicClient: PublicClient;
@@ -45,6 +65,10 @@ export class L1Monitor {
             this.snapshotBlockNumber = blockNumber;
             this.snapshotTimestamp = timestamp;
         }
+        const pinnedBlock = await this.publicClient.getBlock({ blockNumber });
+        if (!pinnedBlock.hash) throw new Error(`L1 block ${blockNumber} has no hash`);
+        timestamp = pinnedBlock.timestamp;
+        this.snapshotTimestamp = timestamp;
         assertFreshL1Head(timestamp);
         const results = await multicall(this.publicClient, [
                 createCall(this.config.slashingProposerAddress, slashingProposerAbi, 'getCurrentRound'),
@@ -73,6 +97,7 @@ export class L1Monitor {
 
         return {
             l1BlockNumber: blockNumber,
+            l1BlockHash: pinnedBlock.hash,
             l1Timestamp: timestamp,
             currentRound: requireResult(results[0], 'getCurrentRound'),
             currentSlot: requireResult(results[1], 'getCurrentSlot'),
@@ -170,6 +195,59 @@ export class L1Monitor {
         });
     }
 
+    async getVotes(round: bigint, ballotCount: bigint): Promise<string[]> {
+        if (ballotCount > 1_024n) {
+            throw new Error(`Round ${round} has an implausible ballot count`);
+        }
+        const calls = Array.from({ length: Number(ballotCount) }, (_, index) =>
+            createCall(
+                this.config.slashingProposerAddress,
+                slashingProposerAbi,
+                'getVotes',
+                [round, BigInt(index)],
+            ));
+        const results = await multicall(this.publicClient, calls, this.snapshotBlockNumber);
+        return results.map((result, index) =>
+            requireResult<string>(result, `getVotes(${round}, ${index})`));
+    }
+
+    async getEscapeHatchFlags(targetEpochs: bigint[]): Promise<boolean[]> {
+        const hatchResults = await multicall(
+            this.publicClient,
+            targetEpochs.map((epoch) =>
+                createCall(
+                    this.config.rollupAddress,
+                    rollupAbi,
+                    'getEscapeHatchForEpoch',
+                    [epoch],
+                )),
+            this.snapshotBlockNumber,
+        );
+        const hatches = hatchResults.map((result, index) =>
+            requireResult<Address>(result, `getEscapeHatchForEpoch(${targetEpochs[index]})`));
+        const openCalls = hatches.flatMap((hatch, index) =>
+            hatch === zeroAddress
+                ? []
+                : [{
+                    index,
+                    call: createCall(hatch, escapeHatchAbi, 'isHatchOpen', [targetEpochs[index]]),
+                }]);
+        const openResults = await multicall(
+            this.publicClient,
+            openCalls.map((item) => item.call),
+            this.snapshotBlockNumber,
+        );
+        const flags = hatches.map(() => false);
+        openResults.forEach((result, resultIndex) => {
+            const [isOpen] = requireResult<readonly [boolean, Address]>(
+                result,
+                `isHatchOpen(${targetEpochs[openCalls[resultIndex].index]})`,
+            );
+            flags[openCalls[resultIndex].index] = isOpen;
+        });
+        return flags;
+    }
+
     async batchGetPayloadAddressesAndVetoStatus(roundsWithActions: Array<{ round: bigint; actions: SlashAction[] }>): Promise<MulticallResult<{
         payloadAddress: Address;
         isVetoed: boolean;
@@ -231,6 +309,81 @@ export class L1Monitor {
         });
     }
 
+    async getConfirmedSlashes(
+        detected: readonly DetectedSlashing[],
+        lookbackBlocks: bigint,
+    ): Promise<ConfirmedSlash[]> {
+        const executed = detected.filter((item) =>
+            item.isExecuted && (item.targetDetails?.length ?? 0) > 0);
+        if (executed.length === 0 || this.snapshotBlockNumber === undefined) return [];
+        const toBlock = this.snapshotBlockNumber;
+        const fromBlock = toBlock > lookbackBlocks
+            ? maxBigInt(this.config.deploymentBlockNumber, toBlock - lookbackBlocks)
+            : this.config.deploymentBlockNumber;
+        const confirmed: ConfirmedSlash[] = [];
+
+        for (const item of executed) {
+            const executionLogs = await this.getRoundExecutionLogs(
+                item.round,
+                fromBlock,
+                toBlock,
+            );
+            const seenTransactions = new Set<string>();
+            for (const executionLog of executionLogs) {
+                const transactionHash = executionLog.transactionHash;
+                if (
+                    !transactionHash ||
+                    executionLog.blockNumber === null ||
+                    executionLog.blockHash === null ||
+                    seenTransactions.has(transactionHash)
+                ) continue;
+                seenTransactions.add(transactionHash);
+                const receipt = await this.publicClient.getTransactionReceipt({
+                    hash: transactionHash,
+                });
+                const slashLogs = decodeExactReceiptSlashes(
+                    item,
+                    receipt.logs,
+                    this.config.rollupAddress,
+                );
+                slashLogs.forEach((slash) => {
+                    confirmed.push({
+                        sequencer: slash.sequencer,
+                        targetEpoch: slash.targetEpoch,
+                        round: item.round,
+                        amount: slash.amount,
+                        actionIndex: slash.actionIndex,
+                        transactionHash,
+                        blockNumber: executionLog.blockNumber,
+                        blockHash: executionLog.blockHash,
+                        ejected: false,
+                        attesterStatus: 0,
+                    });
+                });
+            }
+        }
+
+        const statusResults = await multicall(
+            this.publicClient,
+            confirmed.map((slash) =>
+                createCall(
+                    this.config.rollupAddress,
+                    rollupAbi,
+                    'getStatus',
+                    [slash.sequencer],
+                )),
+            toBlock,
+        );
+        return confirmed.map((slash, index) => {
+            const status = Number(requireResult(statusResults[index], 'getStatus'));
+            return {
+                ...slash,
+                attesterStatus: status,
+                ejected: status === 2 || status === 3,
+            };
+        });
+    }
+
     async loadContractParameters(): Promise<SlashingContractParameters> {
         const results = await multicall(this.publicClient, [
             createCall(this.config.slashingProposerAddress, slashingProposerAbi, 'QUORUM'),
@@ -242,6 +395,7 @@ export class L1Monitor {
             createCall(this.config.slashingProposerAddress, slashingProposerAbi, 'COMMITTEE_SIZE'),
             createCall(this.config.rollupAddress, rollupAbi, 'getSlotDuration'),
             createCall(this.config.rollupAddress, rollupAbi, 'getEpochDuration'),
+            createCall(this.config.rollupAddress, rollupAbi, 'getGenesisTime'),
         ], this.snapshotBlockNumber);
 
         return {
@@ -254,7 +408,30 @@ export class L1Monitor {
             committeeSize: Number(requireResult(results[6], 'COMMITTEE_SIZE')),
             slotDuration: Number(requireResult(results[7], 'getSlotDuration')),
             epochDuration: Number(requireResult(results[8], 'getEpochDuration')),
+            l1GenesisTime: requireResult(results[9], 'getGenesisTime'),
         };
+    }
+
+    private async getRoundExecutionLogs(
+        round: bigint,
+        fromBlock: bigint,
+        toBlock: bigint,
+    ) {
+        const result = [];
+        const chunkSize = 5_000n;
+        for (let start = fromBlock; start <= toBlock; start += chunkSize) {
+            const end = start + chunkSize - 1n > toBlock
+                ? toBlock
+                : start + chunkSize - 1n;
+            result.push(...await this.publicClient.getLogs({
+                address: this.config.slashingProposerAddress,
+                event: roundExecutedEvent,
+                args: { round },
+                fromBlock: start,
+                toBlock: end,
+            }));
+        }
+        return result;
     }
 }
 
@@ -271,4 +448,61 @@ function mapSlashActions(actions: any[]): SlashAction[] {
         validator: action.validator as Address,
         slashAmount: action.slashAmount as bigint,
     }));
+}
+
+function maxBigInt(left: bigint, right: bigint): bigint {
+    return left > right ? left : right;
+}
+
+export function decodeExactReceiptSlashes(
+    item: DetectedSlashing,
+    logs: readonly {
+        address: Address;
+        data: `0x${string}`;
+        topics: [] | [`0x${string}`, ...`0x${string}`[]];
+    }[],
+    rollupAddress: Address,
+): Array<{
+    sequencer: Address;
+    amount: bigint;
+    actionIndex: number;
+    targetEpoch: bigint;
+}> {
+    const slashLogs = logs.flatMap((log) => {
+        if (log.address.toLowerCase() !== rollupAddress.toLowerCase()) return [];
+        try {
+            const decoded = decodeEventLog({
+                abi: rollupAbi,
+                eventName: 'Slashed',
+                data: log.data,
+                topics: log.topics,
+                strict: true,
+            });
+            return [{
+                sequencer: decoded.args.attester,
+                amount: decoded.args.amount,
+            }];
+        }
+        catch {
+            return [];
+        }
+    });
+    return slashLogs.map((slash, actionIndex) => {
+        const target = item.targetDetails?.find(
+            (detail) => detail.actionIndex === actionIndex,
+        ) ?? item.targetDetails?.[actionIndex];
+        if (
+            !target ||
+            target.sequencer.toLowerCase() !== slash.sequencer.toLowerCase()
+        ) {
+            throw new Error(
+                `Round ${item.round} receipt does not match its exact action order`,
+            );
+        }
+        return {
+            ...slash,
+            actionIndex,
+            targetEpoch: target.targetEpoch,
+        };
+    });
 }

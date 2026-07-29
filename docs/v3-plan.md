@@ -1,4 +1,7 @@
-# Slashmon v3 plan
+# Slashmon v3 architecture record
+
+Status: implemented as a clean break in July 2026. This document remains the
+opinionated product and engineering contract for later changes.
 
 ## Product decision
 
@@ -11,8 +14,8 @@ Slashmon is an educational early-warning product, not an event explorer. Its
 primary object is a per-sequencer **slashing case** with a plain-language
 headline, protocol timeline, next transition, and evidence provenance.
 
-V3 has no backwards-compatibility requirement. It will use a new API and an
-empty database. Existing subscriptions are recreated. There will be no schema
+V3 has no backwards-compatibility requirement. It uses a new API and an empty
+database. Existing watches are recreated. There are no schema
 migrations, v2 adapters, dual writes, legacy response shapes, or feature flags
 for the old UI.
 
@@ -99,7 +102,9 @@ contract rotation, and reorg correction.
 
 ## Backend
 
-The v3 backend is one TypeScript process with a direct pipeline:
+The v3 backend is one Node process with a direct pipeline. Its collectors and
+delivery adapters are JavaScript; the pure protocol package shared with the
+frontend is TypeScript.
 
 ```text
 Aztec node ─┐
@@ -129,7 +134,7 @@ are correctness invariants, not fallback features.
 
 ### API
 
-Create `/api/v3` with a small case-oriented surface:
+`/api/v3` has a small case-oriented surface:
 
 - `GET /status`
 - `GET /network`
@@ -183,9 +188,9 @@ touch targets are at least 44px, overlays respect safe areas, and desktop grids
 are progressive enhancement. Test 320px, 375px, 768px, and desktop widths,
 keyboard navigation, and reduced motion.
 
-## Delete instead of adapt
+## Deleted instead of adapted
 
-V3 removes:
+V3 removed:
 
 - `/api/v2`, its decoders, and its response types;
 - the current database and all migration/compatibility checks;
@@ -198,7 +203,7 @@ V3 removes:
 Deployment creates a fresh v3 database and replaces v2 atomically. The browser
 Monitor remains available throughout.
 
-## Delivery sequence
+## Implemented delivery sequence
 
 1. Build and exhaustively test the pure protocol/case package.
 2. Build the fresh SQLite schema, three collectors, projector, and v3 read API.
@@ -207,8 +212,7 @@ Monitor remains available throughout.
 5. Move Monitor's existing L1 reads behind the shared engine and case UI.
 6. Delete v2 code, deploy with an empty database, and require re-enrollment.
 
-Each step ends by deleting the superseded path; no parallel architecture
-survives to the next step.
+Each step deleted its superseded path; no v2 parallel architecture remains.
 
 ## V3 acceptance criteria
 

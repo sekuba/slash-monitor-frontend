@@ -1,11 +1,15 @@
-import { useState, useMemo } from 'react';
-import { useSlashingStore } from '@/store/slashingStore';
-import { RoundCard } from './RoundCard';
-import { StatsPanel } from './StatsPanel';
-import { SlashingTimeline } from './SlashingTimeline';
-import { SlashingHelpModal } from './SlashingHelpModal';
+import { useState, type FormEvent } from 'react';
+import { AddressStatus } from './AddressStatus';
 import { MonitorDetails } from './MonitorDetails';
-import { collectTargetedSequencers, deriveRoundPresentation } from '@/lib/utils';
+import { NetworkHealth } from './NetworkHealth';
+import { parseAddressList, formatAddressList } from '@/lib/addresses';
+import {
+    loadMonitorAddresses,
+    saveMonitorAddresses,
+} from '@/lib/monitorAddressStorage';
+import { projectMonitorCases } from '@/lib/monitorCases';
+import { summarizeNetwork } from '../../shared/protocol/index.ts';
+import { useSlashingStore } from '@/store/slashingStore';
 import type { MonitorConfigInput } from '@/types/slashing';
 
 interface DashboardProps {
@@ -16,158 +20,172 @@ interface DashboardProps {
     onUpdateRpc: (url: string) => void;
 }
 
-export function Dashboard({ configInput, network, onResetRpc, onToggleNetwork, onUpdateRpc }: DashboardProps) {
-    const { detectedSlashings, isInitialized, initializationError, isScanning, currentRound, config, isSlashingEnabled, pauseStartedAtSlot, pauseEndsAtSlot, audit } = useSlashingStore();
-    const [showSlashingHelpModal, setShowSlashingHelpModal] = useState(false);
+export function Dashboard({
+    configInput,
+    network,
+    onResetRpc,
+    onToggleNetwork,
+    onUpdateRpc,
+}: DashboardProps) {
+    const store = useSlashingStore();
+    const [addresses, setAddresses] = useState(() => loadMonitorAddresses(network));
+    const [addressText, setAddressText] = useState(() => formatAddressList(addresses));
+    const [addressError, setAddressError] = useState<string | null>(null);
+    const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
 
-    const slashings = useMemo(() => Array.from(detectedSlashings.values()).sort((a, b) => Number(b.round - a.round)), [detectedSlashings]);
-    const slashingStates = useMemo(() => slashings.map((slashing) => {
-        return {
-            slashing,
-            display: deriveRoundPresentation(slashing, {
-                config,
-                isSlashingEnabled,
-                pauseStartedAtSlot,
-                pauseEndsAtSlot,
-            }),
-        };
-    }), [slashings, config, isSlashingEnabled, pauseStartedAtSlot, pauseEndsAtSlot]);
-    const activeSlashings = useMemo(() => slashingStates
-        .filter(({ display, slashing }) => display.isActionable && slashing.round !== currentRound)
-        .map(({ slashing }) => slashing)
-        .sort((a, b) => Number(a.round - b.round)), [slashingStates, currentRound]);
-    const inactiveSlashings = useMemo(() => slashingStates
-        .filter(({ display, slashing }) => !display.isActionable && slashing.round !== currentRound)
-        .map(({ slashing }) => slashing), [slashingStates, currentRound]);
-    const sequencerOccurrences = useMemo(() => {
-        const counts = new Map<string, number>();
-        slashings.forEach((slashing) => {
-            const validatorsInRound = new Set(
-                slashing.slashActions?.map((action) => action.validator.toLowerCase()) ?? []
-            );
-            validatorsInRound.forEach((key) => {
-                counts.set(key, (counts.get(key) ?? 0) + 1);
-            });
+    const projected = (() => {
+        if (!store.config || !store.isInitialized) return null;
+        return projectMonitorCases({
+            network,
+            config: store.config,
+            state: store,
+            slashings: [...store.detectedSlashings.values()],
+            confirmedSlashes: store.confirmedSlashes,
         });
-        return counts;
-    }, [slashings]);
-    const targetedSequencers = useMemo(() => collectTargetedSequencers(slashingStates
-        .filter(({ display, slashing }) => display.isActionable && slashing.slashActions && slashing.slashActions.length > 0)
-        .map(({ slashing }) => slashing)), [slashingStates]);
-    const monitorDetails = (
-        <MonitorDetails
-            key={configInput.chainId}
-            configInput={configInput}
-            network={network}
-            onResetRpc={onResetRpc}
-            onToggleNetwork={onToggleNetwork}
-            onUpdateRpc={onUpdateRpc}
-        />
-    );
-    const monitorControls = (
-        <div className="mb-8">
-            {monitorDetails}
-        </div>
-    );
+    })();
 
-    if (!isInitialized) {
-        if (initializationError) {
-            return (
-        <main className="max-w-7xl mx-auto px-4 py-8">
-          {monitorControls}
-          <div className="max-w-2xl mx-auto bg-oxblood border-5 border-vermillion p-8 shadow-brutal-vermillion">
-          <h1 className="text-vermillion text-2xl font-black uppercase mb-4">Monitor unavailable</h1>
-          <p className="text-whisper-white font-bold break-words">{initializationError}</p>
-          <p className="text-whisper-white/70 text-sm font-bold mt-4">The browser will retry automatically. Check that its configured public RPC is reachable.</p>
-          </div>
-        </main>);
+    const saveAddresses = (event: FormEvent) => {
+        event.preventDefault();
+        const parsed = parseAddressList(addressText, 100);
+        if (parsed.errors.length > 0) {
+            setAddressError(parsed.errors[0]);
+            return;
         }
+        const next = parsed.addresses.map((item) => item.toLowerCase());
+        setAddressError(null);
+        setAddresses(next);
+        saveMonitorAddresses(network, next);
+    };
 
-        return (
-        <main className="max-w-7xl mx-auto px-4 py-8">
-          {monitorControls}
-          <div className="mx-auto max-w-2xl text-center bg-brand-black border-5 border-chartreuse p-8 shadow-brutal-chartreuse">
-          <div className="animate-spin h-16 w-16 border-5 border-chartreuse border-t-transparent mx-auto mb-4"></div>
-          <p className="text-chartreuse font-black uppercase tracking-wider">INITIALIZING CLIENTSIDE L1 MONITOR...</p>
-          </div>
-        </main>);
-    }
-    return (<>
-      <SlashingHelpModal
-        network={network}
-        isOpen={showSlashingHelpModal}
-        onClose={() => setShowSlashingHelpModal(false)}
-        targetedSequencers={targetedSequencers}
-      />
-
-      <main className="max-w-7xl mx-auto px-4 py-8">
-
-        {monitorControls}
-
-        {audit.status !== 'ok' && (
-          <div className={`${audit.status === 'stale' || audit.status === 'fatal' ? 'bg-oxblood border-vermillion shadow-brutal-vermillion' : 'bg-aubergine border-orchid shadow-brutal-orchid'} border-5 p-5 mb-6`}>
-            <h2 className={`${audit.status === 'stale' || audit.status === 'fatal' ? 'text-vermillion' : 'text-orchid'} text-xl font-black uppercase mb-2`}>
-              {audit.status === 'stale' || audit.status === 'fatal' ? 'Monitor data may be stale' : 'Monitor coverage is partial'}
-            </h2>
-            <p className="text-whisper-white text-sm font-bold">
-              {audit.issues[0]?.message ?? 'The latest scan could not be fully verified.'}
-            </p>
-            {audit.lastSuccessfulAt !== null && (
-              <p className="text-whisper-white/70 text-xs font-bold mt-2">
-                Last verified scan: {new Date(audit.lastSuccessfulAt).toLocaleString()}
-              </p>
-            )}
-          </div>
-        )}
-
-        <StatsPanel />
-        <SlashingTimeline onOpenHelp={() => setShowSlashingHelpModal(true)} />
-
-        {isScanning && (<div className="mb-6 bg-lapis border-5 border-aqua p-5 shadow-brutal-aqua">
-            <div className="flex items-center gap-4">
-              <div className="animate-spin h-8 w-8 border-5 border-aqua border-t-transparent"></div>
-              <div>
-                <h3 className="text-aqua font-black uppercase text-lg">Scanning Historical Rounds</h3>
-                <p className="text-whisper-white text-sm font-bold">
-                  The browser is independently verifying current and historical L1 state.
-                </p>
-              </div>
-            </div>
-          </div>)}
+    const controls = (
         <div className="mb-8">
-          <h2 className="mb-6 flex flex-wrap items-center gap-3 text-2xl font-black text-whisper-white sm:gap-4 sm:text-3xl">
-            <span className="inline-flex items-center justify-center w-12 h-12 bg-vermillion border-5 border-brand-black text-brand-black font-black shadow-brutal">
-              {activeSlashings.length}
-            </span>
-            ACTIVE SLASHING ROUNDS
-            {activeSlashings.length > 0 && (<span className="text-base font-black text-vermillion uppercase">(Vetoable)</span>)}
-          </h2>
-
-          {activeSlashings.length === 0 ? (<div className="bg-malachite/20 border-5 border-brand-black p-12 text-center shadow-brutal">
-              <div className="bg-chartreuse border-3 border-brand-black p-4 inline-block mb-4">
-                <svg className="w-16 h-16 text-brand-black stroke-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={3} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                </svg>
-              </div>
-              <p className="text-whisper-white text-xl font-black uppercase">No Active Slashing Rounds</p>
-              <p className="text-whisper-white/70 text-sm font-bold uppercase mt-2">
-                Monitoring Round {currentRound?.toString()}
-              </p>
-            </div>) : (<div className="grid gap-6">
-              {activeSlashings.map((slashing) => (<RoundCard key={slashing.round.toString()} network={network} slashing={slashing} sequencerOccurrences={sequencerOccurrences}/>))}
-            </div>)}
+            <MonitorDetails
+                key={configInput.chainId}
+                configInput={configInput}
+                network={network}
+                onResetRpc={onResetRpc}
+                onToggleNetwork={onToggleNetwork}
+                onUpdateRpc={onUpdateRpc}
+            />
         </div>
-        {inactiveSlashings.length > 0 && (<div>
-            <h2 className="text-3xl font-black text-whisper-white mb-6 uppercase">Other Rounds</h2>
-            <div className="grid gap-6">
-              {inactiveSlashings.map((slashing) => (<RoundCard key={slashing.round.toString()} network={network} slashing={slashing} sequencerOccurrences={sequencerOccurrences}/>))}
-            </div>
-          </div>)}
+    );
 
-        {slashings.length === 0 && activeSlashings.length === 0 && (<div className="bg-malachite/20 border-5 border-brand-black p-8 text-center shadow-brutal">
-            <p className="text-whisper-white font-black uppercase text-lg">No Slashing Rounds Detected</p>
-            <p className="text-whisper-white/70 text-sm font-bold uppercase mt-2">Monitoring continues in background</p>
-          </div>)}
-      </main>
-    </>);
+    if (!store.isInitialized) {
+        return (
+            <main className="mx-auto max-w-7xl px-4 py-8">
+                {controls}
+                <div className={`mx-auto max-w-2xl border-5 p-8 ${
+                    store.initializationError
+                        ? 'border-vermillion bg-oxblood shadow-brutal-vermillion'
+                        : 'border-chartreuse bg-brand-black text-center shadow-brutal-chartreuse'
+                }`}>
+                    {store.initializationError ? (
+                        <>
+                            <h1 className="text-2xl font-black text-vermillion">Monitor unavailable</h1>
+                            <p className="mt-3 break-words font-bold text-whisper-white">
+                                {store.initializationError}
+                            </p>
+                        </>
+                    ) : (
+                        <>
+                            <div className="mx-auto mb-4 h-16 w-16 animate-spin border-5 border-chartreuse border-t-transparent" />
+                            <p className="font-black uppercase tracking-wider text-chartreuse">
+                                Verifying the canonical L1 contracts…
+                            </p>
+                        </>
+                    )}
+                </div>
+            </main>
+        );
+    }
+
+    return (
+        <main className="mx-auto max-w-7xl px-4 py-8">
+            {controls}
+
+            <section className="mb-8 border-6 border-aqua bg-lapis p-5 shadow-brutal-aqua sm:p-7">
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-aqua">
+                    Independent browser monitor
+                </p>
+                <h1 className="mt-1 text-3xl font-black text-whisper-white">
+                    Follow your addresses on the observable L1 path
+                </h1>
+                <p className="mt-3 max-w-4xl text-sm font-bold text-whisper-white/75">
+                    This page uses only the public RPC shown above. It can see L1 votes,
+                    payloads, vetoes, execution windows, executed rounds, actual
+                    deductions, and current ejection state. It cannot infer an offense
+                    reason: reasons require node evidence from PINGME.
+                </p>
+                <form onSubmit={saveAddresses} className="mt-6">
+                    <label htmlFor="monitor-addresses" className="text-xs font-black uppercase text-aqua">
+                        Sequencer addresses · stored only in this browser
+                    </label>
+                    <textarea
+                        id="monitor-addresses"
+                        value={addressText}
+                        onChange={(event) => setAddressText(event.target.value)}
+                        rows={Math.max(3, Math.min(8, addressText.split('\n').length))}
+                        spellCheck={false}
+                        placeholder="0x..."
+                        className="mt-2 min-h-32 w-full resize-y border-5 border-brand-black bg-whisper-white p-3 font-mono text-sm font-black text-brand-black shadow-brutal focus:border-chartreuse"
+                    />
+                    {addressError && (
+                        <p className="mt-3 text-sm font-bold text-vermillion" role="alert">
+                            {addressError}
+                        </p>
+                    )}
+                    <button type="submit" className="brutal-button mt-4">Show my L1 status</button>
+                </form>
+            </section>
+
+            {store.audit.status !== 'ok' && (
+                <section className="mb-8 border-5 border-vermillion bg-oxblood p-5 shadow-brutal-vermillion">
+                    <h2 className="text-xl font-black text-vermillion">L1 evidence may be incomplete</h2>
+                    <p className="mt-2 text-sm font-bold text-whisper-white/75">
+                        {store.audit.issues[0]?.message ?? 'The latest pinned scan was incomplete.'}
+                    </p>
+                </section>
+            )}
+
+            {projected && (
+                <NetworkHealth
+                    summary={summarizeNetwork(projected.cases)}
+                    protocol={projected.protocol}
+                />
+            )}
+
+            {store.isScanning && (
+                <div className="mb-8 border-5 border-aqua bg-lapis p-5 shadow-brutal-aqua">
+                    <p className="font-black uppercase text-aqua">
+                        Scanning live and historical slashing rounds…
+                    </p>
+                </div>
+            )}
+
+            <div className="grid gap-8">
+                {projected && addresses.map((address) => (
+                    <AddressStatus
+                        key={address}
+                        address={address}
+                        cases={projected.cases.filter(
+                            (item) => item.sequencer === address,
+                        )}
+                        protocol={projected.protocol}
+                        selectedCaseId={selectedCaseId}
+                        onSelectCase={setSelectedCaseId}
+                    />
+                ))}
+            </div>
+
+            {addresses.length === 0 && (
+                <section className="border-5 border-orchid bg-aubergine p-6 shadow-brutal-orchid">
+                    <h2 className="text-2xl font-black text-orchid">Add an address above</h2>
+                    <p className="mt-2 text-sm font-bold text-whisper-white/75">
+                        The network overview is public. Address cards make the protocol
+                        path actionable for your own sequencers.
+                    </p>
+                </section>
+            )}
+        </main>
+    );
 }

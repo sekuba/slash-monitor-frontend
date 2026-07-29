@@ -49,7 +49,7 @@ export class WebPushChannel {
       icon: './favicon.svg',
       badge: './favicon.svg',
       data: {
-        eventId: event.id,
+        caseId: event.data?.caseId ?? null,
         network: event.network,
         url: notificationPath(event),
       },
@@ -336,7 +336,7 @@ export class TelegramChannel {
     const icon = event.severity === 'critical' ? '🚨' : event.severity === 'warning' ? '⚠️' : '🛰️';
     const url = new URL(notificationPath(event), this.publicUrl).toString();
     const references = [
-      `Slashmon event: ${url}`,
+      `Slashmon case: ${url}`,
       ...dashtecReferenceLines(event),
       ...etherscanReferenceLines(event),
     ];
@@ -349,7 +349,8 @@ export class TelegramChannel {
 }
 
 export function notificationPath(event) {
-  const params = new URLSearchParams({ view: 'pingme', network: event.network, event: event.id });
+  const params = new URLSearchParams({ view: 'pingme', network: event.network });
+  if (event.data?.caseId) params.set('case', event.data.caseId);
   return `?${params.toString()}`;
 }
 

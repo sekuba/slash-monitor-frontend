@@ -17,7 +17,7 @@ export function Header({ activeView, onNavigate }: HeaderProps) {
             </div>
             <div className="min-w-0">
               <h1 className="text-2xl font-black text-chartreuse tracking-tight sm:text-3xl">AZTEC SLASHING MONITOR</h1>
-              <p className="text-xs text-aqua font-bold uppercase tracking-wider sm:text-sm">Real-time Detection &amp; Veto</p>
+              <p className="text-xs text-aqua font-bold uppercase tracking-wider sm:text-sm">Early warning · exact L1 status · operator education</p>
             </div>
           </div>
 

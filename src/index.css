@@ -46,10 +46,18 @@ body {
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   background: linear-gradient(135deg, #001f18 0%, #00122e 50%, #2e0026 100%);
   background-attachment: fixed;
+  overflow-x: hidden;
 }
 
 * {
   box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  max-width: 100%;
 }
 
 /* Neo-brutalist Typography */
@@ -145,7 +153,7 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .brutal-button--sm {
-    min-height: 2.25rem;
+    min-height: 2.75rem;
     padding: 0.45rem 0.75rem;
     font-size: 0.6875rem;
   }
@@ -168,8 +176,8 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .brutal-button--icon-sm {
-    width: 2.25rem;
-    min-height: 2.25rem;
+    width: 2.75rem;
+    min-height: 2.75rem;
   }
 
   /* Use the dot's smooth opacity rhythm, but apply it only to the keyline. */
@@ -193,7 +201,8 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 :focus-visible {
-  outline: none;
+  outline: 3px solid var(--color-aqua) !important;
+  outline-offset: 3px !important;
 }
 
 /* Hard shadows, no blur */

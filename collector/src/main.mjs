@@ -1,5 +1,5 @@
 import { AztecAdminClient } from './admin-client.mjs';
-import { CollectorApiServer } from './api-server.mjs';
+import { CaseApiServer } from './case-api-server.mjs';
 import {
   WebPushChannel,
   TelegramChannel,
@@ -8,7 +8,7 @@ import {
 } from './channels.mjs';
 import { OffenseCollector } from './collector.mjs';
 import { loadConfig } from './config.mjs';
-import { OffenseRepository } from './database.mjs';
+import { CaseRepository } from './case-repository.mjs';
 import { DeliveryWorker } from './delivery-worker.mjs';
 import { L1Collector } from './l1-collector.mjs';
 import { L1Scanner } from './l1-scanner.mjs';
@@ -19,7 +19,7 @@ import { TelegramBot } from './telegram-bot.mjs';
 async function main() {
   const config = loadConfig();
   const logger = new Logger(config.logLevel);
-  const repository = new OffenseRepository(config.databasePath);
+  const repository = new CaseRepository(config.databasePath);
   try {
     repository.bindRuntimeIdentity({
       network: config.network,
@@ -145,7 +145,7 @@ async function main() {
     requestTimeoutMs: config.deliveryRequestTimeoutMs,
     logger,
   });
-  const api = new CollectorApiServer({
+  const api = new CaseApiServer({
     repository,
     host: config.bindHost,
     port: config.port,
@@ -156,26 +156,10 @@ async function main() {
     vapidPublicKey: config.vapid?.publicKey,
     telegramBotUsername: config.telegram?.username,
     isTelegramReady: () => telegramReady,
-    maxSequencers: config.maxSequencersPerWatchlist,
+    maxSequencers: config.maxWatchedSequencers,
     maxRequestBodyBytes: config.maxRequestBodyBytes,
     rateLimitWindowMs: config.rateLimitWindowMs,
     rateLimitMaxMutations: config.rateLimitMaxMutations,
-    readRateLimitWindowMs: config.readRateLimitWindowMs,
-    readRateLimitMax: config.readRateLimitMax,
-    readRateLimitMaxGlobal: config.readRateLimitMaxGlobal,
-    watchlistMutationRateLimitWindowMs: config.watchlistMutationRateLimitWindowMs,
-    watchlistMutationRateLimitMax: config.watchlistMutationRateLimitMax,
-    subscriptionCreateMaxPerClient: config.subscriptionCreateMaxPerHourPerClient,
-    subscriptionCreateMaxPerDayPerClient: config.subscriptionCreateMaxPerDayPerClient,
-    subscriptionCreateMaxPerHourGlobal: config.subscriptionCreateMaxPerHourGlobal,
-    subscriptionCreateMaxPerDayGlobal: config.subscriptionCreateMaxPerDayGlobal,
-    notificationTestCooldownMs: config.notificationTestCooldownMs,
-    notificationTestMaxPerHourGlobal: config.notificationTestMaxPerHourGlobal,
-    notificationTestMaxPerDayGlobal: config.notificationTestMaxPerDayGlobal,
-    webPushEnrollmentMaxPerHourPerWatchlist: config.webPushEnrollmentMaxPerHourPerWatchlist,
-    webPushEnrollmentMaxPerDayPerWatchlist: config.webPushEnrollmentMaxPerDayPerWatchlist,
-    webPushEnrollmentMaxPerHourGlobal: config.webPushEnrollmentMaxPerHourGlobal,
-    webPushEnrollmentMaxPerDayGlobal: config.webPushEnrollmentMaxPerDayGlobal,
     trustLoopbackProxy: config.trustLoopbackProxy,
     linkTokenTtlMs: config.linkTokenTtlMs,
     logger,

@@ -11,12 +11,9 @@ operator:
 - an aggregate view of network slashing and offense health.
 
 The primary user object is therefore a **slashing case**, not an isolated
-event. Events are evidence used to build a case.
-
-This is the target conceptual architecture for the refactor. The current
-journal already retains much of the evidence, but case projection and exact
-case deep links can be introduced incrementally without changing the source
-truth rules below.
+event. Observations are evidence used to build a case. V3 implements this model
+as a clean break: the old event feed, schema, API, adapters, and screens do not
+exist alongside it.
 
 ## Two deliberately redundant surfaces
 
@@ -30,7 +27,7 @@ Monitor ── browser ── public Ethereum RPCs
 
 PINGME ── browser ── Slashmon backend ─┬─ one Aztec node + admin RPC
                                       ├─ public Ethereum RPCs
-                                      ├─ case journal + durable outbox
+                                      ├─ case store + durable outbox
                                       └─ Telegram / Web Push
 ```
 
@@ -114,7 +111,7 @@ Linking must be deterministic and conservative:
    committee-participation rules and coverage generation; unknown gaps never
    extend a streak.
 2. A node offense links to precursor evidence only for the same address and
-   compatible exact epoch or slot. The raw events remain independently
+   compatible exact epoch or slot. The raw observations remain independently
    inspectable.
 3. Node evidence may be attached to an L1 action only for the same address and
    exact target epoch, when the observation predates the L1 transition.
@@ -172,7 +169,7 @@ target epochs at once.
 | SlashingProposer state | Votes, target epochs, support, candidate actions, timing, and predicted address at a pinned block | Offense reason or deployed payload before execution |
 | `RoundExecuted` | The round was marked executed; a nonempty action list caused its payload to be deployed and called in that transaction | Any actual deduction; an empty action round deploys no payload |
 | Rollup `Slashed` | Actual address and amount deducted in the canonical transaction | Which offense motivated the voters |
-| Rollup/GSE stake state | Current balance and validating/ejection/exit state | A historical reason unless linked to retained events |
+| Rollup/GSE stake state | Current balance and validating/ejection/exit state | A historical reason unless linked to retained observations |
 
 The frontend must show source time and freshness independently. “Confirmed”
 means an L1 fact observed at the stated block and confirmation policy; it does
@@ -215,10 +212,10 @@ Unknown catch-up gaps start a new coverage generation so they cannot fabricate
 an inactivity streak.
 
 Confirmed-log scanning uses a durable block/hash checkpoint, overlapping
-reads, and reorg rewind. SQLite atomically records each stable event, indexes
-its target addresses, matches watches, and inserts unique delivery jobs.
-Delivery is at-least-once, so a provider-accepted alert can repeat after a
-crash; stable event IDs let clients recognize that duplicate.
+reads, and reorg rewind. SQLite atomically records observations, reprojects
+affected cases, records stable transitions, matches watches, and inserts
+unique delivery jobs. Delivery is at-least-once, so a provider-accepted alert
+can repeat after a crash; stable transition IDs identify that duplicate.
 
 ## Network-health view
 
@@ -237,9 +234,9 @@ The overview must never market one backend node's offense feed as a complete
 network consensus feed. L1 aggregates are network facts at their stated block;
 local offense aggregates are an observation sample.
 
-## Refactor invariants
+## V3 invariants
 
-Future implementation work should preserve these constraints:
+Implementation work must preserve these constraints:
 
 - Monitor has no runtime dependency on PINGME or its API.
 - Both surfaces share protocol vocabulary, decoding rules, fixtures, and case
