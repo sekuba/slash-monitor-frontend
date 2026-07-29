@@ -36,7 +36,7 @@ export class L1Scanner {
     slashLogChunkSize = 1_000,
     slashLogOverlapBlocks = 12,
     slashLogReorgRewindBlocks = 128,
-    slashLogProviderTimeoutMs = 5_000,
+    slashLogProviderTimeoutMs = 30_000,
     clientFactory,
     now = Date.now,
   }) {

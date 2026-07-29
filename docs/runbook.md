@@ -32,6 +32,10 @@ database whose durable log cursor was created with a different start, and
 historical observations do not send notifications. Leave it unset to use
 `L1_SLASH_LOG_LOOKBACK_BLOCKS` for a head-relative initial backfill instead.
 Log requests remain fixed at 1,000 blocks to support RPCs with that maximum.
+Each provider gets 30 seconds for a chunk, and each backfill pass yields after
+60 seconds so a fresh L1 snapshot runs regularly. For a slower archive node,
+raise `L1_SLASH_LOG_PROVIDER_TIMEOUT_MS` up to `45000`; keep it below the
+60-second pass budget.
 
 To expand an existing production or testing database, add the setting to that
 service's `/etc/slashmon-backend*.env` and deploy with `--upgrade`. Do not reset

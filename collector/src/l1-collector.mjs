@@ -8,7 +8,7 @@ export class L1Collector {
     pollIntervalMs,
     maxBackoffMs,
     maxSlashLogChunksPerPoll = 25,
-    maxSlashLogRunMs = 20_000,
+    maxSlashLogRunMs = 60_000,
     logger,
     now = Date.now,
   }) {

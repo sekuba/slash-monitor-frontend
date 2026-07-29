@@ -40,6 +40,10 @@ past them.
 Sentinel indexing is committee-scoped and epoch-gated. Unknown coverage gaps
 start a new generation and cannot extend an inactivity streak.
 
+Slash-log chunks are limited to 1,000 blocks. The default provider timeout is
+30 seconds because chunks containing executions require exact archive state
+reconstruction; `L1_SLASH_LOG_PROVIDER_TIMEOUT_MS` may raise it to 45 seconds.
+
 ## Case API
 
 The only API is `/api/v3`:

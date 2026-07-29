@@ -4,6 +4,8 @@ import { createECDH } from 'node:crypto';
 const DEFAULT_ADMIN_POLL_INTERVAL_MS = 15_000;
 const DEFAULT_SENTINEL_POLL_INTERVAL_MS = 60_000;
 const DEFAULT_L1_POLL_INTERVAL_MS = 30_000;
+const DEFAULT_L1_SLASH_LOG_PROVIDER_TIMEOUT_MS = 30_000;
+const L1_SLASH_LOG_MAX_RUN_MS = 60_000;
 const DEFAULT_DATABASE_PATH = './data/slashmon.sqlite';
 const NETWORK_DEFAULTS = {
   mainnet: {
@@ -117,8 +119,14 @@ export function loadConfig(env = process.env, cwd = process.cwd()) {
     l1SlashLogOverlapBlocks: 12,
     l1SlashLogReorgRewindBlocks: 512,
     l1SlashLogMaxChunksPerPoll: 25,
-    l1SlashLogMaxRunMs: 20_000,
-    l1SlashLogProviderTimeoutMs: 5_000,
+    l1SlashLogMaxRunMs: L1_SLASH_LOG_MAX_RUN_MS,
+    l1SlashLogProviderTimeoutMs: readInteger(
+      env,
+      'L1_SLASH_LOG_PROVIDER_TIMEOUT_MS',
+      DEFAULT_L1_SLASH_LOG_PROVIDER_TIMEOUT_MS,
+      5_000,
+      45_000,
+    ),
 
     bindHost: readString(env.BACKEND_BIND_HOST, '127.0.0.1'),
     port: readInteger(env, 'BACKEND_PORT', 8_790, 1, 65_535),
