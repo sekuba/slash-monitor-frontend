@@ -205,9 +205,9 @@ export function Dashboard({
                 />
             )}
 
-            {store.executionScan.status !== 'idle' ? (
+            {['scanning', 'paused'].includes(store.executionScan.status) ? (
                 <ExecutionHistoryStatus scan={store.executionScan} />
-            ) : store.isScanning && (
+            ) : store.executionScan.status === 'idle' && store.isScanning && (
                 <div className="mb-8 border-5 border-aqua bg-lapis p-5 shadow-brutal-aqua">
                     <p className="font-black uppercase text-aqua">
                         Scanning live and historical slashing rounds…
@@ -266,27 +266,20 @@ function ExecutionHistoryStatus({ scan }: { scan: ExecutionHistoryScan }) {
             100,
             Number(scan.scannedBlocks * 10_000n / scan.totalBlocks) / 100,
         );
-    const complete = scan.status === 'complete';
     const paused = scan.status === 'paused';
     return (
         <section className={`mb-8 border-5 p-4 ${
-            complete
-                ? 'border-chartreuse bg-malachite shadow-brutal-chartreuse'
-                : paused
-                    ? 'border-orchid bg-aubergine shadow-brutal-orchid'
-                    : 'border-aqua bg-lapis shadow-brutal-aqua'
+            paused
+                ? 'border-orchid bg-aubergine shadow-brutal-orchid'
+                : 'border-aqua bg-lapis shadow-brutal-aqua'
         }`}>
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className={`text-lg font-black ${
-                    complete
-                        ? 'text-chartreuse'
-                        : paused ? 'text-orchid' : 'text-aqua'
+                    paused ? 'text-orchid' : 'text-aqua'
                 }`}>
-                    {complete
-                        ? 'Execution history complete'
-                        : paused
-                            ? 'Execution history paused'
-                            : 'Scanning execution history'}
+                    {paused
+                        ? 'Execution history paused'
+                        : 'Scanning execution history'}
                 </h2>
                 <span className="font-mono text-xs font-black text-whisper-white/65">
                     {scan.scannedBlocks.toString()} / {scan.totalBlocks.toString()} blocks
@@ -302,9 +295,7 @@ function ExecutionHistoryStatus({ scan }: { scan: ExecutionHistoryScan }) {
             >
                 <div
                     className={`h-full ${
-                        complete
-                            ? 'bg-chartreuse'
-                            : paused ? 'bg-orchid' : 'bg-aqua'
+                        paused ? 'bg-orchid' : 'bg-aqua'
                     }`}
                     style={{ width: `${percentage}%` }}
                 />
