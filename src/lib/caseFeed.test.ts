@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { SlashingCase } from '../../shared/protocol/index.ts';
-import { selectCaseFeed } from './caseFeed';
+import type { ProtocolSnapshot, SlashingCase } from '../../shared/protocol/index.ts';
+import { currentRoundProgress } from '@/components/CaseFeed';
+import { groupCasesByPayload, selectCaseFeed } from './caseFeed';
 
 describe('selectCaseFeed', () => {
     it('keeps every active case and only the latest execution outcomes', () => {
@@ -45,6 +46,46 @@ describe('selectCaseFeed', () => {
             'executed-no-deduction',
         ]);
     });
+
+    it('groups exact payload cases and keeps pre-payload evidence separate', () => {
+        const olderPayload = item('older', 'candidate', true, '2026-07-13T00:00:00.000Z');
+        const first = item('first', 'candidate', true, '2026-07-12T00:00:00.000Z');
+        const second = item('second', 'candidate', true, '2026-07-12T00:00:00.000Z');
+        const precursor = item('precursor', 'precursor', true, '2026-07-12T00:00:00.000Z');
+        olderPayload.state.payloadAddress = '0x4444444444444444444444444444444444444444';
+        olderPayload.state.round = '11';
+        first.state.payloadAddress = '0x3333333333333333333333333333333333333333';
+        first.state.round = '12';
+        second.state.payloadAddress = '0x3333333333333333333333333333333333333333';
+        second.state.round = '12';
+
+        const groups = groupCasesByPayload([olderPayload, first, second, precursor]);
+
+        expect(groups).toHaveLength(3);
+        expect(groups[0]).toMatchObject({
+            id: 'payload:0x3333333333333333333333333333333333333333',
+            payloadAddress: '0x3333333333333333333333333333333333333333',
+            round: '12',
+        });
+        expect(groups[0].cases.map((entry) => entry.id)).toEqual(['first', 'second']);
+        expect(groups[1]).toMatchObject({
+            payloadAddress: '0x4444444444444444444444444444444444444444',
+            round: '11',
+        });
+        expect(groups[2].cases.map((entry) => entry.id)).toEqual(['precursor']);
+    });
+
+    it('reports progress through the current epoch of the live round', () => {
+        expect(currentRoundProgress(protocol())).toEqual({
+            round: '12',
+            epoch: '25',
+            epochPosition: 2,
+            epochsPerRound: 4,
+            slotPosition: 5,
+            slotsPerEpoch: 8,
+            percentage: 62.5,
+        });
+    });
 });
 
 function item(
@@ -79,5 +120,41 @@ function item(
             payloadAddress: null,
             round: null,
         },
+    };
+}
+
+function protocol(): ProtocolSnapshot {
+    return {
+        network: 'mainnet',
+        chainId: 1,
+        observedAt: '2026-07-29T00:00:00.000Z',
+        blockNumber: '1',
+        blockHash: `0x${'11'.repeat(32)}`,
+        registryAddress: '0x1111111111111111111111111111111111111111',
+        rollupAddress: '0x2222222222222222222222222222222222222222',
+        genesisTime: '0',
+        currentSlot: '204',
+        currentEpoch: '25',
+        slotDurationSeconds: 60,
+        epochDurationSlots: 8,
+        inactivity: null,
+        lineages: [{
+            role: 'active',
+            rollupAddress: '0x2222222222222222222222222222222222222222',
+            slasherAddress: '0x3333333333333333333333333333333333333333',
+            proposerAddress: '0x4444444444444444444444444444444444444444',
+            currentRound: '12',
+            isSlashingEnabled: true,
+            disabledUntil: null,
+            parameters: {
+                quorum: 7,
+                roundSizeSlots: 32,
+                roundSizeEpochs: 4,
+                executionDelayRounds: 2,
+                lifetimeRounds: 4,
+                slashOffsetRounds: 3,
+                committeeSize: 8,
+            },
+        }],
     };
 }

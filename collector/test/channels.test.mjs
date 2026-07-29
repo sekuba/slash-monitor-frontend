@@ -35,7 +35,7 @@ test('WebPushChannel builds a scoped high-urgency payload and returns the provid
       publicKey: 'public',
       privateKey: 'private',
     },
-    publicUrl: 'https://slashmon.example',
+    publicUrl: 'https://slashveto.example',
     timeoutMs: 3210,
     sendNotification: async (...args) => {
       captured = args;
@@ -75,7 +75,7 @@ test('WebPushChannel classifies expired endpoints as permanent and provider pres
   for (const statusCode of [404, 410]) {
     const channel = new WebPushChannel({
       vapid: { subject: 'mailto:a@example.com', publicKey: 'public', privateKey: 'private' },
-      publicUrl: 'https://slashmon.example',
+      publicUrl: 'https://slashveto.example',
       sendNotification: async () => { throw { statusCode, body: 'provider details must not escape' }; },
     });
     await assert.rejects(() => channel.send(delivery), (error) => {
@@ -90,7 +90,7 @@ test('WebPushChannel classifies expired endpoints as permanent and provider pres
 
   const throttled = new WebPushChannel({
     vapid: { subject: 'mailto:a@example.com', publicKey: 'public', privateKey: 'private' },
-    publicUrl: 'https://slashmon.example',
+    publicUrl: 'https://slashveto.example',
     sendNotification: async () => { throw { statusCode: 429, headers: { 'Retry-After': '17' } }; },
   });
   await assert.rejects(() => throttled.send(delivery), (error) => {
@@ -102,7 +102,7 @@ test('WebPushChannel classifies expired endpoints as permanent and provider pres
 
   const badVapid = new WebPushChannel({
     vapid: { subject: 'mailto:a@example.com', publicKey: 'public', privateKey: 'private' },
-    publicUrl: 'https://slashmon.example',
+    publicUrl: 'https://slashveto.example',
     sendNotification: async () => { throw { statusCode: 401 }; },
   });
   await assert.rejects(() => badVapid.send(delivery), (error) => {
@@ -114,7 +114,7 @@ test('WebPushChannel classifies expired endpoints as permanent and provider pres
 
   const malformed = new WebPushChannel({
     vapid: { subject: 'mailto:a@example.com', publicKey: 'public', privateKey: 'private' },
-    publicUrl: 'https://slashmon.example',
+    publicUrl: 'https://slashveto.example',
   });
   await assert.rejects(() => malformed.send({ endpointConfig: '{', event: EVENT }), (error) => {
     assert.equal(error.permanent, true);
@@ -126,7 +126,7 @@ test('WebPushChannel classifies expired endpoints as permanent and provider pres
 test('WebPushChannel stops awaiting the provider when delivery is aborted', async () => {
   const channel = new WebPushChannel({
     vapid: { subject: 'mailto:a@example.com', publicKey: 'public', privateKey: 'private' },
-    publicUrl: 'https://slashmon.example',
+    publicUrl: 'https://slashveto.example',
     sendNotification: () => new Promise(() => {}),
   });
   const controller = new AbortController();
@@ -277,7 +277,7 @@ test('TelegramClient long polling and TelegramChannel preserve routing semantics
 
   let message;
   const channel = new TelegramChannel({
-    publicUrl: 'https://slashmon.example/base/',
+    publicUrl: 'https://slashveto.example/base/',
     client: {
       async sendMessage(chatId, text, _signal, options) {
         message = { chatId, text, options };
@@ -291,7 +291,7 @@ test('TelegramClient long polling and TelegramChannel preserve routing semantics
   assert.deepEqual(message.options, { priority: 'alert' });
   assert.match(message.text, /^🚨 Sequencer targeted/);
   assert.match(message.text, /Sequencer: 0x1111…1111/);
-  assert.match(message.text, /Slashmon case: https:\/\/slashmon\.example\/base\/\?view=pingme&network=mainnet&case=case%3Amainnet%3Alineage%3A0x1111111111111111111111111111111111111111%3A24/);
+  assert.match(message.text, /slashveto\.me case: https:\/\/slashveto\.example\/base\/\?view=pingme&network=mainnet&case=case%3Amainnet%3Alineage%3A0x1111111111111111111111111111111111111111%3A24/);
   assert.match(message.text, /Dashtec: https:\/\/dashtec\.xyz\/sequencers\/0x1111111111111111111111111111111111111111/);
   assert.match(message.text, /Etherscan block: https:\/\/etherscan\.io\/block\/25587802/);
   assert.match(message.text, /Etherscan candidate payload: https:\/\/etherscan\.io\/address\/0x2222222222222222222222222222222222222222$/);
@@ -301,7 +301,7 @@ test('TelegramChannel keeps queued alerts retryable until the bot identity is va
   let ready = false;
   let sends = 0;
   const channel = new TelegramChannel({
-    publicUrl: 'https://slashmon.example/',
+    publicUrl: 'https://slashveto.example/',
     isReady: () => ready,
     client: {
       async sendMessage() {

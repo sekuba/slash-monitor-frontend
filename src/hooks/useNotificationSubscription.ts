@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { slashmonApi } from '@/api/client';
+import { backendApi } from '@/api/client';
 import {
     enrollInWebPush,
     inspectPushCapability,
@@ -42,7 +42,7 @@ export function useNotificationSubscription(
             setWatch(null);
             return null;
         }
-        const next = await slashmonApi.getWatch(
+        const next = await backendApi.getWatch(
             credentials.id,
             credentials.managementToken,
         );
@@ -89,7 +89,7 @@ export function useNotificationSubscription(
     const saveAddresses = useCallback(async (addresses: readonly string[]) => {
         return await run(async () => {
             if (credentials) {
-                const next = await slashmonApi.updateWatch(
+                const next = await backendApi.updateWatch(
                     credentials.id,
                     credentials.managementToken,
                     addresses,
@@ -103,7 +103,7 @@ export function useNotificationSubscription(
                     'PINGME watches require a dedicated origin because the management key is stored in this browser.',
                 );
             }
-            const created = await slashmonApi.createWatch(network, addresses);
+            const created = await backendApi.createWatch(network, addresses);
             const nextCredentials = {
                 id: created.watch.id,
                 managementToken: created.managementToken,
@@ -122,7 +122,7 @@ export function useNotificationSubscription(
             const enrollment = await enrollInWebPush(
                 config.notifications.webPush.publicKey!,
             );
-            const next = await slashmonApi.setWebPush(
+            const next = await backendApi.setWebPush(
                 credentials.id,
                 credentials.managementToken,
                 enrollment.json,
@@ -135,7 +135,7 @@ export function useNotificationSubscription(
     const disableWebPush = useCallback(async () => {
         if (!credentials) return;
         await run(async () => {
-            await slashmonApi.deleteWebPush(
+            await backendApi.deleteWebPush(
                 credentials.id,
                 credentials.managementToken,
             );
@@ -147,7 +147,7 @@ export function useNotificationSubscription(
 
     const createTelegramLink = useCallback(async () => {
         if (!credentials) return;
-        const link = await run(() => slashmonApi.createTelegramLink(
+        const link = await run(() => backendApi.createTelegramLink(
             credentials.id,
             credentials.managementToken,
         ));
@@ -157,7 +157,7 @@ export function useNotificationSubscription(
     const sendTest = useCallback(async () => {
         if (!credentials) return;
         await run(
-            () => slashmonApi.sendTest(credentials.id, credentials.managementToken),
+            () => backendApi.sendTest(credentials.id, credentials.managementToken),
             'Test alert queued.',
         );
     }, [credentials, run]);
@@ -165,7 +165,7 @@ export function useNotificationSubscription(
     const deleteWatch = useCallback(async () => {
         if (!credentials) return;
         await run(async () => {
-            await slashmonApi.deleteWatch(
+            await backendApi.deleteWatch(
                 credentials.id,
                 credentials.managementToken,
             );

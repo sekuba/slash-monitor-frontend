@@ -119,7 +119,7 @@ export function WatchSettings({
                     rows={Math.max(3, Math.min(8, value.split('\n').length))}
                     spellCheck={false}
                     placeholder="0x..."
-                    className="mt-2 min-h-32 w-full resize-y border-5 border-brand-black bg-whisper-white p-3 font-mono text-sm font-black text-brand-black shadow-brutal focus:border-aqua"
+                    className="mt-2 min-h-32 w-full resize-y border-5 border-aqua bg-brand-black p-3 font-mono text-sm font-black text-whisper-white shadow-brutal-aqua focus:border-chartreuse"
                 />
                 {(validation || manager.error) && (
                     <p className="mt-3 break-words text-sm font-bold text-vermillion" role="alert">
@@ -273,7 +273,7 @@ function Channel({
 
 function pushDescription(capability: ReturnType<typeof useNotificationSubscription>['pushCapability']) {
     if (capability === 'install-required') {
-        return 'On iPhone or iPad, install Slashmon to the Home Screen first.';
+        return 'On iPhone or iPad, install slashveto.me to the Home Screen first.';
     }
     if (capability === 'permission-denied') return 'Browser notifications are blocked.';
     if (capability === 'unsupported') return 'Web Push is unavailable in this browser.';

@@ -58,7 +58,7 @@ export class CaseRepository {
     `).get().count);
     if (version === 3 && tableCount > 0) return;
     if (version !== 0 || tableCount !== 0) {
-      throw new Error(`Slashmon v3 requires an empty database; found schema ${version}`);
+      throw new Error(`slashveto.me v3 requires an empty database; found schema ${version}`);
     }
     this.db.exec(`
       BEGIN IMMEDIATE;
@@ -273,7 +273,7 @@ export class CaseRepository {
         existing.registryAddress !== normalized.registryAddress
       ) {
         throw new Error(
-          `Slashmon v3 database belongs to ${existing.network} chain ${existing.chainId} ` +
+          `slashveto.me v3 database belongs to ${existing.network} chain ${existing.chainId} ` +
           `Registry ${existing.registryAddress}`,
         );
       }
@@ -1292,7 +1292,7 @@ export class CaseRepository {
       source: 'test',
       type: 'notification_test',
       severity: 'info',
-      title: 'Slashmon notifications are connected',
+      title: 'slashveto.me notifications are connected',
       body: `Watching ${watch.addresses.length} sequencer${watch.addresses.length === 1 ? '' : 's'}.`,
       targets: watch.addresses,
       data: { watchId },

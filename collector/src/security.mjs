@@ -37,7 +37,7 @@ export function normalizeNetwork(value, expected) {
     throw new InputError('invalid_network', 'network must be a short lowercase identifier');
   }
   if (expected && value !== expected) {
-    throw new InputError('unsupported_network', `This Slashmon backend watches ${expected}`);
+    throw new InputError('unsupported_network', `This slashveto.me backend watches ${expected}`);
   }
   return value;
 }

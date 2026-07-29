@@ -9,13 +9,17 @@ describe('CaseTimeline', () => {
             <CaseTimeline
                 item={item()}
                 protocol={null}
+                showSequencer
                 onOpenProtocolGuide={() => undefined}
             />,
         );
 
         expect(markup).toContain('aria-label="Copy link to this case"');
+        expect(markup).toContain(
+            'https://dashtec.xyz/sequencers/0x1111111111111111111111111111111111111111',
+        );
         expect(markup).toContain('Explain timeline');
-        expect(markup).toContain('Duty issue');
+        expect(markup).toContain('Duty miss');
         expect(markup).toContain('Ejection');
         expect(markup).not.toContain('Link this case');
         expect(markup).not.toContain('Clear case link');
@@ -36,7 +40,7 @@ function item(): SlashingCase {
             stage: 'l1_support',
             urgency: 'warning',
             headline: '3 of 65 L1 ballots support a penalty',
-            explanation: 'L1 support is visible.',
+            explanation: 'The sequencer is mentioned in L1 voting.',
             reason: {
                 label: 'Reason unknown on L1',
                 provenance: 'unknown_on_l1',

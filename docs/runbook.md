@@ -83,7 +83,7 @@ scripts/deploy-backend.sh --testing --reset-db
 ```
 
 - `--fresh` is for first installation or an intentional full reset. It removes
-  Slashmon state and its backup directory without creating a backup.
+  backend state and its backup directory without creating a backup.
 - `--upgrade` stops the writer, checkpoints and verifies SQLite, makes a
   timestamped backup, switches releases, and preserves state.
 - `--reset-db` makes the same verified backup and then removes only the active

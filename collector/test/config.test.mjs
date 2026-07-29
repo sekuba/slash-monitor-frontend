@@ -53,16 +53,16 @@ test('operator-facing URLs and process settings are validated', () => {
   );
   assert.throws(() => loadConfig({ BACKEND_CORS_ORIGIN: '*' }), /must be a valid URL/);
   assert.throws(
-    () => loadConfig({ BACKEND_CORS_ORIGIN: 'https://slashmon.example/api' }),
+    () => loadConfig({ BACKEND_CORS_ORIGIN: 'https://slashveto.example/api' }),
     /must be an origin without a path/,
   );
   assert.throws(
-    () => loadConfig({ SLASHMON_PUBLIC_URL: 'https://slashmon.example/app?token=1' }),
+    () => loadConfig({ SLASHMON_PUBLIC_URL: 'https://slashveto.example/app?token=1' }),
     /must not contain a query or fragment/,
   );
   assert.throws(
     () => loadConfig({
-      SLASHMON_PUBLIC_URL: 'https://slashmon.example',
+      SLASHMON_PUBLIC_URL: 'https://slashveto.example',
       BACKEND_CORS_ORIGIN: 'https://api.example',
     }),
     /must use the same browser origin/,
@@ -88,8 +88,8 @@ test('operator-facing URLs and process settings are validated', () => {
   assert.throws(() => loadConfig({ BACKEND_LOG_LEVEL: 'trace' }), /debug, info, warn, or error/);
 
   const config = loadConfig({
-    SLASHMON_PUBLIC_URL: 'https://slashmon.example/app',
-    BACKEND_CORS_ORIGIN: 'https://slashmon.example',
+    SLASHMON_PUBLIC_URL: 'https://slashveto.example/app',
+    BACKEND_CORS_ORIGIN: 'https://slashveto.example',
     L1_RPC_URL: 'https://rpc-one.example/path',
     L1_SLASH_LOG_LOOKBACK_BLOCKS: '75000',
     BACKEND_DATABASE_PATH: '../state/slashmon.sqlite',
@@ -99,8 +99,8 @@ test('operator-facing URLs and process settings are validated', () => {
     BACKEND_MUTATION_RATE_LIMIT_MAX_PER_MINUTE: '30',
     TELEGRAM_SEND_MAX_PER_SECOND: '25',
   }, '/srv/slashmon');
-  assert.equal(config.publicUrl, 'https://slashmon.example/app/');
-  assert.equal(config.corsOrigin, 'https://slashmon.example');
+  assert.equal(config.publicUrl, 'https://slashveto.example/app/');
+  assert.equal(config.corsOrigin, 'https://slashveto.example');
   assert.deepEqual(config.l1RpcUrls, ['https://rpc-one.example/path']);
   assert.equal(config.l1SlashLogLookbackBlocks, 75_000);
   assert.equal(config.databasePath, '/srv/state/slashmon.sqlite');
@@ -131,14 +131,14 @@ test('notification channels require complete, valid credentials', () => {
 
   const config = loadConfig({
     TELEGRAM_BOT_TOKEN: 'secret-token',
-    TELEGRAM_BOT_USERNAME: '@slashmon_bot',
+    TELEGRAM_BOT_USERNAME: '@slashveto_bot',
     VAPID_SUBJECT: 'mailto:operator@example.com',
     VAPID_PUBLIC_KEY,
     VAPID_PRIVATE_KEY,
   });
   assert.deepEqual(config.telegram, {
     token: 'secret-token',
-    username: 'slashmon_bot',
+    username: 'slashveto_bot',
     pollTimeoutSeconds: 25,
   });
   assert.deepEqual(config.vapid, {

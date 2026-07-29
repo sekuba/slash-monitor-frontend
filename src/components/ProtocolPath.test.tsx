@@ -12,8 +12,11 @@ describe('ProtocolPath', () => {
             />,
         );
 
-        expect(markup).toMatch(/text-whisper-white\/45[^>]*><span[^>]*>1<\/span>Duty issue/);
-        expect(markup).toMatch(/aria-current="step"[^>]*><span[^>]*>3<\/span>L1 support/);
+        expect(markup).toMatch(/text-whisper-white\/45[^>]*><span[^>]*>1<\/span>Duty miss/);
+        expect(markup).toMatch(/aria-current="step"[^>]*><span[^>]*>3<\/span>L1 mention/);
+        expect(markup).toContain('Slashing timeline');
+        expect(markup).toContain('brutal-border-pulse');
+        expect(markup).toContain('--pulse-color:var(--color-aqua)');
     });
 
     it('shows an expired candidate as a stopped path, not a live candidate step', () => {
@@ -29,13 +32,31 @@ describe('ProtocolPath', () => {
         );
 
         expect(markup).not.toContain('aria-current="step"');
-        expect(markup).toMatch(/text-chartreuse[^>]*><span[^>]*>✓<\/span>Candidate/);
+        expect(markup).not.toContain('brutal-border-pulse');
+        expect(markup).toMatch(/text-aqua[^>]*><span[^>]*>✓<\/span>Candidate/);
+    });
+
+    it('keeps a terminal current rectangle still', () => {
+        const markup = renderToStaticMarkup(
+            <ProtocolPath
+                item={item('executed', [round({
+                    amount: '2000000000000000000000',
+                    isExecuted: true,
+                    status: 'executed',
+                })], false)}
+                onOpenGuide={() => undefined}
+            />,
+        );
+
+        expect(markup).toContain('aria-current="step"');
+        expect(markup).not.toContain('brutal-border-pulse');
     });
 });
 
 function item(
     stage: SlashingCase['state']['stage'],
     observations: Observation[],
+    active = stage !== 'expired',
 ): SlashingCase {
     return {
         id: `case:${stage}`,
@@ -61,7 +82,7 @@ function item(
             actualAmount: null,
             payloadAddress: null,
             round: '12',
-            active: stage !== 'expired',
+            active,
         },
     };
 }

@@ -1,17 +1,17 @@
-# Slashmon
+# slashveto.me
 
-Slashmon helps Aztec sequencer operators answer two questions:
+slashveto.me helps Aztec sequencer operators answer two questions:
 
 1. Is one of my sequencers beginning to move through the slashing process?
 2. What does confirmed L1 state say about slashing risk across the network?
 
-An operator enters one or more sequencer addresses. For each address, Slashmon
-should show a single, linked protocol path rather than a collection of unrelated
-events:
+An operator enters one or more sequencer addresses. For each address,
+slashveto.me should show a single, linked Slashing Timeline rather than a collection
+of unrelated events:
 
 ```text
-duty problem → local offense → L1 votes → candidate slash → executable
-             → executed → stake removed → possible ejection
+duty miss → node offense → L1 mention → candidate → execution delay
+          → executable → executed → stake removed → ejection
 ```
 
 That path can stop at any step. Examples include “one inactive epoch observed;
@@ -26,7 +26,7 @@ offense reason.
 | Surface | Data source | Purpose |
 | --- | --- | --- |
 | **Monitor** | Public Ethereum RPCs, queried by the browser | Backend-independent view of canonical contracts, rounds, votes, candidate actions, vetoes, execution, and actual slash logs. |
-| **PINGME** | Slashmon backend, one Aztec node, Ethereum RPCs | Earlier node and Sentinel warnings, linked per-sequencer history, realtime status, and Telegram or Web Push delivery. |
+| **PINGME** | slashveto.me backend, one Aztec node, Ethereum RPCs | Earlier node and Sentinel warnings, linked per-sequencer history, realtime status, and Telegram or Web Push delivery. |
 
 The overlap is intentional. Monitor must remain useful when
 `api.slashveto.me` or the attached Aztec node is unavailable. PINGME provides
@@ -34,10 +34,14 @@ continuity while a browser is closed and evidence that is not published to L1.
 Neither view is an oracle: local evidence is an observer's report, while L1
 reveals voting and stake outcomes but not the underlying offense.
 
-Both views expose the same active-case feed and educational protocol path.
+Both views expose the same case feed and educational Slashing Timeline.
 Watchlists can be shared as address-only URLs without exposing PINGME's private
 management capability. Individual cases retain a compact copy-link action for
 alerts and investigations.
+
+Watchlist rows collapse cases per sequencer and retain a compact stake and
+pending-amount summary. The public feed collapses only cases that share an
+exact payload address.
 
 ## Read this first
 

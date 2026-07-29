@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { slashmonApi } from '@/api/client';
+import { backendApi } from '@/api/client';
 import { loadWatchCredentials, onWatchChanged } from '@/lib/watchStorage';
 import type {
     BackendConfig,
@@ -51,7 +51,7 @@ export function useBackendMonitor(network: MonitorNetwork) {
         abortRef.current = controller;
         try {
             const watchRequest = credentials
-                ? slashmonApi.getWatch(
+                ? backendApi.getWatch(
                     credentials.id,
                     credentials.managementToken,
                     controller.signal,
@@ -66,9 +66,9 @@ export function useBackendMonitor(network: MonitorNetwork) {
                 )
                 : Promise.resolve({ watch: null, error: null });
             const [config, status, networkData, watchResult] = await Promise.all([
-                slashmonApi.getConfig(controller.signal),
-                slashmonApi.getStatus(controller.signal),
-                slashmonApi.getNetwork(controller.signal),
+                backendApi.getConfig(controller.signal),
+                backendApi.getStatus(controller.signal),
+                backendApi.getNetwork(controller.signal),
                 watchRequest,
             ]);
             if (controller.signal.aborted) return;
@@ -99,7 +99,7 @@ export function useBackendMonitor(network: MonitorNetwork) {
                 isLoading: false,
                 error: error instanceof Error
                     ? error.message
-                    : 'Unable to reach the Slashmon backend',
+                    : 'Unable to reach the slashveto.me backend',
                 lastReceivedAt: null,
             });
         }

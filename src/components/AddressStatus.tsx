@@ -1,34 +1,48 @@
+import { useState } from 'react';
 import {
     projectAddressStatus,
+    type Network,
     type ProtocolSnapshot,
     type SlashingCase,
 } from '../../shared/protocol/index.ts';
+import { formatAztec } from '../../shared/protocol/format.ts';
 import { CaseTimeline } from './CaseTimeline';
 import { CopyButton } from './CopyButton';
+import { SequencerLink } from './SequencerLink';
 
 export function AddressStatus({
     address,
+    network,
     cases,
     protocol,
     selectedCaseId,
     onOpenProtocolGuide,
 }: {
     address: string;
+    network: Network;
     cases: SlashingCase[];
     protocol: ProtocolSnapshot | null;
     selectedCaseId: string | null;
     onOpenProtocolGuide: (protocol: ProtocolSnapshot | null) => void;
 }) {
     const status = projectAddressStatus(address, cases);
+    const summary = summarizeSequencer(cases);
+    const containsSelectedCase = selectedCaseId !== null &&
+        cases.some((item) => item.id === selectedCaseId);
+    const [expanded, setExpanded] = useState(false);
+    const isExpanded = containsSelectedCase || expanded;
+
     return (
         <section className="border-6 border-chartreuse bg-malachite p-4 shadow-brutal-chartreuse sm:p-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
                     <p className="text-xs font-black uppercase text-chartreuse">Sequencer</p>
                     <div className="mt-1 flex min-w-0 items-center gap-2">
-                        <code className="min-w-0 break-all text-sm font-black text-whisper-white sm:text-base">
-                            {address}
-                        </code>
+                        <SequencerLink
+                            address={address}
+                            network={network}
+                            className="text-sm text-whisper-white sm:text-base"
+                        />
                         <CopyButton value={address} />
                     </div>
                     <h2 className="mt-4 text-2xl font-black text-whisper-white">
@@ -46,23 +60,111 @@ export function AddressStatus({
                 </span>
             </div>
 
+            <dl className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
+                <SummaryFact label="Open cases" value={String(summary.activeCases)} />
+                <SummaryFact label="Pending penalties" value={amount(summary.pendingAmount)} />
+                <SummaryFact label="Stake removed" value={amount(summary.removedAmount)} />
+                <SummaryFact
+                    label="Current stake"
+                    value={summary.currentStake === null
+                        ? 'Not available'
+                        : `${formatAztec(summary.currentStake)} AZTEC`}
+                />
+            </dl>
+
             {status.cases.length === 0 ? (
                 <p className="mt-4 border-3 border-aqua bg-lapis p-4 text-sm font-bold text-whisper-white/80">
                     No slashing evidence is linked to this address.
                 </p>
             ) : (
-                <div className="mt-6 grid gap-6">
-                    {status.cases.map((item) => (
-                        <CaseTimeline
-                            key={item.id}
-                            item={item}
-                            protocol={protocol}
-                            selected={selectedCaseId === item.id}
-                            onOpenProtocolGuide={onOpenProtocolGuide}
-                        />
-                    ))}
-                </div>
+                <details
+                    open={isExpanded}
+                    onToggle={(event) => {
+                        if (!containsSelectedCase) {
+                            setExpanded(event.currentTarget.open);
+                        }
+                    }}
+                    className="mt-4 border-t-3 border-chartreuse pt-3"
+                >
+                    <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-3 font-black uppercase text-chartreuse">
+                        <span>Case timelines</span>
+                        <span className="text-xs text-whisper-white/60">
+                            {isExpanded ? 'Hide' : 'Open'} · {status.cases.length} total
+                        </span>
+                    </summary>
+                    <div className="mt-4 grid gap-6">
+                        {status.cases.map((item) => (
+                            <CaseTimeline
+                                key={item.id}
+                                item={item}
+                                protocol={protocol}
+                                selected={selectedCaseId === item.id}
+                                onOpenProtocolGuide={onOpenProtocolGuide}
+                            />
+                        ))}
+                    </div>
+                </details>
             )}
         </section>
     );
+}
+
+export function summarizeSequencer(cases: readonly SlashingCase[]): {
+    activeCases: number;
+    pendingAmount: string | null;
+    removedAmount: string | null;
+    currentStake: string | null;
+} {
+    const pendingAmount = sumAmounts(cases
+        .filter((item) => item.state.active)
+        .map((item) => item.state.requestedAmount));
+    const removedAmount = sumAmounts(cases.map((item) => item.state.actualAmount));
+    const stakeObservations = cases.flatMap((item) => item.observations)
+        .filter((observation) =>
+            observation.provenance.canonical &&
+            observation.kind === 'stake_status')
+        .sort((left, right) =>
+            right.provenance.observedAt.localeCompare(left.provenance.observedAt));
+    const currentStake = stakeObservations
+        .map((observation) => readAmount(
+            observation.data.currentStake ??
+            observation.data.effectiveBalance ??
+            observation.data.postSlashStake,
+        ))
+        .find((value) => value !== null) ?? null;
+    return {
+        activeCases: cases.filter((item) => item.state.active).length,
+        pendingAmount,
+        removedAmount,
+        currentStake,
+    };
+}
+
+function SummaryFact({ label, value }: { label: string; value: string }) {
+    return (
+        <div className="border-3 border-chartreuse bg-brand-black p-2">
+            <dt className="text-[0.65rem] font-black uppercase text-chartreuse">{label}</dt>
+            <dd className="mt-1 break-words text-sm font-black text-whisper-white">{value}</dd>
+        </div>
+    );
+}
+
+function amount(value: string | null): string {
+    return value === null ? '—' : `${formatAztec(value)} AZTEC`;
+}
+
+function sumAmounts(values: Array<string | null>): string | null {
+    const amounts = values
+        .map(readAmount)
+        .filter((value): value is string => value !== null);
+    if (amounts.length === 0) return null;
+    return amounts
+        .reduce((total, value) => total + BigInt(value), 0n)
+        .toString();
+}
+
+function readAmount(value: unknown): string | null {
+    return typeof value === 'string' && /^\d+$/.test(value)
+        ? value
+        : null;
 }

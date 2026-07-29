@@ -1,4 +1,4 @@
-import { getSlashmonServiceWorker } from './serviceWorker';
+import { getPushServiceWorker } from './serviceWorker';
 
 export interface WebPushSubscriptionJson {
     endpoint: string;
@@ -39,7 +39,7 @@ export async function inspectPushCapability(): Promise<PushCapability> {
     const unavailable = inspectStaticPushCapability();
     if (unavailable) return unavailable;
 
-    const registration = await getSlashmonServiceWorker();
+    const registration = await getPushServiceWorker();
     const subscription = await registration.pushManager.getSubscription();
     return subscription ? 'enabled' : 'available';
 }
@@ -53,7 +53,7 @@ export async function enrollInWebPush(
     created: boolean;
 }> {
     if (!applicationServerKey.trim()) {
-        throw new Error('The Slashmon backend has not published a Web Push key');
+        throw new Error('The slashveto.me backend has not published a Web Push key');
     }
 
     assertPushEnvironmentAvailable();
@@ -69,7 +69,7 @@ export async function enrollInWebPush(
         await requestWebPushPermission();
     }
 
-    const registration = await getSlashmonServiceWorker();
+    const registration = await getPushServiceWorker();
     let existing = await registration.pushManager.getSubscription();
     const keyMatch = existing
         ? pushSubscriptionUsesApplicationServerKey(existing, applicationServerKey)
@@ -168,7 +168,7 @@ export async function getExistingPushSubscription(): Promise<PushSubscription | 
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
         return null;
     }
-    const registration = await getSlashmonServiceWorker();
+    const registration = await getPushServiceWorker();
     return registration.pushManager.getSubscription();
 }
 
@@ -248,7 +248,7 @@ function assertPushEnvironmentAvailable(): void {
         throw new Error('Web Push is not supported by this browser');
     }
     if (unavailable === 'install-required') {
-        throw new Error('Install Slashmon on your Home Screen before enabling Web Push');
+        throw new Error('Install slashveto.me on your Home Screen before enabling Web Push');
     }
     if (unavailable === 'permission-denied') {
         throw new Error('Notification permission is blocked in browser settings');

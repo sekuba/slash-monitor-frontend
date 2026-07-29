@@ -11,7 +11,7 @@ vi.mock('./hooks/useSlashingMonitor', () => ({
 describe('top-level view isolation', () => {
     beforeEach(() => {
         scannerSpy.mockClear();
-        installBrowser('https://slashmon.example/');
+        installBrowser('https://slashveto.example/');
     });
 
     afterEach(() => {
@@ -19,7 +19,7 @@ describe('top-level view isolation', () => {
     });
 
     it('renders PINGME and permanent navigation without initializing the client scanner', () => {
-        installBrowser('https://slashmon.example/?view=pingme&network=mainnet');
+        installBrowser('https://slashveto.example/?view=pingme&network=mainnet');
 
         const markup = renderToStaticMarkup(<App />);
 
@@ -32,7 +32,7 @@ describe('top-level view isolation', () => {
 
     it('opens a PINGME case link without starting the browser scanner', () => {
         installBrowser(
-            'https://slashmon.example/?view=pingme&case=case%3Amainnet%3Aactive%3A0xabc%3A42',
+            'https://slashveto.example/?view=pingme&case=case%3Amainnet%3Aactive%3A0xabc%3A42',
         );
 
         const markup = renderToStaticMarkup(<App />);
@@ -42,7 +42,7 @@ describe('top-level view isolation', () => {
     });
 
     it('treats removed and unknown views as the Monitor', () => {
-        installBrowser('https://slashmon.example/?view=unknown&network=testnet');
+        installBrowser('https://slashveto.example/?view=unknown&network=testnet');
 
         const markup = renderToStaticMarkup(<App />);
 
@@ -53,7 +53,7 @@ describe('top-level view isolation', () => {
     });
 
     it('uses the saved RPC override only for the selected Monitor network', () => {
-        installBrowser('https://slashmon.example/', {
+        installBrowser('https://slashveto.example/', {
             'slashmon:monitor-rpc:1': 'https://rpc.example/mainnet',
             'slashmon:monitor-rpc:11155111': 'https://rpc.example/testnet',
         });

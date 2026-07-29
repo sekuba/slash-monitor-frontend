@@ -7,6 +7,7 @@ import {
 import { EvidenceDetails } from './EvidenceDetails';
 import { urlForCase } from '@/lib/navigation';
 import { ProtocolPath } from './ProtocolPath';
+import { SequencerLink } from './SequencerLink';
 import { ShareButton } from './ShareButton';
 
 export function CaseTimeline({
@@ -51,9 +52,11 @@ export function CaseTimeline({
                         <ShareButton url={shareUrl} ariaLabel="Copy link to this case" />
                     </div>
                     {showSequencer && (
-                        <code className="mt-2 block break-all text-xs font-black text-chartreuse">
-                            {item.sequencer}
-                        </code>
+                        <SequencerLink
+                            address={item.sequencer}
+                            network={item.network}
+                            className="mt-2 block text-xs text-chartreuse"
+                        />
                     )}
                     <h3 className="mt-1 break-words text-xl font-black text-whisper-white sm:text-2xl">
                         {item.state.headline}

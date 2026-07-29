@@ -16,15 +16,15 @@ PINGME landing page.
 
 | Stage | What the alert may claim |
 | --- | --- |
-| Inactivity precursor | This node observed a missed duty or a qualifying inactive epoch. State the progress, such as `1 of 2`; this is not yet a node offense or L1 vote. |
+| Duty miss | This node observed a missed duty or a qualifying inactive epoch. State the progress, such as `1 of 2`; this is not yet a node offense or L1 vote. |
 | Node offense | This node registered a named offense and local penalty. It is not network consensus and has not necessarily been voted on L1. |
 | Awaiting target round | The node evidence maps to the stated future slashing round under current contract parameters. It may never receive a vote. |
-| L1 support | One or more onchain votes support a penalty unit for the address and exact target epoch. L1 supplies no reason. |
-| Candidate slash | The current tally yields an action and deterministic predicted payload address. The payload is not deployed and the tally can change until the round closes. |
-| Delayed / executable | The stable candidate is before or inside its execution window. State veto, pause, start, and expiry independently. |
-| Executed round | `executeRound` marked the round executed and, for a nonempty action list, deployed and called its payload. This does not by itself prove that stake was removed from this sequencer. |
+| L1 mention | One or more onchain votes mention the address and exact target epoch with a penalty unit. L1 supplies no reason. |
+| Candidate | The current tally yields an action and deterministic predicted payload address. The payload is not deployed and the tally can change until the round closes. |
+| Execution delay / executable | The stable candidate is before or inside its execution window. State veto, pause, start, and expiry independently. |
+| Executed | `executeRound` marked the round executed and, for a nonempty action list, deployed and called its payload. This does not by itself prove that stake was removed from this sequencer. |
 | Stake removed | A canonical Rollup `Slashed` log confirms the address and actual amount deducted. |
-| Ejected / exiting | Canonical stake state confirms removal from the active set or entry into the delayed exit flow. |
+| Ejection / exiting | Canonical stake state confirms removal from the active set or entry into the delayed exit flow. |
 | Vetoed / expired / reorged | The exact candidate was vetoed, its execution window ended, or prior L1 evidence left the canonical chain. Describe this as a state change, not as if the earlier warning never existed. |
 
 Never use “slash payload exists” before execution. Before then use “candidate
@@ -57,7 +57,7 @@ Every alert includes:
 - source observation time; current freshness is shown when the case opens;
 - actual AZTEC amount or candidate AZTEC amount, explicitly distinguished;
 - the next transition and countdown, when deterministic; and
-- the exact Slashmon case URL.
+- the exact slashveto.me case URL.
 
 Stage-specific evidence is:
 
@@ -81,7 +81,7 @@ Alert on meaningful path changes, not every poll:
 - first missed duty in an epoch;
 - newly qualifying inactive epoch or changed streak progress;
 - offense registration or safe withdrawal;
-- first L1 support and relevant support/penalty threshold crossings;
+- first L1 mention and relevant vote/penalty threshold crossings;
 - candidate addition, removal, amount change, or address change;
 - round close, execution start, veto, materially changed pause protection, or
   expiry;

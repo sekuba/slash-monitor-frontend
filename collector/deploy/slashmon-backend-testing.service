@@ -1,5 +1,5 @@
 [Unit]
-Description=Slashmon testing backend
+Description=slashveto.me testing backend
 Documentation=file:/opt/slashmon/testing/collector/README.md
 Wants=network-online.target
 After=network-online.target

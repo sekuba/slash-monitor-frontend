@@ -1,4 +1,4 @@
-# Aztec protocol model for Slashmon
+# Aztec protocol model for slashveto.me
 
 This document defines the protocol vocabulary that the monitor and its alerts
 must use. It focuses on the parts of Aztec v5 that determine a sequencer's
@@ -24,7 +24,7 @@ Ethereum RANDAO-derived randomness and the active validator set.
 | Slashing round | Window in which selected proposers cast slash votes | 128 slots / 4 epochs, 2h 33m 36s |
 
 These values describe the active deployment at the research date, not permanent
-network constants. Slashmon must display values read from the canonical
+network constants. slashveto.me must display values read from the canonical
 contracts.
 
 ## The sequencing path
@@ -59,7 +59,7 @@ state can itself create slashable evidence.
 | Proven | An accepted proof covers the checkpoint on L1. |
 | Finalized | The L1 transaction that established the proof has reached Ethereum finality. |
 
-For Slashmon, a local P2P or node observation is therefore an early signal, not
+For slashveto.me, a local P2P or node observation is therefore an early signal, not
 canonical L1 truth. Conversely, L1 can prove that a checkpoint, vote, or slash
 transaction occurred without revealing everything a node saw on P2P.
 
@@ -106,7 +106,7 @@ the separate Governance lifecycle.
 
 At the research snapshot the mainnet governance-proposer round is 1,000 slots
 with quorum 600. As with slashing parameters, those values belong to the
-responsible deployed contract. Slashmon does not need to turn general
+responsible deployed contract. slashveto.me does not need to turn general
 governance into a slashing case; it does need to decode a bundled sequencer
 transaction without mistaking its governance signal for a slash vote.
 
@@ -115,7 +115,7 @@ transaction without mistaking its governance signal for a slash vote.
 Aztec's rollup censorship-resistance escape hatch has designated windows that
 bypass normal committee sequencing. The reference node does not create normal
 Sentinel inactivity entries for those duties, and the SlashingProposer omits
-slash actions for target epochs whose escape hatch was open. Slashmon must not
+slash actions for target epochs whose escape hatch was open. slashveto.me must not
 present those epochs as ordinary missed committee duty.
 
 Contract upgrades also create active, pending, and legacy slashing stacks. A

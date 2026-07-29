@@ -14,7 +14,7 @@ The SQLite database contains:
 - public observations, projected cases and transitions, source checkpoints,
   and retry state.
 
-Slashmon never needs validator keys, seed phrases, wallet signatures, or an
+slashveto.me never needs validator keys, seed phrases, wallet signatures, or an
 Aztec keystore. Protect the database and backups as secrets. The systemd unit
 uses a private state directory and `UMask=0077`.
 
@@ -25,7 +25,7 @@ in the delivery outbox and never enter protocol history.
 
 ## Provider exposure
 
-- The Slashmon operator can read the database associations and normal server
+- The slashveto.me operator can read the database associations and normal server
   access metadata.
 - Telegram sees bot conversations, alert contents, recipients, and timing.
   Telegram bot chats are not end-to-end encrypted.
@@ -33,7 +33,7 @@ in the delivery outbox and never enter protocol history.
   push provider still sees routing and timing metadata. Notifications may be
   visible on a locked screen.
 - The HTTPS proxy can see IP addresses and request paths. Management tokens and
-  notification destinations are never placed in Slashmon URLs. Telegram
+  notification destinations are never placed in slashveto.me URLs. Telegram
   enrollment uses a short-lived, single-use token in the `t.me` link.
 
 Watchlist sharing is an explicit public action. The copied URL contains the

@@ -12,12 +12,12 @@ describe('ProtocolGuide', () => {
         expect(markup).toContain('Explained');
         expect(markup).toContain('Slashing Timeline');
         expect(markup).toContain('Node evidence');
-        expect(markup).toContain('L1 Payload');
+        expect(markup).toContain('L1 Voting');
         expect(markup).toContain('Slashing');
         for (const label of [
-            'Duty issue',
+            'Duty miss',
             'Node offense',
-            'L1 support',
+            'L1 mention',
             'Candidate',
             'Execution delay',
             'Executable',
@@ -28,6 +28,8 @@ describe('ProtocolGuide', () => {
             expect(markup).toContain(label);
         }
         expect(markup).toContain('Offenses');
+        expect(markup).toContain('Slash appeals');
+        expect(markup).toContain('https://github.com/aztec-slash-veto/council');
         expect(markup).not.toContain('Can stop here');
         expect(markup).not.toContain('Three facts that must stay separate');
         expect(markup).not.toContain('Exemplary');

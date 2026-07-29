@@ -1,18 +1,77 @@
+import type { CSSProperties } from 'react';
 import type { CaseStage, SlashingCase } from '../../shared/protocol/index.ts';
+import { PROTOCOL_TONES } from '@/lib/protocolTones';
 
 export const PROTOCOL_PATH: ReadonlyArray<{
     stage: CaseStage;
     label: string;
+    activeTone: string;
+    reachedTone: string;
+    pulseColor: string;
 }> = [
-    { stage: 'precursor', label: 'Duty issue' },
-    { stage: 'node_offense', label: 'Node offense' },
-    { stage: 'l1_support', label: 'L1 support' },
-    { stage: 'candidate', label: 'Candidate' },
-    { stage: 'delayed', label: 'Delay' },
-    { stage: 'executable', label: 'Executable' },
-    { stage: 'executed', label: 'Executed' },
-    { stage: 'stake_removed', label: 'Stake removed' },
-    { stage: 'ejected', label: 'Ejection' },
+    {
+        stage: 'precursor',
+        label: 'Duty miss',
+        activeTone: PROTOCOL_TONES.node.active,
+        reachedTone: PROTOCOL_TONES.node.surface,
+        pulseColor: PROTOCOL_TONES.node.pulseColor,
+    },
+    {
+        stage: 'node_offense',
+        label: 'Node offense',
+        activeTone: PROTOCOL_TONES.node.active,
+        reachedTone: PROTOCOL_TONES.node.surface,
+        pulseColor: PROTOCOL_TONES.node.pulseColor,
+    },
+    {
+        stage: 'l1_support',
+        label: 'L1 mention',
+        activeTone: PROTOCOL_TONES.voting.active,
+        reachedTone: PROTOCOL_TONES.voting.surface,
+        pulseColor: PROTOCOL_TONES.voting.pulseColor,
+    },
+    {
+        stage: 'candidate',
+        label: 'Candidate',
+        activeTone: PROTOCOL_TONES.voting.active,
+        reachedTone: PROTOCOL_TONES.voting.surface,
+        pulseColor: PROTOCOL_TONES.voting.pulseColor,
+    },
+    {
+        stage: 'delayed',
+        label: 'Delay',
+        activeTone: PROTOCOL_TONES.execution.active,
+        reachedTone: PROTOCOL_TONES.execution.surface,
+        pulseColor: PROTOCOL_TONES.execution.pulseColor,
+    },
+    {
+        stage: 'executable',
+        label: 'Executable',
+        activeTone: PROTOCOL_TONES.execution.active,
+        reachedTone: PROTOCOL_TONES.execution.surface,
+        pulseColor: PROTOCOL_TONES.execution.pulseColor,
+    },
+    {
+        stage: 'executed',
+        label: 'Executed',
+        activeTone: PROTOCOL_TONES.execution.active,
+        reachedTone: PROTOCOL_TONES.execution.surface,
+        pulseColor: PROTOCOL_TONES.execution.pulseColor,
+    },
+    {
+        stage: 'stake_removed',
+        label: 'Stake removed',
+        activeTone: PROTOCOL_TONES.outcome.active,
+        reachedTone: PROTOCOL_TONES.outcome.surface,
+        pulseColor: PROTOCOL_TONES.outcome.pulseColor,
+    },
+    {
+        stage: 'ejected',
+        label: 'Ejection',
+        activeTone: PROTOCOL_TONES.outcome.active,
+        reachedTone: PROTOCOL_TONES.outcome.surface,
+        pulseColor: PROTOCOL_TONES.outcome.pulseColor,
+    },
 ];
 
 const CURRENT_STEP: Partial<Record<CaseStage, number>> = {
@@ -43,7 +102,7 @@ export function ProtocolPath({
         <div className="mt-6">
             <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
                 <p className="text-xs font-black uppercase tracking-[0.14em] text-whisper-white/55">
-                    Slashing protocol path
+                    Slashing timeline
                 </p>
                 <button
                     type="button"
@@ -53,7 +112,7 @@ export function ProtocolPath({
                     Explain timeline →
                 </button>
             </div>
-            <ol className="grid gap-2 md:grid-cols-9" aria-label="Slashing protocol path">
+            <ol className="grid gap-2 md:grid-cols-9" aria-label="Slashing timeline">
                 {PROTOCOL_PATH.map((step, index) => {
                     const active = index === current;
                     const complete = !active && reached.has(step.stage);
@@ -62,11 +121,14 @@ export function ProtocolPath({
                             key={step.stage}
                             className={`min-w-0 border-3 p-2 text-xs font-black uppercase ${
                                 active
-                                    ? 'border-brand-black bg-vermillion text-brand-black'
+                                    ? step.activeTone
                                     : complete
-                                        ? 'border-chartreuse bg-malachite text-chartreuse'
+                                        ? step.reachedTone
                                         : 'border-whisper-white/30 text-whisper-white/45'
-                            }`}
+                            } ${active && item.state.active ? 'brutal-border-pulse' : ''}`}
+                            style={active && item.state.active
+                                ? { '--pulse-color': step.pulseColor } as CSSProperties
+                                : undefined}
                             aria-current={active ? 'step' : undefined}
                         >
                             <span className="mr-1">{complete ? '✓' : index + 1}</span>

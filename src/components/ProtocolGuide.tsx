@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { PROTOCOL_TONES } from '@/lib/protocolTones';
 import type { ProtocolSnapshot } from '../../shared/protocol/index.ts';
 
 const STAGES = [
@@ -7,63 +8,63 @@ const STAGES = [
         title: 'Duty miss',
         source: 'Sentinel · node evidence',
         detail: 'A proposer or committee duty was missed. For inactivity, consecutive epochs are tracked until the threshold is hit.',
-        tone: 'border-orchid bg-aubergine text-orchid',
+        tone: PROTOCOL_TONES.node.surface,
     },
     {
         number: '02',
         title: 'Node offense',
         source: 'Aztec node · local policy',
         detail: 'The node records an offense and penalty after applying its evidence rules, exemptions, grace period, and allow/deny policy.',
-        tone: 'border-orchid bg-aubergine text-orchid',
+        tone: PROTOCOL_TONES.node.surface,
     },
     {
         number: '03',
         title: 'L1 mention',
         source: 'SlashingProposer · Ethereum',
         detail: 'Selected checkpoint proposers vote on penalties for committee positions in older target epochs. Support is counted for each validator and penalty level. The offense reason stays with the node evidence.',
-        tone: 'border-aqua bg-lapis text-aqua',
+        tone: PROTOCOL_TONES.voting.surface,
     },
     {
         number: '04',
         title: 'Candidate',
         source: 'Calculated from the live L1 tally',
         detail: 'Quorum produces a candidate action and predicted payload address. While voting is open, later ballots can change the action set, amount, and address.',
-        tone: 'border-aqua bg-lapis text-aqua',
+        tone: PROTOCOL_TONES.voting.surface,
     },
     {
         number: '05',
         title: 'Execution delay',
         source: 'Stable L1 tally · council review',
         detail: 'When voting closes, the candidate becomes stable. The execution delay gives the Slash Veto Council time to review it.',
-        tone: 'border-vermillion bg-oxblood text-vermillion',
+        tone: PROTOCOL_TONES.execution.surface,
     },
     {
         number: '06',
         title: 'Executable',
         source: 'Slasher · Ethereum',
         detail: 'The delay has elapsed and the candidate is inside its execution window. A selected proposer usually executes it, though the contract permits another caller.',
-        tone: 'border-vermillion bg-oxblood text-vermillion',
+        tone: PROTOCOL_TONES.execution.surface,
     },
     {
         number: '07',
         title: 'Executed',
         source: 'RoundExecuted · Ethereum log',
         detail: 'RoundExecuted confirms the round and its final action list were executed.',
-        tone: 'border-vermillion bg-oxblood text-vermillion',
+        tone: PROTOCOL_TONES.execution.surface,
     },
     {
         number: '08',
         title: 'Stake removed',
         source: 'Rollup Slashed · Ethereum log',
         detail: 'A canonical Slashed log confirms the sequencer and the amount deducted.',
-        tone: 'border-chartreuse bg-malachite text-chartreuse',
+        tone: PROTOCOL_TONES.outcome.surface,
     },
     {
         number: '09',
         title: 'Ejection',
         source: 'Rollup / GSE stake state',
         detail: 'When the remaining balance falls below the local threshold, the validator leaves the active set. Its remaining stake enters the delayed exit flow.',
-        tone: 'border-chartreuse bg-malachite text-chartreuse',
+        tone: PROTOCOL_TONES.outcome.surface,
     },
 ] as const;
 
@@ -221,6 +222,15 @@ export function ProtocolGuide({
                             </ul>
                         </article>
                     </section>
+
+                    <a
+                        href="https://github.com/aztec-slash-veto/council"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="brutal-button brutal-button--aqua mt-7"
+                    >
+                        Slash appeals ↗
+                    </a>
                 </div>
             </section>
         </div>

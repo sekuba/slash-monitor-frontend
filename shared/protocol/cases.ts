@@ -150,18 +150,18 @@ export function summarizeNetwork(
 
 export function stageLabel(stage: CaseStage): string {
     return {
-        precursor: 'Early warning',
+        precursor: 'Duty miss',
         node_offense: 'Node offense',
         awaiting_round: 'Awaiting L1 round',
-        l1_support: 'L1 support',
-        candidate: 'Candidate slash',
+        l1_support: 'L1 mention',
+        candidate: 'Candidate',
         delayed: 'Execution delay',
-        executable: 'Executable now',
+        executable: 'Executable',
         vetoed: 'Vetoed candidate',
         expired: 'Expired',
-        executed: 'Round executed',
+        executed: 'Executed',
         stake_removed: 'Stake removed',
-        ejected: 'Ejected',
+        ejected: 'Ejection',
         resolved: 'Resolved locally',
         reorged: 'L1 correction',
     }[stage];
@@ -387,7 +387,7 @@ function roundState(observation: Observation, reason: CaseReason): CaseState {
         return state(
             'executable',
             'critical',
-            amount ? `${formatAztec(amount)} AZTEC candidate is executable now` : 'Candidate slash is executable now',
+            amount ? `${formatAztec(amount)} AZTEC candidate is executable now` : 'Candidate is executable now',
             readBoolean(data.isExecutionPaused)
                 ? 'Execution is currently paused, but the candidate remains inside its execution window.'
                 : 'The execution delay has passed and the candidate has not expired.',
@@ -404,7 +404,7 @@ function roundState(observation: Observation, reason: CaseReason): CaseState {
         return state(
             stable ? 'delayed' : 'candidate',
             'critical',
-            `${formatAztec(amount)} AZTEC candidate slash`,
+            `${formatAztec(amount)} AZTEC candidate`,
             stable
                 ? 'Voting has closed. The candidate is waiting for its execution window.'
                 : 'The current tally has an action, but it can still change until the voting round closes.',
@@ -423,7 +423,7 @@ function roundState(observation: Observation, reason: CaseReason): CaseState {
         quorum
             ? `${support} of ${quorum} L1 ballots support a penalty`
             : `${support} L1 ballot${support === 1 ? '' : 's'} support a penalty`,
-        'L1 support is visible, but the tally does not currently produce a candidate action.',
+        'The sequencer is mentioned in L1 voting. The tally does not currently produce a candidate action.',
         reason,
         true,
         common,

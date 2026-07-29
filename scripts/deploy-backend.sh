@@ -15,7 +15,7 @@ Usage: scripts/deploy-backend.sh --fresh
        scripts/deploy-backend.sh --testing --upgrade
        scripts/deploy-backend.sh --testing --reset-db
 
-Deploy the checked-out Slashmon backend from a clean commit.
+Deploy the checked-out slashveto.me backend from a clean commit.
 
 Production is the default target. --testing deploys an isolated backend that
 runs alongside production on the port in /etc/slashmon-backend-testing.env.
@@ -105,7 +105,7 @@ repo_root="$(cd -- "$script_dir/.." && pwd)"
 cd -- "$repo_root"
 
 if [[ "$(git rev-parse --show-toplevel)" != "$repo_root" ]]; then
-  echo "The script must remain inside the Slashmon repository: $repo_root" >&2
+  echo "The script must remain inside the backend repository: $repo_root" >&2
   exit 1
 fi
 if [[ -n "$(git status --porcelain)" ]]; then
@@ -365,7 +365,7 @@ if [[ "$mode" == '--upgrade' || "$mode" == '--reset-db' ]]; then
     sudo rm -f -- "$database" "${database}-wal" "${database}-shm"
   fi
 else
-  echo "Permanently removing Slashmon $target state..."
+  echo "Permanently removing slashveto.me $target state..."
   if [[ "$target" == 'production' ]] && sudo systemctl cat "$old_service" >/dev/null 2>&1; then
     sudo systemctl stop "$old_service"
     sudo systemctl disable "$old_service" >/dev/null 2>&1 || true
@@ -404,7 +404,7 @@ fi
 
 sudo ln -sfn "$release_path" "$current_link"
 if curl --fail --silent --max-time 2 "$local_api/live" >/dev/null 2>&1; then
-  echo "Refusing to start $new_service: another Slashmon backend is already listening at $local_api." >&2
+  echo "Refusing to start $new_service: another slashveto.me backend is already listening at $local_api." >&2
   exit 1
 fi
 sudo systemctl enable --now "$new_service"
@@ -426,11 +426,11 @@ if [[ "$live" != true ]] || ! sudo systemctl is-active --quiet "$new_service"; t
 fi
 
 if [[ "$mode" == '--upgrade' ]]; then
-  echo "Slashmon $target backend $revision is live. Database backup: $backup_path"
+  echo "slashveto.me $target backend $revision is live. Database backup: $backup_path"
 elif [[ "$mode" == '--reset-db' ]]; then
-  echo "Slashmon $target backend $revision is live with a reset database. Previous database: $backup_path"
+  echo "slashveto.me $target backend $revision is live with a reset database. Previous database: $backup_path"
 else
-  echo "Slashmon $target backend $revision is live with a fresh database."
+  echo "slashveto.me $target backend $revision is live with a fresh database."
 fi
 curl --fail --silent "$local_api/live"
 echo

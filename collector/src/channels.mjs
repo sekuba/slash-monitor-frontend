@@ -45,7 +45,7 @@ export class WebPushChannel {
     const payload = JSON.stringify({
       title: event.title,
       body: formatNotificationBody(event).slice(0, 600),
-      tag: `slashmon-${event.id}`,
+      tag: `slashveto-${event.id}`,
       icon: './favicon.svg',
       badge: './favicon.svg',
       data: {
@@ -336,7 +336,7 @@ export class TelegramChannel {
     const icon = event.severity === 'critical' ? '🚨' : event.severity === 'warning' ? '⚠️' : '🛰️';
     const url = new URL(notificationPath(event), this.publicUrl).toString();
     const references = [
-      `Slashmon case: ${url}`,
+      `slashveto.me case: ${url}`,
       ...dashtecReferenceLines(event),
       ...etherscanReferenceLines(event),
     ];

@@ -28,7 +28,7 @@ test('v3 API exposes current cases and capability-authenticated watches only', a
     repository,
     host: '127.0.0.1',
     port: 0,
-    corsOrigin: 'https://slashmon.example',
+    corsOrigin: 'https://slashveto.example',
     network: 'mainnet',
     maxSequencers: 2,
     logger: silentLogger,
@@ -78,7 +78,7 @@ test('v3 API exposes current cases and capability-authenticated watches only', a
   });
   assert.equal(updated.response.status, 200);
   assert.deepEqual(updated.body.addresses, [SEQUENCER_A, SEQUENCER_B]);
-  assert.equal(updated.response.headers.get('access-control-allow-origin'), 'https://slashmon.example');
+  assert.equal(updated.response.headers.get('access-control-allow-origin'), 'https://slashveto.example');
 
   const removedApi = await json(base, '/api/v2/network');
   assert.equal(removedApi.response.status, 404);
@@ -100,7 +100,7 @@ test('v3 API links an encoded case id without an event-feed lookup', async (t) =
     repository,
     host: '127.0.0.1',
     port: 0,
-    corsOrigin: 'https://slashmon.example',
+    corsOrigin: 'https://slashveto.example',
     network: 'mainnet',
     logger: silentLogger,
   });

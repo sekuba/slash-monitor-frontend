@@ -160,9 +160,9 @@ export class TelegramBot {
         response = changed ? 'Alerts resumed.' : undefined;
       } else if (command === '/delete') {
         const changed = this.repository.deleteTelegramEndpoint(chatId, this.now());
-        response = changed ? 'Telegram disconnected. Slashmon kept no chat endpoint behind.' : undefined;
+        response = changed ? 'Telegram disconnected. No chat endpoint was retained.' : undefined;
       } else if (command === '/test') {
-        response = '🛰️ Test received. Slashmon can reach this chat.';
+        response = '🛰️ Test received. slashveto.me can reach this chat.';
       } else if (command === '/help') {
         response = helpText();
       }
@@ -258,7 +258,7 @@ function formatAddresses(addresses) {
 
 function helpText() {
   return [
-    'Slashmon follows each sequencer from early node evidence through L1 slashing and ejection.',
+    'slashveto.me follows each sequencer from early node evidence through L1 slashing and ejection.',
     '',
     '/list — show the linked watch',
     '/pause — silence Telegram alerts',

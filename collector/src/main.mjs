@@ -178,7 +178,7 @@ async function main() {
   const shutdown = async (reason) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    logger.info('Slashmon backend shutting down', { reason });
+    logger.info('slashveto.me backend shutting down', { reason });
     await Promise.allSettled([
       ...workers.map(([, worker]) => worker.stop()),
       api.close(),
@@ -217,7 +217,7 @@ main().catch((error) => {
   process.stderr.write(`${JSON.stringify({
     timestamp: new Date().toISOString(),
     level: 'error',
-    message: 'Slashmon backend failed',
+    message: 'slashveto.me backend failed',
     data: { error: errorMessage(error) },
   })}\n`);
   process.exitCode = 1;

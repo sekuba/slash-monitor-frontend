@@ -1,4 +1,4 @@
-# Slashmon v3 architecture record
+# slashveto.me v3 architecture record
 
 Status: implemented as a clean break in July 2026. This document remains the
 opinionated product and engineering contract for later changes.
@@ -10,8 +10,8 @@ V3 is a clean rewrite around one user question:
 > Where is each of my sequencers on the slashing path, why might it be there,
 > and what happens next?
 
-Slashmon is an educational early-warning product, not an event explorer. Its
-primary object is a per-sequencer **slashing case** with a plain-language
+slashveto.me is an educational early-warning product. Its primary object is a
+per-sequencer **slashing case** with a plain-language
 headline, protocol timeline, next transition, and evidence provenance.
 
 V3 has no backwards-compatibility requirement. It uses a new API and an empty
@@ -46,10 +46,10 @@ card with:
 - the next transition and countdown; and
 - source freshness and notification state.
 
-Opening a case shows the shared protocol path:
+Opening a case shows the shared Slashing Timeline:
 
 ```text
-duty issue → node offense → target round → L1 support → candidate
+duty miss → node offense → target round → L1 mention → candidate
            → delayed → executable → executed → stake removed → ejection
 ```
 
@@ -57,8 +57,8 @@ Completed stages show evidence, the current stage explains why it matters, and
 stopped branches explain why the case did not progress. Reasons always say
 `node evidence`; L1-only cases say `reason unknown on L1`.
 
-The network view summarizes current cases, not event volume: local precursors
-and offenses, L1 support, stake at risk, execution windows, actual deductions,
+The network view summarizes current cases: duty misses and offenses, L1
+mentions, stake at risk, execution windows, actual deductions,
 ejections, and source health. Its active feed excludes expired and locally
 resolved history while retaining a bounded set of recent execution outcomes.
 
@@ -176,17 +176,32 @@ PINGME receives projected cases. Monitor feeds browser-collected L1
 observations through the same reducer. Raw evidence is progressive disclosure:
 users need not understand vote words, round offsets, or payload clones to read
 the headline, but those facts remain available and linked to Etherscan.
+Visible sequencer addresses link to the matching Dashtec network.
+Watchlist cases appear before the public case feed. PINGME places source health
+last because it describes the reliability of the whole page.
+
+Each watchlist sequencer is one compact expandable row. Its closed state shows
+the most urgent headline, open-case count, pending requested amount, confirmed
+stake removed, and current stake when a canonical source provides it. The feed
+groups cases only when they share the same exact payload address. Pre-payload
+node evidence stays in separate groups. Payload groups are ordered by descending
+slashing round, with pre-payload evidence following in most-recent order.
+
+The current live stage pulses while a case remains active, with reduced-motion
+preferences respected. The feed shows the current slashing round and progress
+through its current epoch from the live protocol snapshot.
 
 ### Visual and mobile invariants
 
-V3 keeps Slashmon's existing neobrutalist identity. This is a re-architecture,
-not a visual rebrand:
+V3 keeps slashveto.me's existing neobrutalist identity:
 
 - preserve the brand-black and whisper-white base with chartreuse, aqua,
   orchid, vermillion, malachite, lapis, aubergine, and oxblood;
 - preserve square corners, heavy keylines, hard unblurred shadows, uppercase
   typography, and physical button motion;
-- use the bright colors consistently for source, status, and urgency; and
+- use orchid for node evidence, aqua for L1 voting and candidates, vermillion
+  for execution, and chartreuse for stake outcomes;
+- reserve health and urgency colors for explicit health and urgency states; and
 - do not replace the design with rounded, muted, generic dashboard components.
 
 Every screen is mobile-first. At 320px and above, address cards, case timelines,

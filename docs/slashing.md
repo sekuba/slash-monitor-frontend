@@ -4,7 +4,7 @@ Aztec v5 slashing is not one event. It is a path from local observations,
 through delayed L1 voting, to an optional stake deduction:
 
 ```text
-precursor ──→ node offense ──→ target vote round ──→ L1 support
+duty miss ──→ node offense ──→ target vote round ──→ L1 mention
    │               │                 │                    │
    └─ resolved     └─ withdrawn      └─ no support        ↓
           candidate action ──→ delay ──→ executable ──→ execution
@@ -15,10 +15,10 @@ precursor ──→ node offense ──→ target vote round ──→ L1 suppor
                                                               └─ ejection?
 ```
 
-Slashmon's main job is to place each watched sequencer at the furthest
+slashveto.me's main job is to place each watched sequencer at the furthest
 supported point on this path, show the time to the next transition, and retain
-the evidence behind every earlier step. It must not imply that every precursor
-will reach L1 or that every executed round removed stake.
+the evidence behind every earlier step. A duty miss may end before L1 voting,
+and an executed round may complete without removing stake.
 
 ## The lifecycle
 
@@ -28,7 +28,7 @@ Aztec nodes watch P2P messages, checkpoint data, attestations, and local duty
 history. Sentinel is the node component that records whether selected
 validators fulfilled their proposer or committee duties.
 
-A first missed duty or one inactive epoch is a **precursor**. It can justify an
+A first missed duty or one inactive epoch is a **duty miss**. It can justify an
 early operator warning without being a slash offense. Each node applies its own
 configured threshold, consecutive-epoch requirement, grace period, penalties,
 and exemptions before registering an offense.
@@ -58,7 +58,7 @@ not enforced by the L1 SlashingProposer:
 - local offenses expire and ballot construction has a configured size bound.
 
 These controls change one node's evidence feed or ballot. They do not grant
-onchain immunity: other selected proposers apply their own policies. Slashmon
+onchain immunity: other selected proposers apply their own policies. slashveto.me
 should surface the relevant runtime policy without treating it as a network
 rule.
 
@@ -109,7 +109,7 @@ therefore have more than one action in a round.
 ### 3. The tally produces candidate actions
 
 As votes arrive, anyone can calculate the current action list and its
-deterministic payload address. This is a **candidate slash**. During the voting
+deterministic payload address. This is a **candidate**. During the voting
 round its actions, amounts, and predicted address can still change.
 
 No payload contract has been deployed at this point. “Payload proposed” is
@@ -164,7 +164,7 @@ operation.
 entries. It does not prove that every requested amount was deducted: an action
 can find a validator no longer slashable. The canonical Rollup
 `Slashed(attester, amount)` log is the source of truth for actual stake
-removed. Slashmon should correlate those logs to the execution transaction and
+removed. slashveto.me should correlate those logs to the execution transaction and
 never substitute the candidate amount.
 
 ## The ten v5 offense types
@@ -214,7 +214,7 @@ not an L1 constant.
 
 The researched reference mainnet preset is a 70% missed-duty target across two
 committee-participating epochs. On 2026-07-29, the node attached to the
-Slashmon backend reported an 80% target and the same two-epoch requirement.
+slashveto.me backend reported an 80% target and the same two-epoch requirement.
 That legitimate override is why the UI must display the runtime policy beside
 the progression.
 
@@ -223,7 +223,7 @@ the progression.
 An L1 action can be linked reliably to its validator, target epoch, round,
 penalty unit, and amount. Its **reason remains unknown on L1**.
 
-Slashmon may attach a possible reason only as correlated node evidence when:
+slashveto.me may attach a possible reason only as correlated node evidence when:
 
 1. the sequencer address is identical;
 2. the evidence belongs to one of the action's exact target epochs (or its
@@ -309,3 +309,7 @@ for an event determines which values apply.
 - [Offense enum](https://github.com/AztecProtocol/aztec-packages/blob/def7152aa13dc0f880f24e45ce39442908170878/yarn-project/stdlib/src/slashing/types.ts)
 - [Vote construction](https://github.com/AztecProtocol/aztec-packages/blob/def7152aa13dc0f880f24e45ce39442908170878/yarn-project/stdlib/src/slashing/votes.ts)
 - [Reference network presets](https://github.com/AztecProtocol/aztec-packages/blob/def7152aa13dc0f880f24e45ce39442908170878/spartan/environments/network-defaults.yml)
+
+## Slash appeals
+
+[Open the Slash Veto Council repository](https://github.com/aztec-slash-veto/council).

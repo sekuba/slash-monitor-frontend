@@ -83,7 +83,7 @@ export class CaseApiServer {
   }
 
   async handle(request, response) {
-    const url = new URL(request.url ?? '/', 'http://slashmon.invalid');
+    const url = new URL(request.url ?? '/', 'http://backend.invalid');
     this.setCors(response);
     if (request.method === 'OPTIONS') {
       response.writeHead(204);
@@ -386,7 +386,7 @@ export class CaseApiServer {
       error: {
         code: error?.code ?? 'internal_error',
         message: safeStatus === 500
-          ? 'The Slashmon backend could not complete this request'
+          ? 'The slashveto.me backend could not complete this request'
           : String(error.message),
       },
     });

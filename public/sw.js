@@ -1,7 +1,7 @@
-/* Slashmon's service worker is deliberately push-only. Monitor API responses are
+/* The service worker is deliberately push-only. Monitor API responses are
  * never cached: stale slashing data must look stale, not quietly look current. */
 
-const APP_NAME = 'Slashmon';
+const APP_NAME = 'slashveto.me';
 const ICON_PATH = new URL('favicon.svg', self.registration.scope).href;
 
 self.addEventListener('install', () => {
@@ -75,7 +75,7 @@ function buildNotification(payload) {
   const url = typeof payload.url === 'string'
     ? payload.url
     : typeof metadata.url === 'string' ? metadata.url : '';
-  const tag = safeIdentifier(payload.tag) || caseId || `slashmon-${network}`;
+  const tag = safeIdentifier(payload.tag) || caseId || `slashveto-${network}`;
 
   return {
     title,

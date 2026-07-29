@@ -1,4 +1,4 @@
-# Slashmon v3 backend
+# slashveto.me v3 backend
 
 This process powers PINGME. It combines three explicitly labelled evidence
 sources into per-sequencer slashing cases:
@@ -33,7 +33,7 @@ Node 24 is required. The main settings are:
 | Process | database path, bind host/port, exact CORS origin, proxy trust, log level |
 
 The public and admin URLs must belong to the same node. Before accepting node
-evidence, Slashmon verifies its chain, Registry, and Rollup against L1. Missing
+evidence, slashveto.me verifies its chain, Registry, and Rollup against L1. Missing
 offenses are withdrawn only after a fresh, non-regressing sync cursor advances
 past them.
 

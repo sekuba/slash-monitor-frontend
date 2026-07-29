@@ -130,8 +130,6 @@ export function BackendOverview({
                 protocol={protocol}
             />
 
-            <SourceStatus sources={monitor.networkData.sources} />
-
             {selectedCase && !selectedIsVisible && (
                 <section className="mb-8">
                     <p className="mb-3 text-xs font-black uppercase tracking-[0.16em] text-aqua">
@@ -154,12 +152,13 @@ export function BackendOverview({
                 onWatchlistChange={onWatchlistChange}
             />
 
-            {watchedAddresses.length > 0 ? (
+            {watchedAddresses.length > 0 && (
                 <div className="mb-10 grid gap-8">
                     {watchedAddresses.map((address) => (
                         <AddressStatus
                             key={address}
                             address={address}
+                            network={network}
                             cases={watchedCases.filter(
                                 (item) => item.sequencer === address.toLowerCase(),
                             )}
@@ -169,16 +168,6 @@ export function BackendOverview({
                         />
                     ))}
                 </div>
-            ) : (
-                <section className="mb-8 border-5 border-orchid bg-aubergine p-6 shadow-brutal-orchid">
-                    <h2 className="text-2xl font-black text-orchid">
-                        Start with your sequencer addresses
-                    </h2>
-                    <p className="mt-2 max-w-3xl text-sm font-bold text-whisper-white/80">
-                        PINGME links node evidence and L1 events into one timeline for
-                        each sequencer and target epoch.
-                    </p>
-                </section>
             )}
 
             <CaseFeed
@@ -188,6 +177,8 @@ export function BackendOverview({
                 evidenceMode="backend"
                 onOpenProtocolGuide={onOpenProtocolGuide}
             />
+
+            <SourceStatus sources={monitor.networkData.sources} />
         </>
     );
 }

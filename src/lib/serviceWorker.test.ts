@@ -22,30 +22,30 @@ function loadWorker(scope: string, clients: Record<string, unknown> = {}) {
 
 describe('Web Push notification targets', () => {
     it('opens an exact notification case in the matching PINGME view', () => {
-        const target = loadWorker('https://slashmon.example/app/').buildTarget({
+        const target = loadWorker('https://slashveto.example/app/').buildTarget({
             caseId: 'case:testnet:lineage:sequencer:42',
             network: 'testnet',
             url: '?view=pingme&network=testnet&case=case%3Atestnet%3Alineage%3Asequencer%3A42',
         });
 
         expect(target).toBe(
-            'https://slashmon.example/app/?view=pingme&network=testnet&case=case%3Atestnet%3Alineage%3Asequencer%3A42',
+            'https://slashveto.example/app/?view=pingme&network=testnet&case=case%3Atestnet%3Alineage%3Asequencer%3A42',
         );
     });
 
     it('rejects cross-origin and out-of-scope payload targets', () => {
-        const { buildTarget } = loadWorker('https://slashmon.example/app/');
+        const { buildTarget } = loadWorker('https://slashveto.example/app/');
 
         expect(buildTarget({
             caseId: 'case:mainnet:one',
             network: 'mainnet',
             url: 'https://attacker.example/steal',
-        })).toBe('https://slashmon.example/app/?view=pingme&network=mainnet&case=case%3Amainnet%3Aone');
+        })).toBe('https://slashveto.example/app/?view=pingme&network=mainnet&case=case%3Amainnet%3Aone');
         expect(buildTarget({
             caseId: 'case:mainnet:two',
             network: 'mainnet',
-            url: 'https://slashmon.example/admin/',
-        })).toBe('https://slashmon.example/app/?view=pingme&network=mainnet&case=case%3Amainnet%3Atwo');
+            url: 'https://slashveto.example/admin/',
+        })).toBe('https://slashveto.example/app/?view=pingme&network=mainnet&case=case%3Amainnet%3Atwo');
     });
 
     it('navigates an in-scope app client to the exact PINGME case on click', async () => {
@@ -54,12 +54,12 @@ describe('Web Push notification targets', () => {
         const outsideNavigate = vi.fn(async () => undefined);
         const clients = {
             matchAll: vi.fn(async () => [
-                { url: 'https://slashmon.example/other/', navigate: outsideNavigate, focus },
-                { url: 'https://slashmon.example/app/', navigate, focus },
+                { url: 'https://slashveto.example/other/', navigate: outsideNavigate, focus },
+                { url: 'https://slashveto.example/app/', navigate, focus },
             ]),
             openWindow: vi.fn(async () => undefined),
         };
-        const { listeners } = loadWorker('https://slashmon.example/app/', clients);
+        const { listeners } = loadWorker('https://slashveto.example/app/', clients);
         let clickWork: Promise<unknown> | undefined;
 
         listeners.get('notificationclick')?.({
@@ -73,7 +73,7 @@ describe('Web Push notification targets', () => {
 
         expect(outsideNavigate).not.toHaveBeenCalled();
         expect(navigate).toHaveBeenCalledWith(
-            'https://slashmon.example/app/?view=pingme&network=mainnet&case=case%3Amainnet%3Alineage%3Asequencer%3A77',
+            'https://slashveto.example/app/?view=pingme&network=mainnet&case=case%3Amainnet%3Alineage%3Asequencer%3A77',
         );
         expect(clients.openWindow).not.toHaveBeenCalled();
     });

@@ -1,11 +1,11 @@
 # Monitor architecture
 
-Slashmon is a watcher, not an oracle. Its product goal is to give an Aztec
-operator:
+slashveto.me watches and links protocol evidence. Its product goal is to give
+an Aztec operator:
 
 - the earliest defensible warning that one of their sequencers may be moving
   toward a slash;
-- a realtime, per-sequencer position on the slashing protocol path;
+- a realtime, per-sequencer position on the Slashing Timeline;
 - the next known transition and its deadline;
 - the evidence and certainty behind a possible offense reason; and
 - an aggregate feed of active network slashing and offense health.
@@ -25,7 +25,7 @@ Monitor ── browser ── public Ethereum RPCs
    │
    └── independent when backend or Aztec node is unavailable
 
-PINGME ── browser ── Slashmon backend ─┬─ one Aztec node + admin RPC
+PINGME ── browser ── slashveto.me backend ─┬─ one Aztec node + admin RPC
                                       ├─ public Ethereum RPCs
                                       ├─ case store + durable outbox
                                       └─ Telegram / Web Push
@@ -39,13 +39,13 @@ pinned L1 block. It reads public votes, tallies, candidate action sets,
 predicted payload addresses, vetoes, pauses, execution windows, executions,
 and actual `Slashed` logs.
 
-It does not call the Slashmon API, depend on a backend snapshot, or possess
+It does not call the slashveto.me API, depend on a backend snapshot, or possess
 notification credentials. A user can enter their addresses again and recover
 the L1 portion of each case when the backend is unavailable.
 
 Its unavoidable limitations are visible:
 
-- an L1-only case starts at voting; it cannot see duty precursors or node
+- an L1-only case starts at voting; it cannot see duty misses or node
   offenses;
 - it cannot state an offense reason because the vote does not encode one;
 - public RPC history, log limits, latency, and outages constrain its view; and
@@ -70,8 +70,8 @@ Its limitations must also remain visible:
 
 ### Shared presentation, separate availability
 
-The routes share their visual language: network health, the active-case feed,
-address cards, abbreviated case path, full educational lifecycle, and evidence
+The routes share their visual language: network health, the case feed,
+address cards, abbreviated case path, Slashing Timeline, and evidence
 details are the same components. Their collectors stay separate. This avoids
 coupling backend availability to the browser collector or starting the
 browser scanner merely because PINGME is unavailable.
@@ -91,7 +91,7 @@ does not suppress the public network feed.
 
 ## The slashing-case model
 
-A case is a Slashmon projection, not an Aztec onchain object. It groups facts
+A case is a slashveto.me projection, not an Aztec onchain object. It groups facts
 about one sequencer and one protocol exposure while retaining their original
 source records.
 
@@ -131,7 +131,7 @@ Linking must be deterministic and conservative:
    address and exact epoch. Consecutive status follows the node's own
    committee-participation rules and coverage generation; unknown gaps never
    extend a streak.
-2. A node offense links to precursor evidence only for the same address and
+2. A node offense links to duty evidence only for the same address and
    compatible exact epoch or slot. The raw observations remain independently
    inspectable.
 3. Node evidence may be attached to an L1 action only for the same address and
@@ -159,12 +159,12 @@ The shared vocabulary is:
 
 ```text
 observing
-  → precursor
+  → duty miss
   → node offense
   → awaiting target round
-  → L1 support
+  → L1 mention
   → candidate
-  → delayed
+  → execution delay
   → executable
   → executed
   → stake removed
@@ -172,7 +172,7 @@ observing
 ```
 
 Possible terminal or side states include `resolved locally`, `withdrawn by
-node`, `insufficient L1 support`, `candidate changed`, `vetoed`, `paused`,
+node`, `insufficient L1 votes`, `candidate changed`, `vetoed`, `paused`,
 `expired`, `execution without deduction`, and `reorged`. “Paused” is not
 terminal unless the known pause covers the complete remaining execution
 window.
@@ -180,6 +180,18 @@ window.
 The most urgent active case determines the address-level headline. The full
 history remains available because one sequencer can have cases in several
 target epochs at once.
+
+Watchlist rows summarize one sequencer before expanding its cases: open-case
+count, pending requested amount, confirmed stake removed, and current stake
+when indexed. The public feed collapses cases by exact payload address. Cases
+without a payload remain separate because shared timing or stage does not prove
+that they belong to one L1 action. Payload groups are ordered by descending
+slashing round; pre-payload groups follow in most-recent order.
+
+An active case pulses at its current Slashing Timeline stage. Terminal cases
+remain still. The feed also derives the current round and current-epoch progress
+from the live slot and responsible lineage parameters.
+Visible sequencer addresses open the matching mainnet or testnet Dashtec page.
 
 ## Evidence and certainty
 
@@ -243,7 +255,7 @@ can repeat after a crash; stable transition IDs identify that duplicate.
 The network overview should aggregate **cases and protocol state**, not raw
 event counts:
 
-- sequencers with new precursors or node offenses, labelled as this node's
+- sequencers with new duty misses or node offenses, labelled as this node's
   observations;
 - target rounds, participation, validator support, and candidate stake at risk;
 - candidates in delay, executable, vetoed, paused, expired, or changed;
@@ -251,11 +263,11 @@ event counts:
 - ejections and pending exits; and
 - source freshness, chain-tip/proof health, contract rotation, and reorg status.
 
-The public active-case feed contains every currently active case and a small,
+The public case feed contains every currently active case and a small,
 most-recent set of execution outcomes. It omits expired, locally resolved, and
-reorg-only history. PINGME includes Sentinel precursors and node offenses;
+reorg-only history. PINGME includes Sentinel duty misses and node offenses;
 Monitor shows the same feed shape starting at independently observed L1
-support.
+mentions.
 
 The overview must never market one backend node's offense feed as a complete
 network consensus feed. L1 aggregates are network facts at their stated block;

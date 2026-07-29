@@ -12,7 +12,7 @@ const SEQUENCER = '0x1111111111111111111111111111111111111111';
 test('case transition content identifies one sequencer and preserves educational copy', () => {
   const transition = {
     network: 'mainnet',
-    body: 'Candidate slash. Target epoch 24. L1 does not encode an offense reason.',
+    body: 'Candidate. Target epoch 24. L1 does not encode an offense reason.',
     targets: [SEQUENCER],
     data: { sequencer: SEQUENCER },
   };

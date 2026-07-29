@@ -1,7 +1,7 @@
 {
   "id": "./",
-  "name": "Aztec Slashing Monitor",
-  "short_name": "Slashmon",
+  "name": "slashveto.me — Aztec Slashing Monitor",
+  "short_name": "slashveto.me",
   "description": "Early warnings and independent verification for Aztec sequencer slashing.",
   "start_url": "./?source=pwa",
   "scope": "./",

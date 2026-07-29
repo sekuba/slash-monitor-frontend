@@ -53,7 +53,7 @@ describe('case projection', () => {
 
         expect(cases[0].state).toMatchObject({
             stage: 'delayed',
-            headline: '2,000 AZTEC candidate slash',
+            headline: '2,000 AZTEC candidate',
             reason: {
                 label: 'Inactivity',
                 provenance: 'node_evidence',

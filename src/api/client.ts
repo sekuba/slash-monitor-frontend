@@ -13,18 +13,18 @@ import type {
 const REQUEST_TIMEOUT_MS = 12_000;
 const API_ROOT = '/api/v3';
 
-export class SlashmonApiError extends Error {
+export class BackendApiError extends Error {
     constructor(
         message: string,
         readonly status: number,
         readonly code: string | null,
     ) {
         super(message);
-        this.name = 'SlashmonApiError';
+        this.name = 'BackendApiError';
     }
 }
 
-export class SlashmonApiClient {
+export class BackendApiClient {
     private readonly baseUrl: string;
 
     constructor(baseUrl = import.meta.env.VITE_API_BASE_URL ?? '') {
@@ -145,9 +145,9 @@ export class SlashmonApiClient {
             const payload: unknown = text ? parseJson(text) : null;
             if (!response.ok) {
                 const apiError = readApiError(payload);
-                throw new SlashmonApiError(
+                throw new BackendApiError(
                     apiError.message ??
-                        `Slashmon API request failed with HTTP ${response.status}`,
+                        `slashveto.me API request failed with HTTP ${response.status}`,
                     response.status,
                     apiError.code,
                 );
@@ -155,26 +155,26 @@ export class SlashmonApiClient {
             return payload;
         }
         catch (error) {
-            if (error instanceof SlashmonApiError) throw error;
+            if (error instanceof BackendApiError) throw error;
             if (error instanceof DOMException && error.name === 'AbortError') {
                 throw new Error(options.signal?.aborted
-                    ? 'Slashmon API request was cancelled'
-                    : 'Slashmon API did not respond in time');
+                    ? 'slashveto.me API request was cancelled'
+                    : 'slashveto.me API did not respond in time');
             }
             throw error;
         }
     }
 }
 
-export const slashmonApi = new SlashmonApiClient();
+export const backendApi = new BackendApiClient();
 
 function parseJson(value: string): unknown {
     try {
         return JSON.parse(value) as unknown;
     }
     catch {
-        throw new SlashmonApiError(
-            'Slashmon API returned invalid JSON',
+        throw new BackendApiError(
+            'slashveto.me API returned invalid JSON',
             502,
             'invalid_json',
         );
