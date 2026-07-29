@@ -117,8 +117,8 @@ export function MonitorDetails({ configInput, network, onResetRpc, onToggleNetwo
                 <MetadataSection title="Deployment">
                     <Metadata label="Chain ID" value={configInput.chainId.toString()} />
                     <Metadata label="Registry" value={configInput.registryAddress} />
-                    <Metadata label="Resolved at block" value={config?.deploymentBlockNumber.toString() ?? unavailable} />
-                    <Metadata label="Resolved at time" value={formatTimestamp(config?.deploymentTimestamp, unavailable)} />
+                    <Metadata label="Resolved at block" value={config?.resolvedAtBlockNumber.toString() ?? unavailable} />
+                    <Metadata label="Resolved at time" value={formatTimestamp(config?.resolvedAtTimestamp, unavailable)} />
                     <Metadata label="Rollup" value={config?.rollupAddress ?? unavailable} />
                     <Metadata label="Rollup version" value={config?.rollupVersion.toString() ?? unavailable} />
                     <Metadata label="Active Slasher" value={config?.slasherAddress ?? unavailable} />

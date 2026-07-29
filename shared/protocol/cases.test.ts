@@ -101,6 +101,62 @@ describe('case projection', () => {
         });
     });
 
+    it('keeps a requested amount visible while the browser scans the receipt', () => {
+        const cases = projectCases([
+            observation('executed', 'l1_round', {
+                round: '12',
+                status: 'executed',
+                isExecuted: true,
+                amount: '2000000000000000000000',
+                executionReceiptStatus: 'scanning',
+            }, 'ethereum_l1'),
+        ], protocol());
+
+        expect(cases[0].state).toMatchObject({
+            stage: 'executed',
+            headline: 'Round executed · 2,000 AZTEC requested',
+            requestedAmount: '2000000000000000000000',
+        });
+        expect(cases[0].state.explanation).toContain(
+            'scanning for its execution receipt',
+        );
+    });
+
+    it('uses an inspected execution receipt as a terminal non-slash outcome', () => {
+        const cases = projectCases([
+            observation('executed', 'l1_round', {
+                round: '12',
+                status: 'executed',
+                isExecuted: true,
+                amount: '2000000000000000000000',
+                executionReceiptStatus: 'inspected',
+            }, 'ethereum_l1'),
+            {
+                ...observation('receipt', 'l1_execution', {
+                    round: '12',
+                    slashCount: '1',
+                    actionIndex: 0,
+                }, 'ethereum_l1'),
+                provenance: {
+                    observedAt: '2026-07-29T12:01:00.000Z',
+                    blockNumber: '123',
+                    blockHash: `0x${'12'.repeat(32)}`,
+                    transactionHash: `0x${'34'.repeat(32)}`,
+                    canonical: true,
+                },
+            },
+        ], protocol());
+
+        expect(cases[0].state).toMatchObject({
+            stage: 'resolved',
+            headline: 'Round executed · 2,000 AZTEC requested',
+            active: false,
+        });
+        expect(cases[0].state.explanation).toContain(
+            'contains no Rollup Slashed log',
+        );
+    });
+
     it('treats escape-hatch exclusion as a terminal non-slash outcome', () => {
         const cases = projectCases([
             observation('escaped', 'l1_round', {

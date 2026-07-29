@@ -7,6 +7,7 @@ export type ObservationKind =
     | 'inactivity_epoch'
     | 'node_offense'
     | 'l1_round'
+    | 'l1_execution'
     | 'l1_slash'
     | 'stake_status';
 

@@ -16,7 +16,6 @@ export function CaseFeed({
     cases,
     protocol,
     selectedCaseId,
-    evidenceMode,
     onOpenProtocolGuide,
 }: {
     cases: SlashingCase[];
@@ -38,12 +37,6 @@ export function CaseFeed({
                     <h2 className="text-3xl font-black text-whisper-white">
                         Case feed
                     </h2>
-                    <p className="mt-2 max-w-4xl text-sm font-bold text-whisper-white/70">
-                        {evidenceMode === 'backend'
-                            ? 'Node evidence and L1 status from PINGME.'
-                            : 'L1 votes, candidates, execution, and stake outcomes from this browser.'}
-                        {' '}Open cases are followed by recent execution outcomes.
-                    </p>
                 </div>
                 <div className="w-full sm:w-auto sm:min-w-72">
                     <span className="block w-fit border-3 border-brand-black bg-vermillion px-3 py-2 text-sm font-black uppercase text-brand-black sm:ml-auto">
@@ -149,7 +142,7 @@ function PayloadCaseGroup({
                             {group.payloadAddress
                                 ? `${sequencerCount} sequencer${sequencerCount === 1 ? '' : 's'} targeted${
                                     requestedAmount !== null
-                                        ? ` · ${formatAztec(requestedAmount)} AZTEC requested`
+                                        ? ` · ${formatAztec(requestedAmount)} AZTEC`
                                         : ''
                                 }`
                                 : primary.state.headline}

@@ -43,6 +43,17 @@ It does not call the slashveto.me API, depend on a backend snapshot, or possess
 notification credentials. A user can enter their addresses again and recover
 the L1 portion of each case when the backend is unavailable.
 
+Execution history is progressive and RPC-aware. Monitor reads present contract
+state first, then scans `RoundExecuted` logs newest-to-oldest within the useful
+execution window. It starts with small ranges, grows fast successful ranges,
+shrinks provider-rejected ranges, and pauses on rate limits while retaining
+completed work for the page session. Each refresh scans only new blocks plus a
+small reorg overlap.
+The page displays exact coverage. Until a receipt is inspected, the case says
+that its outcome is still being scanned; it never treats missing coverage as
+proof that no `Slashed` log exists. A stronger user-supplied RPC can complete
+the same bounded scan faster without changing case semantics.
+
 Its unavoidable limitations are visible:
 
 - an L1-only case starts at voting; it cannot see duty misses or node
@@ -207,6 +218,9 @@ Visible sequencer addresses open the matching mainnet or testnet Dashtec page.
 The frontend must show source time and freshness independently. “Confirmed”
 means an L1 fact observed at the stated block and confirmation policy; it does
 not mean Ethereum-finalized unless the block itself is finalized.
+For Monitor, receipt coverage is also explicit: `scanning`, `paused`,
+`inspected`, and `complete without finding the expected event` are different
+states.
 
 ## Canonical contract discovery
 

@@ -245,9 +245,10 @@ function deriveState(
         );
     }
 
+    const execution = latest(canonical, 'l1_execution');
     const round = latest(canonical, 'l1_round');
     if (round) {
-        return roundState(round, reason);
+        return roundState(round, reason, execution ?? undefined);
     }
 
     const offense = latest(canonical, 'node_offense');
@@ -313,7 +314,11 @@ function deriveState(
     );
 }
 
-function roundState(observation: Observation, reason: CaseReason): CaseState {
+function roundState(
+    observation: Observation,
+    reason: CaseReason,
+    execution?: Observation,
+): CaseState {
     const data = observation.data;
     const round = readString(data.round) ?? observation.round ?? null;
     const amount = readString(data.amount);
@@ -351,10 +356,55 @@ function roundState(observation: Observation, reason: CaseReason): CaseState {
                 common,
             );
         }
+        if (execution) {
+            return state(
+                'resolved',
+                'normal',
+                `Round executed · ${formatAztec(amount)} AZTEC requested`,
+                'The execution receipt was inspected and contains no Rollup Slashed log for this sequencer.',
+                reason,
+                false,
+                common,
+            );
+        }
+        const receiptStatus = readString(data.executionReceiptStatus);
+        if (receiptStatus === 'scanning') {
+            return state(
+                'executed',
+                'critical',
+                `Round executed · ${formatAztec(amount)} AZTEC requested`,
+                'Contract state marks this round executed. This page is scanning for its execution receipt.',
+                reason,
+                false,
+                common,
+            );
+        }
+        if (receiptStatus === 'paused') {
+            return state(
+                'executed',
+                'critical',
+                `Round executed · ${formatAztec(amount)} AZTEC requested`,
+                'Contract state marks this round executed. The RPC paused before this page located its execution receipt.',
+                reason,
+                false,
+                common,
+            );
+        }
+        if (receiptStatus === 'unavailable') {
+            return state(
+                'executed',
+                'critical',
+                `Round executed · ${formatAztec(amount)} AZTEC requested`,
+                'Contract state marks this round executed, but its receipt was not found inside the completed history window.',
+                reason,
+                false,
+                common,
+            );
+        }
         return state(
             'executed',
             'critical',
-            'Slashing round executed',
+            `Round executed · ${formatAztec(amount)} AZTEC requested`,
             'The action payload was called. A Rollup Slashed log is still required to confirm this sequencer’s deduction.',
             reason,
             false,

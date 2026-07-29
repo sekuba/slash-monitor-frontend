@@ -6,9 +6,11 @@ import {
 } from '../../shared/protocol/index.ts';
 import { isRoundProtectedByPause } from './pauseProtection';
 import type {
+    ConfirmedExecution,
     ConfirmedSlash,
     CurrentChainState,
     DetectedSlashing,
+    ExecutionHistoryScan,
     ResolvedMonitorConfig,
 } from '@/types/slashing';
 import type { MonitorNetwork } from '@/types/backendApi';
@@ -18,13 +20,17 @@ export function projectMonitorCases({
     config,
     state,
     slashings,
+    confirmedExecutions,
     confirmedSlashes,
+    executionScan,
 }: {
     network: MonitorNetwork;
     config: ResolvedMonitorConfig;
     state: CurrentChainState;
     slashings: DetectedSlashing[];
+    confirmedExecutions: ConfirmedExecution[];
     confirmedSlashes: ConfirmedSlash[];
+    executionScan: ExecutionHistoryScan;
 }): { protocol: ProtocolSnapshot; cases: SlashingCase[] } {
     const observedAt = new Date(Number(state.l1Timestamp) * 1_000).toISOString();
     const protocol: ProtocolSnapshot = {
@@ -62,6 +68,9 @@ export function projectMonitorCases({
             },
         }],
     };
+    const executionByRound = new Map(
+        confirmedExecutions.map((execution) => [execution.round, execution]),
+    );
     const roundObservations: Observation[] = slashings.flatMap((round) =>
         (round.targetDetails ?? []).map((target) => {
             const roundEndSlot = (
@@ -106,6 +115,15 @@ export function projectMonitorCases({
                     payloadAddress: round.payloadAddress?.toLowerCase() ?? null,
                     isVetoed: round.isVetoed,
                     isExecuted: round.isExecuted,
+                    executionReceiptStatus: round.isExecuted
+                        ? executionByRound.has(round.round)
+                            ? 'inspected'
+                            : executionScan.status === 'complete'
+                                ? 'unavailable'
+                                : executionScan.status === 'paused'
+                                    ? 'paused'
+                                    : 'scanning'
+                        : null,
                     stable: state.currentRound > round.round,
                     isExecutionPaused: !state.isSlashingEnabled && !round.isExecuted,
                     isProtected: isRoundProtectedByPause(
@@ -124,6 +142,45 @@ export function projectMonitorCases({
                 },
             } satisfies Observation;
         }));
+    const executionObservations: Observation[] = confirmedExecutions.flatMap(
+        (execution) => {
+            const round = slashings.find((candidate) =>
+                candidate.round === execution.round);
+            if (!round) return [];
+            return (round.targetDetails ?? [])
+                .filter((target) =>
+                    target.actionIndex !== undefined &&
+                    target.amount !== undefined)
+                .map((target) => ({
+                    id: [
+                        'monitor-execution',
+                        execution.blockHash,
+                        execution.transactionHash,
+                        execution.round,
+                        target.actionIndex,
+                    ].join(':'),
+                    network,
+                    source: 'ethereum_l1',
+                    kind: 'l1_execution',
+                    sequencer: target.sequencer.toLowerCase(),
+                    lineageId: config.slashingProposerAddress.toLowerCase(),
+                    targetEpoch: target.targetEpoch.toString(),
+                    round: execution.round.toString(),
+                    provenance: {
+                        observedAt,
+                        blockNumber: execution.blockNumber.toString(),
+                        blockHash: execution.blockHash,
+                        transactionHash: execution.transactionHash,
+                        canonical: true,
+                    },
+                    data: {
+                        round: execution.round.toString(),
+                        slashCount: execution.slashCount.toString(),
+                        actionIndex: target.actionIndex,
+                    },
+                } satisfies Observation));
+        },
+    );
     const slashObservations: Observation[] = confirmedSlashes.flatMap((slash) => {
         const base: Observation = {
             id: [
@@ -167,7 +224,11 @@ export function projectMonitorCases({
     });
     return {
         protocol,
-        cases: projectCases([...roundObservations, ...slashObservations], protocol),
+        cases: projectCases([
+            ...roundObservations,
+            ...executionObservations,
+            ...slashObservations,
+        ], protocol),
     };
 }
 

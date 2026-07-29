@@ -7,9 +7,11 @@ import {
     type PublicClient,
 } from 'viem';
 import type {
+    ConfirmedExecution,
     ConfirmedSlash,
     CurrentChainState,
     DetectedSlashing,
+    ExecutionHistoryScan,
     RoundInfo,
     RuntimeMonitorConfig,
     SlashAction,
@@ -26,20 +28,77 @@ import { createPublicRpcTransport } from './rpc';
 const roundExecutedEvent = parseAbiItem(
     'event RoundExecuted(uint256 indexed round, uint256 slashCount)',
 );
+const INITIAL_EXECUTION_CHUNK = 1_024n;
+const MIN_EXECUTION_CHUNK = 128n;
+const MAX_EXECUTION_CHUNK = 5_000n;
+const EXECUTION_SCAN_REORG_OVERLAP = 12n;
+
+interface ExecutionHistoryCursor {
+    headBlock: bigint;
+    targetFromBlock: bigint;
+    nextHistoricalToBlock: bigint;
+    oldestScannedBlock: bigint | null;
+    forwardScannedToBlock: bigint | null;
+}
+
+interface ExecutionRange {
+    kind: 'history' | 'forward';
+    fromBlock: bigint;
+    toBlock: bigint;
+}
+
+interface ExecutionEvent {
+    round: bigint;
+    slashCount: bigint;
+    transactionHash: `0x${string}`;
+    blockNumber: bigint;
+    blockHash: `0x${string}`;
+}
+
+type AdaptiveRangeResult =
+    | {
+        ok: true;
+        range: ExecutionRange;
+        events: ExecutionEvent[];
+        rpcCalls: number;
+    }
+    | {
+        ok: false;
+        error: string;
+        rpcCalls: number;
+    };
+
+type ReceiptInspectionResult =
+    | { ok: true; rpcCalls: number }
+    | { ok: false; error: string; rpcCalls: number };
+
+export interface ExecutionHistoryScanResult {
+    confirmedExecutions: ConfirmedExecution[];
+    confirmedSlashes: ConfirmedSlash[];
+    scan: ExecutionHistoryScan;
+    canContinue: boolean;
+    rpcCalls: number;
+}
 
 export class L1Monitor {
     private readonly publicClient: PublicClient;
     private readonly config: RuntimeMonitorConfig;
     private snapshotBlockNumber?: bigint;
     private snapshotTimestamp?: bigint;
+    private executionHistory?: ExecutionHistoryCursor;
+    private executionChunkSize = INITIAL_EXECUTION_CHUNK;
+    private failedChunkCeiling?: bigint;
+    private executionEventCache = new Map<string, ExecutionEvent>();
+    private confirmedExecutionCache = new Map<string, ConfirmedExecution>();
+    private confirmedSlashCache = new Map<string, ConfirmedSlash>();
 
-    constructor(config: RuntimeMonitorConfig) {
+    constructor(config: RuntimeMonitorConfig, publicClient?: PublicClient) {
         this.config = config;
-        this.publicClient = createPublicClient({
+        this.publicClient = publicClient ?? createPublicClient({
             transport: createPublicRpcTransport(config.l1RpcUrl),
         });
-        this.snapshotBlockNumber = config.deploymentBlockNumber;
-        this.snapshotTimestamp = config.deploymentTimestamp;
+        this.snapshotBlockNumber = config.resolvedAtBlockNumber;
+        this.snapshotTimestamp = config.resolvedAtTimestamp;
     }
 
     async hasDeploymentChanged(): Promise<boolean> {
@@ -50,8 +109,8 @@ export class L1Monitor {
             this.config.registryAddress,
             this.config.chainId
         );
-        this.snapshotBlockNumber = currentDeployment.deploymentBlockNumber;
-        this.snapshotTimestamp = currentDeployment.deploymentTimestamp;
+        this.snapshotBlockNumber = currentDeployment.resolvedAtBlockNumber;
+        this.snapshotTimestamp = currentDeployment.resolvedAtTimestamp;
         return !deploymentsMatch(this.config, currentDeployment);
     }
 
@@ -309,79 +368,112 @@ export class L1Monitor {
         });
     }
 
-    async getConfirmedSlashes(
+    async scanExecutionHistory(
         detected: readonly DetectedSlashing[],
         lookbackBlocks: bigint,
-    ): Promise<ConfirmedSlash[]> {
+    ): Promise<ExecutionHistoryScanResult> {
         const executed = detected.filter((item) =>
             item.isExecuted && (item.targetDetails?.length ?? 0) > 0);
-        if (executed.length === 0 || this.snapshotBlockNumber === undefined) return [];
+        if (this.snapshotBlockNumber === undefined) {
+            return this.executionResult(detected, idleExecutionScan(), false, 0);
+        }
+        if (executed.length === 0 && !this.executionHistory) {
+            return this.executionResult(detected, idleExecutionScan(), false, 0);
+        }
         const toBlock = this.snapshotBlockNumber;
-        const fromBlock = toBlock > lookbackBlocks
-            ? maxBigInt(this.config.deploymentBlockNumber, toBlock - lookbackBlocks)
-            : this.config.deploymentBlockNumber;
-        const confirmed: ConfirmedSlash[] = [];
+        const executedByRound = new Map(executed.map((item) => [item.round, item]));
+        this.ensureExecutionHistory(toBlock, lookbackBlocks);
 
-        for (const item of executed) {
-            const executionLogs = await this.getRoundExecutionLogs(
-                item.round,
-                fromBlock,
+        if (executed.length === 0) {
+            this.executionHistory!.oldestScannedBlock =
+                this.executionHistory!.targetFromBlock;
+            this.executionHistory!.nextHistoricalToBlock =
+                this.executionHistory!.targetFromBlock - 1n;
+            this.executionHistory!.forwardScannedToBlock = toBlock;
+            return this.executionResult(
+                detected,
+                this.executionProgress('complete', null),
+                false,
+                0,
+            );
+        }
+
+        const pendingReceipt = this.pendingExecutionEvent(executedByRound);
+        if (pendingReceipt) {
+            const inspected = await this.inspectExecutionEvent(
+                pendingReceipt,
+                executedByRound.get(pendingReceipt.round)!,
                 toBlock,
             );
-            const seenTransactions = new Set<string>();
-            for (const executionLog of executionLogs) {
-                const transactionHash = executionLog.transactionHash;
-                if (
-                    !transactionHash ||
-                    executionLog.blockNumber === null ||
-                    executionLog.blockHash === null ||
-                    seenTransactions.has(transactionHash)
-                ) continue;
-                seenTransactions.add(transactionHash);
-                const receipt = await this.publicClient.getTransactionReceipt({
-                    hash: transactionHash,
-                });
-                const slashLogs = decodeExactReceiptSlashes(
-                    item,
-                    receipt.logs,
-                    this.config.rollupAddress,
+            if (!inspected.ok) {
+                return this.executionResult(
+                    detected,
+                    this.executionProgress('paused', inspected.error),
+                    false,
+                    inspected.rpcCalls,
                 );
-                slashLogs.forEach((slash) => {
-                    confirmed.push({
-                        sequencer: slash.sequencer,
-                        targetEpoch: slash.targetEpoch,
-                        round: item.round,
-                        amount: slash.amount,
-                        actionIndex: slash.actionIndex,
-                        transactionHash,
-                        blockNumber: executionLog.blockNumber,
-                        blockHash: executionLog.blockHash,
-                        ejected: false,
-                        attesterStatus: 0,
-                    });
-                });
+            }
+            const moreReceipts = this.pendingExecutionEvent(executedByRound) !==
+                undefined;
+            const complete = this.executionHistoryComplete() && !moreReceipts;
+            return this.executionResult(
+                detected,
+                this.executionProgress(complete ? 'complete' : 'scanning', null),
+                !complete,
+                inspected.rpcCalls,
+            );
+        }
+
+        const range = this.nextExecutionRange(toBlock);
+        if (!range) {
+            return this.executionResult(
+                detected,
+                this.executionProgress('complete', null),
+                false,
+                0,
+            );
+        }
+
+        const scanned = await this.scanAdaptiveRange(range);
+        if (!scanned.ok) {
+            return this.executionResult(
+                detected,
+                this.executionProgress('paused', scanned.error),
+                false,
+                scanned.rpcCalls,
+            );
+        }
+
+        this.commitExecutionRange(scanned.range, scanned.events);
+        const event = scanned.events.find((candidate) =>
+            executedByRound.has(candidate.round) &&
+            !this.confirmedExecutionCache.has(executionEventKey(candidate)));
+        if (event) {
+            const inspected = await this.inspectExecutionEvent(
+                event,
+                executedByRound.get(event.round)!,
+                toBlock,
+            );
+            scanned.rpcCalls += inspected.rpcCalls;
+            if (!inspected.ok) {
+                return this.executionResult(
+                    detected,
+                    this.executionProgress('paused', inspected.error),
+                    false,
+                    scanned.rpcCalls,
+                );
             }
         }
 
-        const statusResults = await multicall(
-            this.publicClient,
-            confirmed.map((slash) =>
-                createCall(
-                    this.config.rollupAddress,
-                    rollupAbi,
-                    'getStatus',
-                    [slash.sequencer],
-                )),
-            toBlock,
+        const moreReceipts = this.pendingExecutionEvent(executedByRound) !==
+            undefined;
+        const complete = this.executionHistoryComplete() && !moreReceipts;
+        return this.executionResult(
+            detected,
+            this.executionProgress(complete ? 'complete' : 'scanning', null),
+            !complete,
+            scanned.rpcCalls,
         );
-        return confirmed.map((slash, index) => {
-            const status = Number(requireResult(statusResults[index], 'getStatus'));
-            return {
-                ...slash,
-                attesterStatus: status,
-                ejected: status === 2 || status === 3,
-            };
-        });
     }
 
     async loadContractParameters(): Promise<SlashingContractParameters> {
@@ -412,26 +504,302 @@ export class L1Monitor {
         };
     }
 
-    private async getRoundExecutionLogs(
-        round: bigint,
-        fromBlock: bigint,
-        toBlock: bigint,
-    ) {
-        const result = [];
-        const chunkSize = 5_000n;
-        for (let start = fromBlock; start <= toBlock; start += chunkSize) {
-            const end = start + chunkSize - 1n > toBlock
-                ? toBlock
-                : start + chunkSize - 1n;
-            result.push(...await this.publicClient.getLogs({
-                address: this.config.slashingProposerAddress,
-                event: roundExecutedEvent,
-                args: { round },
-                fromBlock: start,
-                toBlock: end,
-            }));
+    private ensureExecutionHistory(toBlock: bigint, lookbackBlocks: bigint) {
+        if (!this.executionHistory) {
+            this.executionHistory = {
+                headBlock: toBlock,
+                targetFromBlock: executionScanFromBlock(toBlock, lookbackBlocks),
+                nextHistoricalToBlock: toBlock,
+                oldestScannedBlock: null,
+                forwardScannedToBlock: null,
+            };
+            return;
         }
-        return result;
+        const forwardHead = this.executionHistory.forwardScannedToBlock;
+        if (
+            forwardHead !== null &&
+            toBlock > forwardHead + MAX_EXECUTION_CHUNK
+        ) {
+            this.executionEventCache.clear();
+            this.confirmedExecutionCache.clear();
+            this.confirmedSlashCache.clear();
+            this.executionHistory = {
+                headBlock: toBlock,
+                targetFromBlock: executionScanFromBlock(toBlock, lookbackBlocks),
+                nextHistoricalToBlock: toBlock,
+                oldestScannedBlock: null,
+                forwardScannedToBlock: null,
+            };
+            return;
+        }
+        if (
+            forwardHead === null &&
+            this.executionHistory.oldestScannedBlock === null
+        ) {
+            this.executionHistory.targetFromBlock =
+                executionScanFromBlock(toBlock, lookbackBlocks);
+            this.executionHistory.nextHistoricalToBlock = toBlock;
+        }
+        this.executionHistory.headBlock = toBlock;
+    }
+
+    private nextExecutionRange(toBlock: bigint): ExecutionRange | null {
+        const history = this.executionHistory!;
+        if (
+            history.forwardScannedToBlock !== null &&
+            toBlock > history.forwardScannedToBlock
+        ) {
+            const fromBlock = history.forwardScannedToBlock >
+                    EXECUTION_SCAN_REORG_OVERLAP
+                ? history.forwardScannedToBlock - EXECUTION_SCAN_REORG_OVERLAP
+                : 0n;
+            return { kind: 'forward', fromBlock, toBlock };
+        }
+        if (history.nextHistoricalToBlock < history.targetFromBlock) return null;
+        const available = history.nextHistoricalToBlock -
+            history.targetFromBlock + 1n;
+        const size = minBigInt(this.executionChunkSize, available);
+        return {
+            kind: 'history',
+            fromBlock: history.nextHistoricalToBlock - size + 1n,
+            toBlock: history.nextHistoricalToBlock,
+        };
+    }
+
+    private async scanAdaptiveRange(
+        initialRange: ExecutionRange,
+    ): Promise<AdaptiveRangeResult> {
+        let range = initialRange;
+        let rpcCalls = 0;
+        for (;;) {
+            const startedAt = Date.now();
+            try {
+                const logs = await this.publicClient.getLogs({
+                    address: this.config.slashingProposerAddress,
+                    event: roundExecutedEvent,
+                    fromBlock: range.fromBlock,
+                    toBlock: range.toBlock,
+                    strict: true,
+                });
+                rpcCalls += 1;
+                const elapsed = Date.now() - startedAt;
+                this.tuneExecutionChunk(range, elapsed);
+                return {
+                    ok: true,
+                    range,
+                    events: logs.map((log) => ({
+                        round: log.args.round,
+                        slashCount: log.args.slashCount,
+                        transactionHash: log.transactionHash,
+                        blockNumber: log.blockNumber,
+                        blockHash: log.blockHash,
+                    })),
+                    rpcCalls,
+                };
+            }
+            catch (error) {
+                rpcCalls += 1;
+                const message = toErrorMessage(error);
+                const size = range.toBlock - range.fromBlock + 1n;
+                if (
+                    range.kind !== 'history' ||
+                    isRateLimitError(message) ||
+                    !isRangeCapacityError(message) ||
+                    size <= MIN_EXECUTION_CHUNK
+                ) {
+                    return { ok: false, error: message, rpcCalls };
+                }
+                this.failedChunkCeiling = this.failedChunkCeiling === undefined
+                    ? size
+                    : minBigInt(this.failedChunkCeiling, size);
+                this.executionChunkSize = maxBigInt(
+                    MIN_EXECUTION_CHUNK,
+                    size / 2n,
+                );
+                range = {
+                    ...range,
+                    fromBlock: range.toBlock - this.executionChunkSize + 1n,
+                };
+            }
+        }
+    }
+
+    private tuneExecutionChunk(range: ExecutionRange, elapsedMs: number) {
+        if (range.kind !== 'history') return;
+        const size = range.toBlock - range.fromBlock + 1n;
+        if (elapsedMs > 4_000) {
+            this.executionChunkSize = maxBigInt(
+                MIN_EXECUTION_CHUNK,
+                size / 2n,
+            );
+            return;
+        }
+        if (elapsedMs > 1_500) {
+            this.executionChunkSize = size;
+            return;
+        }
+        const grown = minBigInt(MAX_EXECUTION_CHUNK, size * 2n);
+        this.executionChunkSize = this.failedChunkCeiling !== undefined &&
+                grown >= this.failedChunkCeiling
+            ? size
+            : grown;
+    }
+
+    private commitExecutionRange(
+        range: ExecutionRange,
+        events: readonly ExecutionEvent[],
+    ) {
+        const history = this.executionHistory!;
+        if (range.kind === 'forward') {
+            for (const [key, event] of this.executionEventCache) {
+                if (event.blockNumber >= range.fromBlock) {
+                    this.executionEventCache.delete(key);
+                }
+            }
+            for (const [key, execution] of this.confirmedExecutionCache) {
+                if (execution.blockNumber >= range.fromBlock) {
+                    this.confirmedExecutionCache.delete(key);
+                }
+            }
+            for (const [key, slash] of this.confirmedSlashCache) {
+                if (slash.blockNumber >= range.fromBlock) {
+                    this.confirmedSlashCache.delete(key);
+                }
+            }
+            history.forwardScannedToBlock = range.toBlock;
+        }
+        else {
+            history.oldestScannedBlock = range.fromBlock;
+            history.nextHistoricalToBlock = range.fromBlock - 1n;
+            history.forwardScannedToBlock ??= history.headBlock;
+        }
+        for (const event of events) {
+            this.executionEventCache.set(executionEventKey(event), event);
+        }
+    }
+
+    private pendingExecutionEvent(
+        executedByRound: ReadonlyMap<bigint, DetectedSlashing>,
+    ): ExecutionEvent | undefined {
+        return [...this.executionEventCache.values()].find((event) =>
+            executedByRound.has(event.round) &&
+            !this.confirmedExecutionCache.has(executionEventKey(event)));
+    }
+
+    private async inspectExecutionEvent(
+        event: ExecutionEvent,
+        item: DetectedSlashing,
+        blockNumber: bigint,
+    ): Promise<ReceiptInspectionResult> {
+        let rpcCalls = 0;
+        try {
+            const receipt = await this.publicClient.getTransactionReceipt({
+                hash: event.transactionHash,
+            });
+            rpcCalls += 1;
+            const slashLogs = decodeExactReceiptSlashes(
+                item,
+                receipt.logs,
+                this.config.rollupAddress,
+            );
+            if (slashLogs.length > 0) rpcCalls += 1;
+            const statusResults = await multicall(
+                this.publicClient,
+                slashLogs.map((slash) =>
+                    createCall(
+                        this.config.rollupAddress,
+                        rollupAbi,
+                        'getStatus',
+                        [slash.sequencer],
+                    )),
+                blockNumber,
+            );
+            const nextSlashes = slashLogs.map((slash, index) => {
+                const status = Number(requireResult(
+                    statusResults[index],
+                    'getStatus',
+                ));
+                return {
+                    sequencer: slash.sequencer,
+                    targetEpoch: slash.targetEpoch,
+                    round: item.round,
+                    amount: slash.amount,
+                    actionIndex: slash.actionIndex,
+                    transactionHash: event.transactionHash,
+                    blockNumber: event.blockNumber,
+                    blockHash: event.blockHash,
+                    ejected: status === 2 || status === 3,
+                    attesterStatus: status,
+                } satisfies ConfirmedSlash;
+            });
+            this.confirmedExecutionCache.set(executionEventKey(event), {
+                round: event.round,
+                slashCount: event.slashCount,
+                transactionHash: event.transactionHash,
+                blockNumber: event.blockNumber,
+                blockHash: event.blockHash,
+            });
+            for (const slash of nextSlashes) {
+                this.confirmedSlashCache.set(confirmedSlashKey(slash), slash);
+            }
+            return {
+                ok: true,
+                rpcCalls,
+            };
+        }
+        catch (error) {
+            return {
+                ok: false,
+                error: toErrorMessage(error),
+                rpcCalls: Math.max(1, rpcCalls),
+            };
+        }
+    }
+
+    private executionHistoryComplete(): boolean {
+        const history = this.executionHistory!;
+        return history.nextHistoricalToBlock < history.targetFromBlock;
+    }
+
+    private executionProgress(
+        status: ExecutionHistoryScan['status'],
+        lastError: string | null,
+    ): ExecutionHistoryScan {
+        const history = this.executionHistory!;
+        const totalBlocks = history.headBlock - history.targetFromBlock + 1n;
+        const scannedBlocks = history.oldestScannedBlock === null
+            ? 0n
+            : history.headBlock - history.oldestScannedBlock + 1n;
+        return {
+            status,
+            targetFromBlock: history.targetFromBlock,
+            headBlock: history.headBlock,
+            oldestScannedBlock: history.oldestScannedBlock,
+            scannedBlocks: minBigInt(scannedBlocks, totalBlocks),
+            totalBlocks,
+            chunkSize: this.executionChunkSize,
+            lastError,
+        };
+    }
+
+    private executionResult(
+        detected: readonly DetectedSlashing[],
+        scan: ExecutionHistoryScan,
+        canContinue: boolean,
+        rpcCalls: number,
+    ): ExecutionHistoryScanResult {
+        const rounds = new Set(
+            detected.filter((item) => item.isExecuted).map((item) => item.round),
+        );
+        return {
+            confirmedExecutions: [...this.confirmedExecutionCache.values()]
+                .filter((item) => rounds.has(item.round)),
+            confirmedSlashes: [...this.confirmedSlashCache.values()]
+                .filter((item) => rounds.has(item.round)),
+            scan,
+            canContinue,
+            rpcCalls,
+        };
     }
 }
 
@@ -450,8 +818,64 @@ function mapSlashActions(actions: any[]): SlashAction[] {
     }));
 }
 
+export function executionScanFromBlock(
+    toBlock: bigint,
+    lookbackBlocks: bigint,
+): bigint {
+    return toBlock > lookbackBlocks ? toBlock - lookbackBlocks : 0n;
+}
+
+function confirmedSlashKey(slash: ConfirmedSlash): string {
+    return [
+        slash.blockHash,
+        slash.transactionHash,
+        slash.actionIndex,
+    ].join(':');
+}
+
+function executionEventKey(event: Pick<
+    ExecutionEvent,
+    'round' | 'blockHash' | 'transactionHash'
+>): string {
+    return [
+        event.round,
+        event.blockHash,
+        event.transactionHash,
+    ].join(':');
+}
+
+function idleExecutionScan(): ExecutionHistoryScan {
+    return {
+        status: 'idle',
+        targetFromBlock: null,
+        headBlock: null,
+        oldestScannedBlock: null,
+        scannedBlocks: 0n,
+        totalBlocks: 0n,
+        chunkSize: INITIAL_EXECUTION_CHUNK,
+        lastError: null,
+    };
+}
+
+function isRateLimitError(message: string): boolean {
+    return /(?:\b429\b|rate.?limit|too many requests|compute units)/i.test(message);
+}
+
+function isRangeCapacityError(message: string): boolean {
+    return /(?:\b413\b|block range|range limit|query returned more|response size|payload too large|limit exceeded|timed? out|timeout|took too long|deadline exceeded|max(?:imum)?.*range)/i
+        .test(message);
+}
+
+function minBigInt(left: bigint, right: bigint): bigint {
+    return left < right ? left : right;
+}
+
 function maxBigInt(left: bigint, right: bigint): bigint {
     return left > right ? left : right;
+}
+
+function toErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : 'Unknown RPC error';
 }
 
 export function decodeExactReceiptSlashes(

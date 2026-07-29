@@ -15,7 +15,10 @@ import { selectCaseFeed } from '@/lib/caseFeed';
 import { urlForWatchlist } from '@/lib/navigation';
 import { summarizeNetwork } from '../../shared/protocol/index.ts';
 import { useSlashingStore } from '@/store/slashingStore';
-import type { MonitorConfigInput } from '@/types/slashing';
+import type {
+    ExecutionHistoryScan,
+    MonitorConfigInput,
+} from '@/types/slashing';
 import type { ProtocolSnapshot } from '../../shared/protocol/index.ts';
 
 interface DashboardProps {
@@ -58,7 +61,9 @@ export function Dashboard({
             config: store.config,
             state: store,
             slashings: [...store.detectedSlashings.values()],
+            confirmedExecutions: store.confirmedExecutions,
             confirmedSlashes: store.confirmedSlashes,
+            executionScan: store.executionScan,
         });
     })();
 
@@ -200,7 +205,9 @@ export function Dashboard({
                 />
             )}
 
-            {store.isScanning && (
+            {store.executionScan.status !== 'idle' ? (
+                <ExecutionHistoryStatus scan={store.executionScan} />
+            ) : store.isScanning && (
                 <div className="mb-8 border-5 border-aqua bg-lapis p-5 shadow-brutal-aqua">
                     <p className="font-black uppercase text-aqua">
                         Scanning live and historical slashing rounds…
@@ -239,16 +246,6 @@ export function Dashboard({
                 ))}
             </div>
 
-            {addresses.length === 0 && (
-                <section className="mb-8 border-5 border-orchid bg-aubergine p-6 shadow-brutal-orchid">
-                    <h2 className="text-2xl font-black text-orchid">Add an address above</h2>
-                    <p className="mt-2 text-sm font-bold text-whisper-white/75">
-                        The network overview is public. Address cards make the protocol
-                        path actionable for your own sequencers.
-                    </p>
-                </section>
-            )}
-
             {projected && (
                 <CaseFeed
                     cases={projected.cases}
@@ -259,5 +256,63 @@ export function Dashboard({
                 />
             )}
         </main>
+    );
+}
+
+function ExecutionHistoryStatus({ scan }: { scan: ExecutionHistoryScan }) {
+    const percentage = scan.totalBlocks === 0n
+        ? 100
+        : Math.min(
+            100,
+            Number(scan.scannedBlocks * 10_000n / scan.totalBlocks) / 100,
+        );
+    const complete = scan.status === 'complete';
+    const paused = scan.status === 'paused';
+    return (
+        <section className={`mb-8 border-5 p-4 ${
+            complete
+                ? 'border-chartreuse bg-malachite shadow-brutal-chartreuse'
+                : paused
+                    ? 'border-orchid bg-aubergine shadow-brutal-orchid'
+                    : 'border-aqua bg-lapis shadow-brutal-aqua'
+        }`}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className={`text-lg font-black ${
+                    complete
+                        ? 'text-chartreuse'
+                        : paused ? 'text-orchid' : 'text-aqua'
+                }`}>
+                    {complete
+                        ? 'Execution history complete'
+                        : paused
+                            ? 'Execution history paused'
+                            : 'Scanning execution history'}
+                </h2>
+                <span className="font-mono text-xs font-black text-whisper-white/65">
+                    {scan.scannedBlocks.toString()} / {scan.totalBlocks.toString()} blocks
+                </span>
+            </div>
+            <div
+                role="progressbar"
+                aria-label="Execution history scan coverage"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={percentage}
+                className="mt-3 h-4 border-3 border-whisper-white/40 bg-brand-black"
+            >
+                <div
+                    className={`h-full ${
+                        complete
+                            ? 'bg-chartreuse'
+                            : paused ? 'bg-orchid' : 'bg-aqua'
+                    }`}
+                    style={{ width: `${percentage}%` }}
+                />
+            </div>
+            <p className="mt-2 text-xs font-bold text-whisper-white/65">
+                RPC chunk {scan.chunkSize.toString()} blocks
+                {paused ? ' · The next refresh will retry, or you can use another RPC.' : ''}
+            </p>
+        </section>
     );
 }

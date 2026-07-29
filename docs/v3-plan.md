@@ -176,6 +176,11 @@ PINGME receives projected cases. Monitor feeds browser-collected L1
 observations through the same reducer. Raw evidence is progressive disclosure:
 users need not understand vote words, round offsets, or payload clones to read
 the headline, but those facts remain available and linked to Etherscan.
+Monitor loads current state first and progressively scans execution receipts
+newest-to-oldest. Successful RPC ranges grow, rejected ranges shrink, rate
+limits pause without discarding progress, and later polls cover only new blocks
+plus a reorg overlap. The UI reports scan coverage and keeps an uninspected
+receipt distinct from an inspected receipt with no `Slashed` log.
 Visible sequencer addresses link to the matching Dashtec network.
 Watchlist cases appear before the public case feed. PINGME places source health
 last because it describes the reliability of the whole page.

@@ -7,8 +7,8 @@ export interface MonitorConfigInput {
 }
 
 export interface DeploymentAddresses {
-    deploymentBlockNumber: bigint;
-    deploymentTimestamp: bigint;
+    resolvedAtBlockNumber: bigint;
+    resolvedAtTimestamp: bigint;
     rollupAddress: Address;
     slasherAddress: Address;
     slashingProposerAddress: Address;
@@ -119,6 +119,26 @@ export interface ConfirmedSlash {
     ejected: boolean;
     attesterStatus: number;
 }
+
+export interface ConfirmedExecution {
+    round: bigint;
+    slashCount: bigint;
+    transactionHash: `0x${string}`;
+    blockNumber: bigint;
+    blockHash: `0x${string}`;
+}
+
+export interface ExecutionHistoryScan {
+    status: 'idle' | 'scanning' | 'complete' | 'paused';
+    targetFromBlock: bigint | null;
+    headBlock: bigint | null;
+    oldestScannedBlock: bigint | null;
+    scannedBlocks: bigint;
+    totalBlocks: bigint;
+    chunkSize: bigint;
+    lastError: string | null;
+}
+
 export interface SlashingStats {
     currentRound: bigint;
     totalRoundsMonitored: number;
@@ -131,7 +151,7 @@ export interface SlashingStats {
 
 export interface MonitorIssue {
     source: 'l1-rpc' | 'deployment';
-    scope: 'deployment' | 'chain-state' | 'rounds' | 'round-details';
+    scope: 'deployment' | 'chain-state' | 'rounds' | 'round-details' | 'execution-history';
     severity?: 'warning' | 'error';
     message: string;
     round?: bigint;
@@ -146,7 +166,9 @@ export interface MonitorAudit {
 
 export interface MonitorSnapshot extends CurrentChainState {
     detectedSlashings: Map<bigint, DetectedSlashing>;
+    confirmedExecutions: ConfirmedExecution[];
     confirmedSlashes: ConfirmedSlash[];
+    executionScan: ExecutionHistoryScan;
     stats: SlashingStats;
     audit: MonitorAudit;
 }
