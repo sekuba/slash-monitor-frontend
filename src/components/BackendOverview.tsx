@@ -1,23 +1,40 @@
+import { useEffect } from 'react';
 import { AddressStatus } from './AddressStatus';
+import { CaseFeed } from './CaseFeed';
 import { CaseTimeline } from './CaseTimeline';
 import { NetworkHealth } from './NetworkHealth';
 import { SourceStatus } from './SourceStatus';
 import { WatchSettings } from './WatchSettings';
 import { useBackendMonitor } from '@/hooks/useBackendMonitor';
+import { selectCaseFeed } from '@/lib/caseFeed';
 import type { MonitorNetwork } from '@/types/backendApi';
+import type { ProtocolSnapshot } from '../../shared/protocol/index.ts';
 
 export function BackendOverview({
     network,
     selectedCaseId,
-    onSelectCase,
     onOpenMonitor,
+    linkedAddresses,
+    onWatchlistChange,
+    onOpenProtocolGuide,
+    onProtocolChange,
 }: {
     network: MonitorNetwork;
     selectedCaseId: string | null;
-    onSelectCase: (id: string | null) => void;
     onOpenMonitor: () => void;
+    linkedAddresses: string[];
+    onWatchlistChange: (addresses: readonly string[]) => void;
+    onOpenProtocolGuide: (protocol: ProtocolSnapshot | null) => void;
+    onProtocolChange: (protocol: ProtocolSnapshot | null) => void;
 }) {
     const monitor = useBackendMonitor(network);
+    const liveProtocol = monitor.error
+        ? null
+        : monitor.networkData?.protocol ?? null;
+
+    useEffect(() => {
+        onProtocolChange(liveProtocol);
+    }, [liveProtocol, onProtocolChange]);
 
     if (monitor.error || (!monitor.isLoading && !monitor.networkData)) {
         return (
@@ -26,11 +43,10 @@ export function BackendOverview({
                     PINGME unavailable
                 </p>
                 <h2 className="mt-2 text-3xl font-black text-whisper-white">
-                    The backend did not provide current evidence
+                    No current evidence
                 </h2>
                 <p className="mt-4 max-w-3xl break-words text-sm font-bold text-whisper-white/80">
                     {monitor.error ?? 'No current backend snapshot is available.'}
-                    {' '}PINGME will not substitute cached data or silently start another collector.
                 </p>
                 <div className="mt-6 flex flex-wrap gap-3">
                     <button type="button" onClick={onOpenMonitor} className="brutal-button">
@@ -60,11 +76,24 @@ export function BackendOverview({
     }
 
     const protocol = monitor.networkData.protocol;
-    const watchedAddresses = monitor.watch?.addresses ?? [];
-    const watchedCases = monitor.watch?.cases ?? [];
+    const watchedAddresses = linkedAddresses.length > 0
+        ? linkedAddresses
+        : monitor.watch?.addresses ?? [];
+    const watchedCases = monitor.networkData.cases.filter(
+        (item) => watchedAddresses.includes(item.sequencer),
+    );
     const selectedCase = selectedCaseId
         ? monitor.networkData.cases.find((item) => item.id === selectedCaseId) ?? null
         : null;
+    const feedCaseIds = new Set(
+        Object.values(selectCaseFeed(monitor.networkData.cases))
+            .flat()
+            .map((item) => item.id),
+    );
+    const selectedInFeed = selectedCaseId ? feedCaseIds.has(selectedCaseId) : false;
+    const selectedIsVisible = selectedCase
+        ? watchedAddresses.includes(selectedCase.sequencer) || selectedInFeed
+        : false;
     const degraded = monitor.status?.status !== 'healthy' ||
         monitor.status.sources.some((source) => source.status !== 'healthy');
 
@@ -84,29 +113,46 @@ export function BackendOverview({
                     </button>
                 </section>
             )}
+            {monitor.watchError && (
+                <section className="mb-8 border-5 border-orchid bg-aubergine p-4 shadow-brutal-orchid" role="status">
+                    <h2 className="text-xl font-black text-orchid">
+                        Your saved watch could not be loaded
+                    </h2>
+                    <p className="mt-2 break-words text-sm font-bold text-whisper-white/75">
+                        {monitor.watchError} The public network feed remains available;
+                        notification settings may need to be recreated.
+                    </p>
+                </section>
+            )}
 
             <NetworkHealth
                 summary={monitor.networkData.summary}
                 protocol={protocol}
             />
 
-            {selectedCase && (
+            <SourceStatus sources={monitor.networkData.sources} />
+
+            {selectedCase && !selectedIsVisible && (
                 <section className="mb-8">
-                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                        <h2 className="text-2xl font-black text-aqua">Linked notification case</h2>
-                        <button
-                            type="button"
-                            onClick={() => onSelectCase(null)}
-                            className="brutal-button brutal-button--sm brutal-button--neutral"
-                        >
-                            Clear focus
-                        </button>
-                    </div>
-                    <CaseTimeline item={selectedCase} protocol={protocol} selected />
+                    <p className="mb-3 text-xs font-black uppercase tracking-[0.16em] text-aqua">
+                        Shared case
+                    </p>
+                    <CaseTimeline
+                        item={selectedCase}
+                        protocol={protocol}
+                        selected
+                        showSequencer
+                        onOpenProtocolGuide={onOpenProtocolGuide}
+                    />
                 </section>
             )}
 
-            <WatchSettings network={network} config={monitor.config} />
+            <WatchSettings
+                network={network}
+                config={monitor.config}
+                linkedAddresses={linkedAddresses}
+                onWatchlistChange={onWatchlistChange}
+            />
 
             {watchedAddresses.length > 0 ? (
                 <div className="mb-10 grid gap-8">
@@ -118,8 +164,8 @@ export function BackendOverview({
                                 (item) => item.sequencer === address.toLowerCase(),
                             )}
                             protocol={protocol}
-                            selectedCaseId={selectedCaseId}
-                            onSelectCase={onSelectCase}
+                            selectedCaseId={selectedInFeed ? null : selectedCaseId}
+                            onOpenProtocolGuide={onOpenProtocolGuide}
                         />
                     ))}
                 </div>
@@ -129,14 +175,19 @@ export function BackendOverview({
                         Start with your sequencer addresses
                     </h2>
                     <p className="mt-2 max-w-3xl text-sm font-bold text-whisper-white/80">
-                        PINGME links Sentinel duty problems, node offenses, L1 votes,
-                        candidate payloads, execution, actual stake removal, and ejection
-                        into one case per address and target epoch.
+                        PINGME links node evidence and L1 events into one timeline for
+                        each sequencer and target epoch.
                     </p>
                 </section>
             )}
 
-            <SourceStatus sources={monitor.networkData.sources} />
+            <CaseFeed
+                cases={monitor.networkData.cases}
+                protocol={protocol}
+                selectedCaseId={selectedCaseId}
+                evidenceMode="backend"
+                onOpenProtocolGuide={onOpenProtocolGuide}
+            />
         </>
     );
 }

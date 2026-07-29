@@ -59,7 +59,13 @@ stopped branches explain why the case did not progress. Reasons always say
 
 The network view summarizes current cases, not event volume: local precursors
 and offenses, L1 support, stake at risk, execution windows, actual deductions,
-ejections, and source health.
+ejections, and source health. Its active feed excludes expired and locally
+resolved history while retaining a bounded set of recent execution outcomes.
+
+Public watchlist links carry only sequencer addresses and work across both
+views. They never carry the private backend management token. Exact case links
+remain as small copy-link actions and notification destinations rather than
+primary navigation.
 
 ### Monitor
 
@@ -157,8 +163,10 @@ Replace the current parallel presentation paths with:
 
 - `AddressList`
 - `AddressStatus`
+- `CaseFeed`
 - `CaseTimeline`
 - `CaseExplanation`
+- `ProtocolGuide`
 - `EvidenceDetails`
 - `NetworkHealth`
 - `SourceStatus`

@@ -34,6 +34,11 @@ continuity while a browser is closed and evidence that is not published to L1.
 Neither view is an oracle: local evidence is an observer's report, while L1
 reveals voting and stake outcomes but not the underlying offense.
 
+Both views expose the same active-case feed and educational protocol path.
+Watchlists can be shared as address-only URLs without exposing PINGME's private
+management capability. Individual cases retain a compact copy-link action for
+alerts and investigations.
+
 ## Read this first
 
 - [Aztec protocol model](docs/protocol.md) — slots, blocks, checkpoints,

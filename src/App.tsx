@@ -3,17 +3,19 @@ import type { Address } from 'viem';
 import { BackendOverview } from './components/BackendOverview';
 import { Dashboard } from './components/Dashboard';
 import { Header } from './components/Header';
+import { ProtocolGuide } from './components/ProtocolGuide';
 import { useSlashingMonitor } from './hooks/useSlashingMonitor';
 import {
     parseAppSearch,
     urlForNetwork,
-    urlForCase,
     urlForView,
+    urlForWatchlist,
     type AppView,
 } from './lib/navigation';
 import { clearRpcOverride, getRpcOverride, setRpcOverride } from './lib/rpcOverride';
 import { useSlashingStore } from './store/slashingStore';
 import type { MonitorConfigInput } from './types/slashing';
+import type { ProtocolSnapshot } from '../shared/protocol/index.ts';
 
 const MAINNET_REGISTRY_ADDRESS = '0x35b22e09Ee0390539439E24f06Da43D83f90e298' as Address;
 const TESTNET_REGISTRY_ADDRESS = '0xA0BFb1B494FB49041e5c6e8c2C1BE09cD171c6Ba' as Address;
@@ -42,6 +44,11 @@ export function App() {
         testnet: getRpcOverride(11_155_111),
     }));
     const [scannerGeneration, setScannerGeneration] = useState(0);
+    const [protocolGuide, setProtocolGuide] = useState<{
+        isOpen: boolean;
+        protocol: ProtocolSnapshot | null;
+    }>({ isOpen: false, protocol: null });
+    const [currentProtocol, setCurrentProtocol] = useState<ProtocolSnapshot | null>(null);
     const resetMonitor = useSlashingStore((state) => state.resetMonitor);
     const isTestnet = location.network === 'testnet';
     const rpcOverride = isTestnet ? rpcOverrides.testnet : rpcOverrides.mainnet;
@@ -52,12 +59,14 @@ export function App() {
 
     const restartScanner = useCallback(() => {
         resetMonitor();
+        setCurrentProtocol(null);
         setScannerGeneration((generation) => generation + 1);
     }, [resetMonitor]);
 
     const navigateTo = useCallback((view: AppView) => {
         const next = urlForView(window.location.href, view);
         window.history.pushState({}, '', next);
+        if (location.view !== view) setCurrentProtocol(null);
         if (location.view === 'pingme' && view !== 'pingme') {
             restartScanner();
         }
@@ -73,10 +82,36 @@ export function App() {
         setLocation(parseAppSearch(next.search));
     }, [isTestnet, restartScanner]);
 
-    const selectCase = useCallback((caseId: string | null) => {
-        const next = urlForCase(window.location.href, caseId);
+    const updateWatchlist = useCallback((addresses: readonly string[]) => {
+        const next = urlForWatchlist(
+            window.location.href,
+            location.view,
+            location.network,
+            addresses,
+        );
         window.history.pushState({}, '', next);
         setLocation(parseAppSearch(next.search));
+    }, [location.network, location.view]);
+
+    const openProtocolGuide = useCallback((protocol: ProtocolSnapshot | null = null) => {
+        setProtocolGuide({ isOpen: true, protocol });
+    }, []);
+    const closeProtocolGuide = useCallback(() => {
+        setProtocolGuide((current) => ({ ...current, isOpen: false }));
+    }, []);
+    const updateCurrentProtocol = useCallback((next: ProtocolSnapshot | null) => {
+        setCurrentProtocol((current) => {
+            if (current === next) return current;
+            if (
+                current &&
+                next &&
+                current.network === next.network &&
+                current.blockHash === next.blockHash
+            ) {
+                return current;
+            }
+            return next;
+        });
     }, []);
 
     const updateRpc = useCallback((url: string) => {
@@ -105,9 +140,15 @@ export function App() {
 
     return (
         <div className="min-h-screen bg-brand-black text-white">
+            <ProtocolGuide
+                isOpen={protocolGuide.isOpen}
+                protocol={protocolGuide.protocol}
+                onClose={closeProtocolGuide}
+            />
             <Header
                 activeView={location.view}
                 onNavigate={navigateTo}
+                onOpenProtocolGuide={() => openProtocolGuide(currentProtocol)}
             />
             {location.view === 'pingme' ? (
                 <main className="mx-auto max-w-7xl px-4 py-8">
@@ -115,20 +156,28 @@ export function App() {
                         key={location.network}
                         network={location.network}
                         selectedCaseId={location.selectedCaseId}
-                        onSelectCase={selectCase}
                         onOpenMonitor={() => navigateTo('monitor')}
+                        linkedAddresses={location.watchlistAddresses}
+                        onWatchlistChange={updateWatchlist}
+                        onOpenProtocolGuide={openProtocolGuide}
+                        onProtocolChange={updateCurrentProtocol}
                     />
                 </main>
             ) : (
                 <>
                     <ScannerRuntime key={`${location.network}:${scannerGeneration}`} config={config} />
                     <Dashboard
-                        key={location.network}
+                        key={`${location.network}:${location.watchlistAddresses.join(',')}`}
                         configInput={config}
                         network={location.network}
+                        linkedAddresses={location.watchlistAddresses}
+                        selectedCaseId={location.selectedCaseId}
                         onResetRpc={resetRpc}
                         onToggleNetwork={toggleNetwork}
                         onUpdateRpc={updateRpc}
+                        onWatchlistChange={updateWatchlist}
+                        onOpenProtocolGuide={openProtocolGuide}
+                        onProtocolChange={updateCurrentProtocol}
                     />
                 </>
             )}

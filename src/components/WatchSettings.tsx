@@ -1,14 +1,20 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { parseAddressList, formatAddressList } from '@/lib/addresses';
+import { urlForWatchlist } from '@/lib/navigation';
 import { useNotificationSubscription } from '@/hooks/useNotificationSubscription';
+import { ShareButton } from './ShareButton';
 import type { BackendConfig, MonitorNetwork } from '@/types/backendApi';
 
 export function WatchSettings({
     network,
     config,
+    linkedAddresses,
+    onWatchlistChange,
 }: {
     network: MonitorNetwork;
     config: BackendConfig | null;
+    linkedAddresses: string[];
+    onWatchlistChange: (addresses: readonly string[]) => void;
 }) {
     const manager = useNotificationSubscription(network, config);
     const [draft, setDraft] = useState<{
@@ -16,15 +22,24 @@ export function WatchSettings({
         value: string;
     } | null>(null);
     const [validation, setValidation] = useState<string | null>(null);
-    const addresses = manager.watch?.addresses ?? [];
-    const watchVersion = manager.watch?.updatedAt ?? 'new';
+    const savedAddresses = manager.watch?.addresses ?? [];
+    const addresses = linkedAddresses.length > 0 ? linkedAddresses : savedAddresses;
+    const watchVersion = [
+        manager.watch?.updatedAt ?? 'new',
+        linkedAddresses.join(','),
+    ].join(':');
     const value = draft?.watchVersion === watchVersion
         ? draft.value
         : formatAddressList(addresses);
     const webPush = manager.watch?.endpoints.find((item) => item.kind === 'web_push');
     const telegram = manager.watch?.endpoints.find((item) => item.kind === 'telegram');
+    const viewingDifferentSharedList = linkedAddresses.length > 0 &&
+        !sameAddresses(linkedAddresses, savedAddresses);
+    const shareUrl = addresses.length > 0 && typeof window !== 'undefined'
+        ? urlForWatchlist(window.location.href, 'pingme', network, addresses).href
+        : null;
 
-    const submit = (event: FormEvent) => {
+    const submit = async (event: FormEvent) => {
         event.preventDefault();
         const parsed = parseAddressList(value, config?.maxSequencers ?? 100);
         if (parsed.errors.length > 0 || parsed.addresses.length === 0) {
@@ -32,35 +47,61 @@ export function WatchSettings({
             return;
         }
         setValidation(null);
-        void manager.saveAddresses(parsed.addresses);
+        const saved = await manager.saveAddresses(parsed.addresses);
+        if (saved) onWatchlistChange(parsed.addresses);
     };
 
     return (
         <section className="mb-8 border-6 border-chartreuse bg-malachite p-5 shadow-brutal-chartreuse sm:p-7">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                    <p className="text-xs font-black uppercase tracking-[0.18em] text-chartreuse">
-                        Your operators
-                    </p>
-                    <h2 className="mt-1 text-3xl font-black text-whisper-white">
-                        Which sequencers should PINGME follow?
+                    <h2 className="text-3xl font-black text-whisper-white">
+                        Sequencers to watch
                     </h2>
                     <p className="mt-2 max-w-3xl text-sm font-bold text-whisper-white/70">
-                        Each address gets one linked protocol history—from early node evidence
-                        to L1 execution and possible ejection.
+                        PINGME links each address’s node and L1 evidence into one timeline.
                     </p>
                 </div>
-                <span className={`w-fit border-3 border-brand-black px-3 py-2 text-xs font-black uppercase text-brand-black ${
-                    webPush?.enabled || telegram?.enabled ? 'bg-aqua' : 'bg-chartreuse'
-                }`}>
-                    {webPush?.enabled || telegram?.enabled ? 'Alerts live' : 'Status only'}
-                </span>
+                <div className="flex flex-wrap items-center gap-3">
+                    {shareUrl && (
+                        <div className="flex items-center gap-1">
+                            <ShareButton
+                                url={shareUrl}
+                                ariaLabel="Copy link to this PINGME watchlist"
+                                className="h-11 w-11 border-3 border-aqua"
+                            />
+                            <span className="text-xs font-black uppercase text-aqua">
+                                Share watchlist
+                            </span>
+                        </div>
+                    )}
+                    <span className={`w-fit border-3 border-brand-black px-3 py-2 text-xs font-black uppercase text-brand-black ${
+                        viewingDifferentSharedList
+                            ? 'bg-orchid'
+                            : webPush?.enabled || telegram?.enabled
+                                ? 'bg-aqua'
+                                : 'bg-chartreuse'
+                    }`}>
+                        {viewingDifferentSharedList
+                            ? 'Shared list'
+                            : webPush?.enabled || telegram?.enabled
+                                ? 'Alerts live'
+                                : 'Status only'}
+                    </span>
+                </div>
             </div>
 
             {!manager.capabilityOriginSafe && (
                 <p className="mt-5 border-3 border-vermillion bg-oxblood p-3 text-sm font-bold text-vermillion">
                     This shared github.io origin cannot safely store a private watch key.
                     Use a dedicated origin for PINGME.
+                </p>
+            )}
+            {viewingDifferentSharedList && (
+                <p className="mt-5 border-3 border-orchid bg-aubergine p-3 text-sm font-bold text-whisper-white">
+                    You are viewing addresses from a public link. Your private PINGME
+                    watch and notification channels have not changed. Submit this list
+                    below only if you want to replace your saved watch.
                 </p>
             )}
 
@@ -96,7 +137,11 @@ export function WatchSettings({
                         disabled={manager.isBusy || !manager.capabilityOriginSafe}
                         className="brutal-button"
                     >
-                        {manager.watch ? 'Update addresses' : 'Create watch'}
+                        {viewingDifferentSharedList
+                            ? 'Use as my PINGME watch'
+                            : manager.watch
+                                ? 'Update addresses'
+                                : 'Create watch'}
                     </button>
                     {manager.watch && (
                         <button
@@ -106,6 +151,16 @@ export function WatchSettings({
                             className="brutal-button brutal-button--danger"
                         >
                             Delete watch
+                        </button>
+                    )}
+                    {!manager.watch && manager.hasCredentials && manager.error && (
+                        <button
+                            type="button"
+                            disabled={manager.isBusy}
+                            onClick={manager.forgetUnavailableWatch}
+                            className="brutal-button brutal-button--danger"
+                        >
+                            Forget unavailable watch
                         </button>
                     )}
                 </div>
@@ -175,6 +230,12 @@ export function WatchSettings({
             )}
         </section>
     );
+}
+
+function sameAddresses(left: readonly string[], right: readonly string[]): boolean {
+    if (left.length !== right.length) return false;
+    const rightSet = new Set(right);
+    return left.every((item) => rightSet.has(item));
 }
 
 function Channel({

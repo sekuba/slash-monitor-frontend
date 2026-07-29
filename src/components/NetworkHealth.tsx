@@ -25,7 +25,7 @@ export function NetworkHealth({
                         Current network health
                     </p>
                     <h2 className="mt-1 text-3xl font-black text-whisper-white">
-                        Slashing cases, not event volume
+                        Cases indexed
                     </h2>
                 </div>
                 <span className="border-3 border-brand-black bg-aqua px-3 py-2 text-xs font-black uppercase text-brand-black">

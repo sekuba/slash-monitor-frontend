@@ -16,6 +16,7 @@ interface State {
     status: BackendStatus | null;
     networkData: NetworkCases | null;
     watch: ManagedWatch | null;
+    watchError: string | null;
     isLoading: boolean;
     error: string | null;
     lastReceivedAt: number | null;
@@ -26,6 +27,7 @@ const initialState: State = {
     status: null,
     networkData: null,
     watch: null,
+    watchError: null,
     isLoading: true,
     error: null,
     lastReceivedAt: null,
@@ -48,17 +50,26 @@ export function useBackendMonitor(network: MonitorNetwork) {
         const controller = new AbortController();
         abortRef.current = controller;
         try {
-            const [config, status, networkData, watch] = await Promise.all([
+            const watchRequest = credentials
+                ? slashmonApi.getWatch(
+                    credentials.id,
+                    credentials.managementToken,
+                    controller.signal,
+                ).then(
+                    (watch) => ({ watch, error: null }),
+                    (error: unknown) => ({
+                        watch: null,
+                        error: error instanceof Error
+                            ? error.message
+                            : 'Unable to load the saved PINGME watch',
+                    }),
+                )
+                : Promise.resolve({ watch: null, error: null });
+            const [config, status, networkData, watchResult] = await Promise.all([
                 slashmonApi.getConfig(controller.signal),
                 slashmonApi.getStatus(controller.signal),
                 slashmonApi.getNetwork(controller.signal),
-                credentials
-                    ? slashmonApi.getWatch(
-                        credentials.id,
-                        credentials.managementToken,
-                        controller.signal,
-                    )
-                    : Promise.resolve(null),
+                watchRequest,
             ]);
             if (controller.signal.aborted) return;
             if (config.network !== network) {
@@ -70,7 +81,8 @@ export function useBackendMonitor(network: MonitorNetwork) {
                 config,
                 status,
                 networkData,
-                watch,
+                watch: watchResult.watch,
+                watchError: watchResult.error,
                 isLoading: false,
                 error: null,
                 lastReceivedAt: Date.now(),
@@ -83,6 +95,7 @@ export function useBackendMonitor(network: MonitorNetwork) {
                 status: null,
                 networkData: null,
                 watch: null,
+                watchError: null,
                 isLoading: false,
                 error: error instanceof Error
                     ? error.message

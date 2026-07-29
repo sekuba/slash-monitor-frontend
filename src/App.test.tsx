@@ -30,7 +30,7 @@ describe('top-level view isolation', () => {
         expect(markup).toContain('brutal-button--nav-selected');
     });
 
-    it('keeps exact case links isolated to PINGME without starting the scanner', () => {
+    it('opens a PINGME case link without starting the browser scanner', () => {
         installBrowser(
             'https://slashmon.example/?view=pingme&case=case%3Amainnet%3Aactive%3A0xabc%3A42',
         );

@@ -1,37 +1,55 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { AddressStatus } from './AddressStatus';
+import { CaseFeed } from './CaseFeed';
+import { CaseTimeline } from './CaseTimeline';
 import { MonitorDetails } from './MonitorDetails';
 import { NetworkHealth } from './NetworkHealth';
+import { ShareButton } from './ShareButton';
 import { parseAddressList, formatAddressList } from '@/lib/addresses';
 import {
     loadMonitorAddresses,
     saveMonitorAddresses,
 } from '@/lib/monitorAddressStorage';
 import { projectMonitorCases } from '@/lib/monitorCases';
+import { selectCaseFeed } from '@/lib/caseFeed';
+import { urlForWatchlist } from '@/lib/navigation';
 import { summarizeNetwork } from '../../shared/protocol/index.ts';
 import { useSlashingStore } from '@/store/slashingStore';
 import type { MonitorConfigInput } from '@/types/slashing';
+import type { ProtocolSnapshot } from '../../shared/protocol/index.ts';
 
 interface DashboardProps {
     configInput: MonitorConfigInput;
     network: 'mainnet' | 'testnet';
+    linkedAddresses: string[];
+    selectedCaseId: string | null;
     onResetRpc: () => void;
     onToggleNetwork: () => void;
     onUpdateRpc: (url: string) => void;
+    onWatchlistChange: (addresses: readonly string[]) => void;
+    onOpenProtocolGuide: (protocol: ProtocolSnapshot | null) => void;
+    onProtocolChange: (protocol: ProtocolSnapshot | null) => void;
 }
 
 export function Dashboard({
     configInput,
     network,
+    linkedAddresses,
+    selectedCaseId,
     onResetRpc,
     onToggleNetwork,
     onUpdateRpc,
+    onWatchlistChange,
+    onOpenProtocolGuide,
+    onProtocolChange,
 }: DashboardProps) {
     const store = useSlashingStore();
-    const [addresses, setAddresses] = useState(() => loadMonitorAddresses(network));
+    const [addresses, setAddresses] = useState(() =>
+        linkedAddresses.length > 0
+            ? linkedAddresses
+            : loadMonitorAddresses(network));
     const [addressText, setAddressText] = useState(() => formatAddressList(addresses));
     const [addressError, setAddressError] = useState<string | null>(null);
-    const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
 
     const projected = (() => {
         if (!store.config || !store.isInitialized) return null;
@@ -44,6 +62,10 @@ export function Dashboard({
         });
     })();
 
+    useEffect(() => {
+        onProtocolChange(projected?.protocol ?? null);
+    }, [onProtocolChange, projected?.protocol]);
+
     const saveAddresses = (event: FormEvent) => {
         event.preventDefault();
         const parsed = parseAddressList(addressText, 100);
@@ -55,7 +77,21 @@ export function Dashboard({
         setAddressError(null);
         setAddresses(next);
         saveMonitorAddresses(network, next);
+        onWatchlistChange(next);
     };
+    const watchlistUrl = addresses.length > 0 && typeof window !== 'undefined'
+        ? urlForWatchlist(window.location.href, 'monitor', network, addresses).href
+        : null;
+    const selectedCase = projected && selectedCaseId
+        ? projected.cases.find((item) => item.id === selectedCaseId) ?? null
+        : null;
+    const feedCaseIds = new Set(projected
+        ? Object.values(selectCaseFeed(projected.cases)).flat().map((item) => item.id)
+        : []);
+    const selectedInFeed = selectedCaseId ? feedCaseIds.has(selectedCaseId) : false;
+    const selectedInWatchlist = selectedCase
+        ? addresses.includes(selectedCase.sequencer)
+        : false;
 
     const controls = (
         <div className="mb-8">
@@ -108,17 +144,16 @@ export function Dashboard({
                     Independent browser monitor
                 </p>
                 <h1 className="mt-1 text-3xl font-black text-whisper-white">
-                    Follow your addresses on the observable L1 path
+                    Follow your sequencers on L1
                 </h1>
                 <p className="mt-3 max-w-4xl text-sm font-bold text-whisper-white/75">
-                    This page uses only the public RPC shown above. It can see L1 votes,
-                    payloads, vetoes, execution windows, executed rounds, actual
-                    deductions, and current ejection state. It cannot infer an offense
-                    reason: reasons require node evidence from PINGME.
+                    This page uses the public RPC shown above. It follows L1 votes,
+                    candidates, vetoes, execution, stake removal, and ejection. Offense
+                    reasons come from node evidence in PINGME.
                 </p>
                 <form onSubmit={saveAddresses} className="mt-6">
                     <label htmlFor="monitor-addresses" className="text-xs font-black uppercase text-aqua">
-                        Sequencer addresses · stored only in this browser
+                        Sequencer addresses · local until you copy a public watchlist link
                     </label>
                     <textarea
                         id="monitor-addresses"
@@ -134,7 +169,21 @@ export function Dashboard({
                             {addressError}
                         </p>
                     )}
-                    <button type="submit" className="brutal-button mt-4">Show my L1 status</button>
+                    <div className="mt-4 flex flex-wrap items-center gap-3">
+                        <button type="submit" className="brutal-button">Show my L1 status</button>
+                        {watchlistUrl && (
+                            <div className="flex items-center gap-1">
+                                <ShareButton
+                                    url={watchlistUrl}
+                                    ariaLabel="Copy link to this Monitor watchlist"
+                                    className="h-11 w-11 border-3 border-aqua"
+                                />
+                                <span className="text-xs font-black uppercase text-aqua">
+                                    Share watchlist
+                                </span>
+                            </div>
+                        )}
+                    </div>
                 </form>
             </section>
 
@@ -162,6 +211,21 @@ export function Dashboard({
                 </div>
             )}
 
+            {projected && selectedCase && !selectedInFeed && !selectedInWatchlist && (
+                <section className="mb-8">
+                    <p className="mb-3 text-xs font-black uppercase tracking-[0.16em] text-aqua">
+                        Shared case
+                    </p>
+                    <CaseTimeline
+                        item={selectedCase}
+                        protocol={projected.protocol}
+                        selected
+                        showSequencer
+                        onOpenProtocolGuide={onOpenProtocolGuide}
+                    />
+                </section>
+            )}
+
             <div className="grid gap-8">
                 {projected && addresses.map((address) => (
                     <AddressStatus
@@ -171,20 +235,30 @@ export function Dashboard({
                             (item) => item.sequencer === address,
                         )}
                         protocol={projected.protocol}
-                        selectedCaseId={selectedCaseId}
-                        onSelectCase={setSelectedCaseId}
+                        selectedCaseId={selectedInFeed ? null : selectedCaseId}
+                        onOpenProtocolGuide={onOpenProtocolGuide}
                     />
                 ))}
             </div>
 
             {addresses.length === 0 && (
-                <section className="border-5 border-orchid bg-aubergine p-6 shadow-brutal-orchid">
+                <section className="mb-8 border-5 border-orchid bg-aubergine p-6 shadow-brutal-orchid">
                     <h2 className="text-2xl font-black text-orchid">Add an address above</h2>
                     <p className="mt-2 text-sm font-bold text-whisper-white/75">
                         The network overview is public. Address cards make the protocol
                         path actionable for your own sequencers.
                     </p>
                 </section>
+            )}
+
+            {projected && (
+                <CaseFeed
+                    cases={projected.cases}
+                    protocol={projected.protocol}
+                    selectedCaseId={selectedCaseId}
+                    evidenceMode="l1"
+                    onOpenProtocolGuide={onOpenProtocolGuide}
+                />
             )}
         </main>
     );

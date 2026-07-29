@@ -57,7 +57,10 @@ export function useNotificationSubscription(
     useEffect(() => {
         if (!credentials) return;
         const timer = window.setTimeout(() => {
-            void refresh().catch((caught) => setError(message(caught)));
+            void refresh().then(
+                () => setError(null),
+                (caught) => setError(message(caught)),
+            );
         }, 0);
         return () => window.clearTimeout(timer);
     }, [credentials, refresh]);
@@ -108,7 +111,6 @@ export function useNotificationSubscription(
             saveWatchCredentials(network, nextCredentials);
             setCredentials(nextCredentials);
             setWatch(created.watch);
-            signalWatchChanged(network);
             return created.watch;
         }, credentials ? 'Sequencer list updated.' : 'Watch created. Choose an alert channel.');
     }, [capabilityOriginSafe, credentials, network, run]);
@@ -171,12 +173,21 @@ export function useNotificationSubscription(
             setCredentials(null);
             setWatch(null);
             setTelegramLink(null);
-            signalWatchChanged(network);
         }, 'Watch deleted from the backend.');
     }, [credentials, network, run]);
 
+    const forgetUnavailableWatch = useCallback(() => {
+        clearWatchCredentials(network);
+        setCredentials(null);
+        setWatch(null);
+        setTelegramLink(null);
+        setError(null);
+        setNotice('Unavailable local watch key removed. You can create a new watch.');
+    }, [network]);
+
     return {
         watch,
+        hasCredentials: Boolean(credentials),
         isBusy,
         error,
         notice,
@@ -189,6 +200,7 @@ export function useNotificationSubscription(
         createTelegramLink,
         sendTest,
         deleteWatch,
+        forgetUnavailableWatch,
         refresh,
     };
 }

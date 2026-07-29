@@ -33,8 +33,15 @@ in the delivery outbox and never enter protocol history.
   push provider still sees routing and timing metadata. Notifications may be
   visible on a locked screen.
 - The HTTPS proxy can see IP addresses and request paths. Management tokens and
-  sequencer lists are never placed in Slashmon URLs. Telegram enrollment uses
-  a short-lived, single-use token in the `t.me` link.
+  notification destinations are never placed in Slashmon URLs. Telegram
+  enrollment uses a short-lived, single-use token in the `t.me` link.
+
+Watchlist sharing is an explicit public action. The copied URL contains the
+normalized sequencer addresses in its `watch` query parameter so either
+Monitor or PINGME can open the same list without a private backend capability.
+Anyone who receives that URL can see the addresses and their public cases.
+Opening it does not modify or expose the recipient's private PINGME watch;
+adopting the list requires a separate submit action.
 
 Logs must not contain RPC credentials, provider tokens, management or link
 tokens, Web Push key material, Telegram chat associations, or full secret URLs.
@@ -48,7 +55,9 @@ widgets, or other third-party scripts. Shared GitHub Pages origins are suitable
 only for Monitor.
 
 Monitor can store one custom public Ethereum RPC URL per network in browser
-storage. That RPC sees the browser's IP address and on-chain read requests.
+storage. Its sequencer list stays in browser storage unless the user explicitly
+copies a watchlist link. The selected RPC sees the browser's IP address and
+on-chain read requests.
 
 Deleting a watch removes its channels and prevents future delivery. Provider
 errors disable dead endpoints. The backend prunes expired one-time tokens and

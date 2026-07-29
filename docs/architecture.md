@@ -8,7 +8,7 @@ operator:
 - a realtime, per-sequencer position on the slashing protocol path;
 - the next known transition and its deadline;
 - the evidence and certainty behind a possible offense reason; and
-- an aggregate view of network slashing and offense health.
+- an aggregate feed of active network slashing and offense health.
 
 The primary user object is therefore a **slashing case**, not an isolated
 event. Observations are evidence used to build a case. V3 implements this model
@@ -67,6 +67,27 @@ Its limitations must also remain visible:
 - the backend can be stale or unavailable; and
 - its Sentinel coverage is one node's view of public duties, even when it
   covers every L1 committee member.
+
+### Shared presentation, separate availability
+
+The routes share their visual language: network health, the active-case feed,
+address cards, abbreviated case path, full educational lifecycle, and evidence
+details are the same components. Their collectors stay separate. This avoids
+coupling backend availability to the browser collector or starting the
+browser scanner merely because PINGME is unavailable.
+
+### Links and capabilities
+
+A watchlist link serializes only normalized public sequencer addresses. It
+works on Monitor or PINGME and never contains a backend watch ID, management
+token, notification endpoint, or Telegram association. Opening a PINGME
+watchlist link is read-only; the recipient must explicitly adopt it before
+their private watch or notifications change.
+
+Every case also has a compact copy-link action. Case links retain the exact
+case ID for notifications and investigations, but the watchlist remains the
+primary shareable user context. A missing or obsolete private watch capability
+does not suppress the public network feed.
 
 ## The slashing-case model
 
@@ -230,6 +251,12 @@ event counts:
 - ejections and pending exits; and
 - source freshness, chain-tip/proof health, contract rotation, and reorg status.
 
+The public active-case feed contains every currently active case and a small,
+most-recent set of execution outcomes. It omits expired, locally resolved, and
+reorg-only history. PINGME includes Sentinel precursors and node offenses;
+Monitor shows the same feed shape starting at independently observed L1
+support.
+
 The overview must never market one backend node's offense feed as a complete
 network consensus feed. L1 aggregates are network facts at their stated block;
 local offense aggregates are an observation sample.
@@ -247,7 +274,10 @@ Implementation work must preserve these constraints:
 - Address plus approximate time is never enough to correlate evidence.
 - Current parameters come from the responsible canonical contract lineage.
 - Stale or partial sources remain visible and never erase last-known history.
-- Deep links open the exact case and evidence, not merely a dashboard.
+- Public watchlist links contain addresses but never private watch
+  capabilities.
+- Notification and case-share links open the exact case and evidence, not
+  merely a dashboard.
 
 See [Aztec protocol model](protocol.md),
 [Slashing and ejection](slashing.md), and the
