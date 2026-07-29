@@ -1,66 +1,111 @@
 # Notification content contract
 
-PINGME alerts must let an operator answer four questions without decoding raw
-contract values:
+PINGME alerts are transitions in a per-sequencer slashing case. An operator
+should be able to answer, without decoding contract data:
 
 1. Which watched sequencer is affected?
-2. Which slashing stage was observed?
-3. Which epoch, slot, or round does it concern?
-4. Where can the observation be inspected?
+2. Where is it on the slashing path?
+3. What changed, and what happens next?
+4. Is the reason local evidence or an L1 fact?
+5. Where can the underlying evidence be inspected?
 
-## Slashing stages
+An alert links to the exact case and transition, not just the PINGME landing
+page.
 
-Copy must keep these stages distinct:
+## Claims allowed at each stage
 
 | Stage | What the alert may claim |
 | --- | --- |
-| Sentinel precursor | A duty was missed or an inactivity threshold was met. This is not yet a registered offense or L1 vote. |
-| Node offense | One Aztec node registered an offense and proposed a slash amount. This is not an L1 vote or payload. |
-| L1 vote | At least one vote named the sequencer. No slash payload exists until the tally reaches quorum. |
-| Slash payload | The L1 tally produced concrete slash actions and amounts. The payload may still be delayed, paused, vetoed, or expire. |
-| Executed round | The payload was executed. A separate Rollup `Slashed` event confirms the amount actually removed from stake. |
-| Confirmed slash | A canonical Rollup `Slashed` event identifies the sequencer, token amount, transaction, and block. |
+| Inactivity precursor | This node observed a missed duty or a qualifying inactive epoch. State the progress, such as `1 of 2`; this is not yet a node offense or L1 vote. |
+| Node offense | This node registered a named offense and local penalty. It is not network consensus and has not necessarily been voted on L1. |
+| Awaiting target round | The node evidence maps to the stated future slashing round under current contract parameters. It may never receive a vote. |
+| L1 support | One or more onchain votes support a penalty unit for the address and exact target epoch. L1 supplies no reason. |
+| Candidate slash | The current tally yields an action and deterministic predicted payload address. The payload is not deployed and the tally can change until the round closes. |
+| Delayed / executable | The stable candidate is before or inside its execution window. State veto, pause, start, and expiry independently. |
+| Executed round | `executeRound` marked the round executed and, for a nonempty action list, deployed and called its payload. This does not by itself prove that stake was removed from this sequencer. |
+| Stake removed | A canonical Rollup `Slashed` log confirms the address and actual amount deducted. |
+| Ejected / exiting | Canonical stake state confirms removal from the active set or entry into the delayed exit flow. |
+| Vetoed / expired / reorged | The exact candidate was vetoed, its execution window ended, or prior L1 evidence left the canonical chain. Describe this as a state change, not as if the earlier warning never existed. |
 
-Aztec's operator documentation defines the offense → vote → tally → execution
-flow and the round offset. It also confirms that slash values such as
-`2000000000000000000000` represent `2,000 AZTEC`, not a user-facing “base
-units” amount:
+Never use “slash payload exists” before execution. Before then use “candidate
+action” and “predicted payload address.”
 
-- <https://docs.aztec.network/operate/operators/sequencer-management/slashing_and_offenses>
-- <https://docs.aztec.network/networks>
+## Reason and correlation wording
+
+L1 votes contain no offense type. Alerts may attach a reason only as separately
+labelled node evidence matched by address and exact target epoch or slot:
+
+> Candidate 2,000 AZTEC slash becomes executable in 2d 4h. This node observed
+> inactivity in target epoch 123.
+
+They must not say:
+
+> L1 confirmed a 2,000 AZTEC inactivity slash.
+
+If several local offenses match the same L1 action, list them rather than
+choosing one. If no evidence matches, say “reason unknown on L1.” An approximate
+timestamp match is insufficient.
 
 ## Required context
 
-Every delivered alert identifies the watched sequencer before the event copy.
-Telegram also includes:
+Every alert includes:
 
-- the exact Slashmon event URL;
-- a Dashtec sequencer URL for up to three affected watched addresses;
-- an Etherscan transaction when the event has one;
-- otherwise, or additionally when useful, the pinned L1 block and slash
-  payload address.
+- watched sequencer address and operator label, when configured;
+- case stage and previous stage;
+- exact slot, epoch, target epoch, or slashing round as applicable;
+- source (`this Aztec node`, `Sentinel`, or `Ethereum L1`);
+- source observation time and freshness;
+- actual AZTEC amount or candidate AZTEC amount, explicitly distinguished;
+- the next transition and countdown, when deterministic; and
+- the exact Slashmon case URL.
 
-Web Push identifies the watched address in its body and opens the exact
-Slashmon event, where the address links to Dashtec and L1 evidence links to the
-appropriate mainnet or Sepolia Etherscan.
-
-Event-specific copy includes:
+Event-specific evidence is:
 
 | Event family | Required facts |
 | --- | --- |
-| Sentinel | epoch, missed slot or slot range, missed/total duties, inactivity streak |
-| Node offense | offense type, epoch or slot, AZTEC amount, offense round and expected vote round when available |
-| L1 vote | voting round, target epoch range, observation epoch and slot |
-| L1 payload lifecycle | round, target epochs, AZTEC amount when known, execution/expiry slots, observation epoch and slot |
-| Confirmed slash/reorg | AZTEC amount, L1 block, canonical/reorg status |
+| Sentinel | missed slot or range, epoch, missed/total duties, target, streak progress, and coverage health |
+| Node offense | offense type, evidence slot/epoch, local penalty, registration state, and expected target round |
+| L1 vote | contract lineage, voting round, exact target epoch, unit/support, pinned block, and matching node evidence if any |
+| Candidate lifecycle | action amount, predicted address, round-close stability, execution start, expiry, veto, and pause |
+| Execution / slash | transaction, round, deployed payload, requested action, canonical `Slashed` amount, and post-slash/ejection state when known |
+| Reorg / correction | orphaned block or transaction and the case state that replaced it |
 
-Payload-change alerts describe the address-level delta: a sequencer was added,
-removed, or had its proposed AZTEC amount changed. They do not include a
-generic warning about old veto state. A replacement warning is justified only
-when the immediately preceding snapshot proves that the exact previous payload
-address was vetoed and the new payload address is not. In that case the alert
-names both states and links both payload contracts on Etherscan.
+Telegram may add Dashtec links for affected sequencers and Etherscan links for
+the exact network transaction, block, or predicted/deployed address. Web Push
+opens the same exact case.
 
-AZTEC formatting always removes the token's 18 onchain decimals, adds digit
-grouping, and preserves any nonzero fractional precision. Copy must never use
-“base units” for an operator-facing token amount.
+## Alert transitions and noise control
+
+Alert on meaningful path changes, not every poll:
+
+- first missed duty in an epoch;
+- newly qualifying inactive epoch or changed streak progress;
+- offense registration or safe withdrawal;
+- first L1 support and relevant support/penalty threshold crossings;
+- candidate addition, removal, amount change, or address change;
+- round close, execution start, veto, materially changed pause protection, or
+  expiry;
+- execution, actual stake deduction, or ejection; and
+- canonical reorg correction.
+
+A candidate-address change describes the affected address's action delta. A
+previous veto is relevant only if the immediately preceding exact address was
+vetoed and the replacement is not.
+
+Repeated observations of the same stable state update freshness without
+sending another alert. Stable transition IDs support at-least-once delivery and
+allow a duplicate provider delivery to be recognized.
+
+## Amounts and time
+
+AZTEC has 18 onchain decimals. Operator copy renders token units with digit
+grouping and required fractional precision; it never calls the raw integer
+“base units.”
+
+Countdowns are derived from live slot duration and contract parameters. Include
+the absolute slot and estimated wall-clock time because L1 inclusion can move
+the observed transition. “Pause protected” is allowed only when the scheduled
+pause extends through the entire remaining execution window.
+
+The protocol definitions behind these claims are in
+[Slashing and ejection](slashing.md).

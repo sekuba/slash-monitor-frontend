@@ -1,68 +1,74 @@
 # Slashmon
 
-Slashmon watches Aztec slashing and has two deliberately separate parts:
+Slashmon helps Aztec sequencer operators answer two questions:
 
-- **Monitor** is a browser-only view of public Ethereum state. It resolves the
-  canonical Aztec contracts and checks slashing rounds directly through public
-  L1 RPCs. Its on-page details panel can select a browser-local RPC and inspect
-  the resolved deployment metadata.
-- **PINGME** is the backend UI. It can search the complete journal for one
-  sequencer, manage address watches, and send matched alerts through Telegram
-  or Web Push. The backend records per-duty inactivity precursors and
-  registered offenses from one Aztec node, then verifies L1 slashing state.
+1. Is one of my sequencers beginning to move through the slashing process?
+2. What does confirmed L1 state say about slashing risk across the network?
 
-Node-local offenses are early warnings, not consensus. Slashmon labels them
-`pending`. Ethereum observations are labelled `confirmed`. The backend never
-turns one node's opinion into L1 truth.
+An operator enters one or more sequencer addresses. For each address, Slashmon
+should show a single, linked protocol path rather than a collection of unrelated
+events:
 
-## Repository
+```text
+duty problem → local offense → L1 votes → candidate slash → executable
+             → executed → stake removed → possible ejection
+```
 
-- `src/` — React/Vite PWA containing Monitor and PINGME
-- `collector/` — Node backend, SQLite journal, and notification delivery
-- [`docs/architecture.md`](docs/architecture.md) — data flow and trust boundaries
-- [`docs/notifications.md`](docs/notifications.md) — notification stages, required context, and links
-- [`docs/runbook.md`](docs/runbook.md) — production deployment and operations
-- [`docs/privacy.md`](docs/privacy.md) — stored data and provider exposure
+That path can stop at any step. Examples include “one inactive epoch observed;
+the configured consecutive-epoch threshold has not been met” and “candidate
+slash becomes executable in two days; this node observed inactivity in the
+target epoch.” The second statement deliberately says **node evidence**:
+onchain slash votes contain a validator, target epoch, and penalty unit, but no
+offense reason.
 
-The ignored `apiReference.md` and `onchainSources.md` files are research
-material. Runtime behavior must live in committed code, ABIs, and tests.
+## Two independent views
+
+| Surface | Data source | Purpose |
+| --- | --- | --- |
+| **Monitor** | Public Ethereum RPCs, queried by the browser | Backend-independent view of canonical contracts, rounds, votes, candidate actions, vetoes, execution, and actual slash logs. |
+| **PINGME** | Slashmon backend, one Aztec node, Ethereum RPCs | Earlier node and Sentinel warnings, linked per-sequencer history, realtime status, and Telegram or Web Push delivery. |
+
+The overlap is intentional. Monitor must remain useful when
+`api.slashveto.me` or the attached Aztec node is unavailable. PINGME provides
+continuity while a browser is closed and evidence that is not published to L1.
+Neither view is an oracle: local evidence is an observer's report, while L1
+reveals voting and stake outcomes but not the underlying offense.
+
+## Read this first
+
+- [Aztec protocol model](docs/protocol.md) — slots, blocks, checkpoints,
+  committees, proposals, signals, and proofs
+- [Slashing and ejection](docs/slashing.md) — all v5 offenses and the exact
+  warning-to-stake-removal lifecycle
+- [Monitor architecture](docs/architecture.md) — trust boundaries, case
+  linking, and requirements for the refactor
+- [Notification contract](docs/notifications.md) — what an alert may claim at
+  each stage
+- [Privacy](docs/privacy.md) and [production runbook](docs/runbook.md)
+
+The protocol documentation was researched against the active Aztec mainnet
+deployment and `aztec-packages` commit
+[`def7152a`](https://github.com/AztecProtocol/aztec-packages/tree/def7152aa13dc0f880f24e45ce39442908170878)
+on 2026-07-29. Parameters and canonical contracts are upgradeable. Runtime
+views must resolve them from the Registry and read their current values rather
+than treating the examples in these documents as constants.
 
 ## Development
 
-Use Node 24 and the pinned pnpm release:
+Use Node 24 and the pinned pnpm version:
 
 ```bash
 corepack enable
 pnpm install
 cp .env.example .env
 cp collector/.env.example collector/.env
-```
-
-Run the two processes in separate terminals:
-
-```bash
 pnpm dev
 pnpm dev:backend
 ```
 
-For local cross-origin development, set
-`VITE_API_BASE_URL=http://127.0.0.1:8790`; the backend example already allows
-`http://localhost:5173`. Alternatively leave `VITE_API_BASE_URL` empty and set
-`SLASHMON_DEV_API_PROXY_TARGET` for Vite's same-origin development proxy.
+Run `pnpm check` before deployment. All `VITE_*` values are public. RPC
+credentials, Telegram tokens, VAPID private keys, and the Aztec admin endpoint
+belong only in the backend environment.
 
-Run the complete quality gate with:
-
-```bash
-pnpm check
-```
-
-All `VITE_*` values are public browser configuration. Backend RPC credentials,
-Telegram tokens, and VAPID private keys belong only in `collector/.env` or the
-production environment file.
-
-Notification watches use a bearer capability stored by browser origin. Host a
-production PINGME installation on a dedicated origin and do not add third-party
-scripts. A shared GitHub Pages origin is suitable only for the public Monitor.
-
-Production backend deployments use `scripts/deploy-backend.sh`: `--fresh`
-resets all state, while `--upgrade` preserves and backs up the current database.
+The ignored `apiReference.md` and `onchainSources.md` files are research
+snapshots, not runtime inputs or committed documentation.
