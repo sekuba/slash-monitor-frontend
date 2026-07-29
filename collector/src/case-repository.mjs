@@ -575,7 +575,14 @@ export class CaseRepository {
     const rows = this.db.prepare(`
       SELECT id, observation_json AS observationJson
       FROM observations
-      WHERE source = 'ethereum_l1' AND kind IN ('l1_slash', 'stake_status')
+      WHERE source = 'ethereum_l1'
+        AND (
+          kind IN ('l1_slash', 'stake_status')
+          OR (
+            kind = 'l1_round'
+            AND json_extract(observation_json, '$.data.historicalExecution') = 1
+          )
+        )
         AND canonical = 1
         AND CAST(block_number AS INTEGER) BETWEEN ? AND ?
     `).all(Number(fromBlock), Number(toBlock));
@@ -983,7 +990,18 @@ export class CaseRepository {
       const observations = [];
       const seenIds = [];
       for (const log of chunk.logs ?? []) {
-        const execution = findExecutionForSlash(this.db, log);
+        let execution = findExecutionForSlash(this.db, log);
+        if (execution) {
+          assertExecutionMatchesContext(execution, log);
+        } else if (log.executionContext) {
+          execution = historicalRoundObservation({
+            network: selectedNetwork,
+            log,
+            observedAt,
+          });
+          observations.push(execution);
+          seenIds.push(execution.id);
+        }
         const observation = slashObservation({
           network: selectedNetwork,
           log,
@@ -1611,6 +1629,97 @@ function findExecutionForSlash(db, log) {
     if (row) return parseJson(row.observationJson, null);
   }
   return null;
+}
+
+function assertExecutionMatchesContext(execution, log) {
+  if (!log.executionContext) return;
+  const context = log.executionContext;
+  const mismatches = [
+    execution.lineageId !== address(context.proposerAddress, 'SlashingProposer'),
+    execution.round !== unsignedString(context.round, 'round'),
+    execution.sequencer !== address(context.sequencer, 'sequencer'),
+    execution.targetEpoch !== unsignedString(context.targetEpoch, 'target epoch'),
+    unsignedInteger(execution.data.actionIndex, 'stored action index') !==
+      unsignedInteger(context.actionIndex, 'historical action index'),
+    execution.data.amount !== unsignedString(context.amount, 'slash amount'),
+  ];
+  if (mismatches.some(Boolean)) {
+    throw new Error(
+      `Slashed log ${log.transactionHash}:${log.logIndex} disagrees with its stored RoundExecuted case`,
+    );
+  }
+}
+
+function historicalRoundObservation({
+  network: selectedNetwork,
+  log,
+  observedAt,
+}) {
+  const context = log.executionContext;
+  const sequencer = address(log.sequencer, 'sequencer');
+  const contextSequencer = address(context?.sequencer, 'historical sequencer');
+  const actionIndex = unsignedInteger(
+    context?.actionIndex,
+    'historical action index',
+  );
+  if (
+    contextSequencer !== sequencer ||
+    actionIndex !== unsignedInteger(log.transactionSlashIndex, 'transaction slash index')
+  ) {
+    throw new Error(
+      `Slashed log ${log.transactionHash}:${log.logIndex} has inconsistent historical execution context`,
+    );
+  }
+  const lineageId = address(context.proposerAddress, 'SlashingProposer');
+  const round = unsignedString(context.round, 'round');
+  const targetEpoch = unsignedString(context.targetEpoch, 'target epoch');
+  const data = {
+    round,
+    status: 'executed',
+    support: unsignedInteger(context.support, 'slash support'),
+    quorum: positiveInteger(context.quorum, 'quorum'),
+    amount: unsignedString(context.amount, 'slash amount'),
+    actionIndex,
+    maxSlashUnits: unsignedInteger(context.maxSlashUnits, 'maximum slash units'),
+    unitVoteCounts: (context.unitVoteCounts ?? []).map((value) =>
+      unsignedInteger(value, 'unit vote count')),
+    escaped: Boolean(context.escaped),
+    payloadAddress: address(context.payloadAddress, 'payload'),
+    isVetoed: false,
+    isExecuted: true,
+    stable: true,
+    isExecutionPaused: false,
+    isProtected: false,
+    historicalExecution: true,
+  };
+  return {
+    id: stableId(
+      'l1-executed-round',
+      hash(log.blockHash, 'block hash'),
+      hash(log.transactionHash, 'transaction hash'),
+      lineageId,
+      round,
+      sequencer,
+      targetEpoch,
+      actionIndex,
+      JSON.stringify(data),
+    ),
+    network: network(selectedNetwork),
+    source: 'ethereum_l1',
+    kind: 'l1_round',
+    sequencer,
+    lineageId,
+    targetEpoch,
+    round,
+    provenance: {
+      observedAt: toIso(observedAt),
+      blockNumber: unsignedString(log.blockNumber, 'block number'),
+      blockHash: hash(log.blockHash, 'block hash'),
+      transactionHash: hash(log.transactionHash, 'transaction hash'),
+      canonical: true,
+    },
+    data,
+  };
 }
 
 function slashObservation({ network: selectedNetwork, log, execution, observedAt }) {

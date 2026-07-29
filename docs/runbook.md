@@ -41,6 +41,13 @@ head. Set `BACKEND_LOG_LEVEL=debug` temporarily to follow each checkpoint in
 the service journal. Removing the setting later returns to normal cursor-based
 collection; it does not delete indexed history.
 
+Every successful chunk advances the durable block/hash checkpoint. A failed
+chunk leaves that checkpoint unchanged and is safe to retry after an upgrade.
+Historical slash transactions require archive state calls at their execution
+blocks so the backend can reconstruct rounds that are no longer in the live
+snapshot. No manual cursor or database reset is required after fixing such a
+failure.
+
 Sentinel defaults are intentionally bounded. The collector checks sync on idle
 polls, then fetches the confirmed committee and exact-range history only when
 an epoch becomes ready. If the node overrides its Sentinel epoch-end buffer,

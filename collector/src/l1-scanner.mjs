@@ -1110,6 +1110,7 @@ function normalizeSlashLog(log, expectedEmitter) {
 
 async function attachExecutionContext(client, logs) {
   const byTransaction = new Map();
+  const reconstructedRounds = new Map();
   const slashIndex = new Map();
   for (const log of [...logs].sort((left, right) => left.logIndex - right.logIndex)) {
     const next = slashIndex.get(log.transactionHash) ?? 0;
@@ -1144,6 +1145,52 @@ async function attachExecutionContext(client, logs) {
       byTransaction.set(transactionHash, candidates);
     }
     log.executionCandidates = byTransaction.get(transactionHash);
+    const matchingContexts = [];
+    for (const candidate of log.executionCandidates) {
+      const cacheKey = [
+        log.blockNumber,
+        log.rollupAddress,
+        candidate.proposerAddress,
+        candidate.round,
+      ].join(':');
+      if (!reconstructedRounds.has(cacheKey)) {
+        reconstructedRounds.set(
+          cacheKey,
+          reconstructExecutedRound(client, {
+            ...candidate,
+            rollupAddress: log.rollupAddress,
+            blockNumber: BigInt(log.blockNumber),
+          }),
+        );
+      }
+      const reconstructed = await reconstructedRounds.get(cacheKey);
+      if (!reconstructed) continue;
+      const detail = reconstructed.actionDetails[log.transactionSlashIndex];
+      if (detail?.sequencer !== log.sequencer) continue;
+      matchingContexts.push({
+        proposerAddress: candidate.proposerAddress,
+        round: candidate.round,
+        targetEpoch: detail.targetEpoch,
+        actionIndex: log.transactionSlashIndex,
+        sequencer: detail.sequencer,
+        amount: detail.amount,
+        support: detail.support,
+        quorum: reconstructed.quorum,
+        maxSlashUnits: detail.maxSlashUnits,
+        unitVoteCounts: detail.unitVoteCounts,
+        epochIndex: detail.epochIndex,
+        committeeIndex: detail.committeeIndex,
+        escaped: detail.escaped,
+        payloadAddress: reconstructed.payloadAddress,
+      });
+    }
+    if (matchingContexts.length !== 1) {
+      throw new Error(
+        `Slashed log ${transactionHash}:${log.logIndex} has ${matchingContexts.length} ` +
+        'exact historical RoundExecuted links',
+      );
+    }
+    [log.executionContext] = matchingContexts;
     const status = await read(
       client,
       log.rollupAddress,
@@ -1155,6 +1202,114 @@ async function attachExecutionContext(client, logs) {
     log.attesterStatus = Number(status);
     log.ejected = log.attesterStatus === 2 || log.attesterStatus === 3;
   }
+}
+
+async function reconstructExecutedRound(client, {
+  proposerAddress,
+  round: roundInput,
+  slashCount: slashCountInput,
+  rollupAddress,
+  blockNumber,
+}) {
+  const round = BigInt(roundInput);
+  const slashCount = BigInt(slashCountInput);
+  const [
+    instance,
+    [isExecuted, ballotCount],
+    quorum,
+    roundSizeInEpochs,
+    slashOffsetInRounds,
+    committeeSize,
+  ] = await Promise.all([
+    read(client, proposerAddress, slashingProposerAbi, 'INSTANCE', blockNumber),
+    read(client, proposerAddress, slashingProposerAbi, 'getRound', blockNumber, [round]),
+    read(client, proposerAddress, slashingProposerAbi, 'QUORUM', blockNumber),
+    read(client, proposerAddress, slashingProposerAbi, 'ROUND_SIZE_IN_EPOCHS', blockNumber),
+    read(client, proposerAddress, slashingProposerAbi, 'SLASH_OFFSET_IN_ROUNDS', blockNumber),
+    read(client, proposerAddress, slashingProposerAbi, 'COMMITTEE_SIZE', blockNumber),
+  ]);
+  if (getAddress(instance).toLowerCase() !== rollupAddress) return null;
+  if (!isExecuted) {
+    throw new Error(`RoundExecuted event for round ${round} is not reflected at block ${blockNumber}`);
+  }
+
+  const committees = await read(
+    client,
+    proposerAddress,
+    slashingProposerAbi,
+    'getSlashTargetCommittees',
+    blockNumber,
+    [round],
+  );
+  const encodedVotes = await readVotes(
+    client,
+    proposerAddress,
+    blockNumber,
+    round,
+    0n,
+    BigInt(ballotCount),
+  );
+  const targets = decodeEarlyTargets(encodedVotes, committees, committeeSize);
+  const targetEpochs = [];
+  if (round >= BigInt(slashOffsetInRounds)) {
+    const startEpoch =
+      (round - BigInt(slashOffsetInRounds)) * BigInt(roundSizeInEpochs);
+    for (let offset = 0n; offset < BigInt(roundSizeInEpochs); offset += 1n) {
+      targetEpochs.push((startEpoch + offset).toString());
+    }
+  }
+  const escapeHatchEpochs = await readEscapeHatchEpochs(
+    client,
+    rollupAddress,
+    blockNumber,
+    targetEpochs,
+  );
+  const tally = await read(
+    client,
+    proposerAddress,
+    slashingProposerAbi,
+    'getTally',
+    blockNumber,
+    [round, committees],
+  );
+  const actions = tally.map((action) => ({
+    sequencer: getAddress(action.validator).toLowerCase(),
+    amount: action.slashAmount.toString(),
+  }));
+  if (BigInt(actions.length) !== slashCount) {
+    throw new Error(
+      `RoundExecuted event for round ${round} reports ${slashCount} slashes, ` +
+      `historical tally returned ${actions.length}`,
+    );
+  }
+  const actionDetails = matchActionsToTargets(
+    actions,
+    targets,
+    quorum,
+    escapeHatchEpochs,
+  ).map((detail, actionIndex) => ({
+    ...detail,
+    actionIndex,
+    targetEpoch: targetEpochs[detail.epochIndex],
+    escaped: Boolean(escapeHatchEpochs[detail.epochIndex]),
+  }));
+  const contractActions = actions.map((action) => ({
+    validator: action.sequencer,
+    slashAmount: BigInt(action.amount),
+  }));
+  const payloadAddress = getAddress(await read(
+    client,
+    proposerAddress,
+    slashingProposerAbi,
+    'getPayloadAddress',
+    blockNumber,
+    [round, contractActions],
+  )).toLowerCase();
+  return {
+    quorum: Number(quorum),
+    actionDetails,
+    payloadAddress,
+  };
 }
 
 function compareLogs(left, right) {

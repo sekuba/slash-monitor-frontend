@@ -14,6 +14,7 @@ const ROLLUP = '0x2222222222222222222222222222222222222222';
 const SLASHER = '0x3333333333333333333333333333333333333333';
 const PROPOSER = '0x4444444444444444444444444444444444444444';
 const SEQUENCER = '0x5555555555555555555555555555555555555555';
+const PAYLOAD = '0x6666666666666666666666666666666666666666';
 const BLOCK_HASH = `0x${'ab'.repeat(32)}`;
 
 test('CaseRepository projects transitions and queues only matching watched sequencers', () => {
@@ -220,6 +221,76 @@ test('a repeated sequencer slash uses receipt action order to select the exact e
   repository.close();
 });
 
+test('historical slash backfill creates exact missing rounds for a repeated sequencer', () => {
+  const repository = createRepository();
+  repository.recordSuccessfulL1Snapshot('mainnet', protocolSnapshot());
+  const transaction = `0x${'cd'.repeat(32)}`;
+  const contexts = [
+    historicalContext({ targetEpoch: '24', actionIndex: 0, amount: '100' }),
+    historicalContext({ targetEpoch: '25', actionIndex: 1, amount: '300' }),
+  ];
+
+  repository.recordSuccessfulL1SlashLogChunk('mainnet', {
+    fromBlock: '101',
+    toBlock: '101',
+    toBlockHash: BLOCK_HASH,
+    confirmedBlockNumber: '101',
+    rollupAddresses: [ROLLUP],
+    initialBackfill: true,
+    hasMore: true,
+    reorgDetected: false,
+    logs: contexts.map((executionContext, actionIndex) => ({
+      rollupAddress: ROLLUP,
+      blockNumber: '101',
+      blockHash: BLOCK_HASH,
+      transactionHash: transaction,
+      logIndex: 151 + actionIndex,
+      transactionSlashIndex: actionIndex,
+      sequencer: SEQUENCER,
+      amount: actionIndex === 0 ? '90' : '250',
+      executionCandidates: [{ proposerAddress: PROPOSER, round: '14' }],
+      executionContext,
+      ejected: false,
+    })),
+  });
+
+  const cases = repository.getSequencerRecord(SEQUENCER, 'mainnet').cases
+    .sort((left, right) => left.targetEpoch.localeCompare(right.targetEpoch));
+  assert.deepEqual(cases.map((item) => ({
+    targetEpoch: item.targetEpoch,
+    stage: item.state.stage,
+    requestedAmount: item.state.requestedAmount,
+    actualAmount: item.state.actualAmount,
+  })), [
+    {
+      targetEpoch: '24',
+      stage: 'stake_removed',
+      requestedAmount: null,
+      actualAmount: '90',
+    },
+    {
+      targetEpoch: '25',
+      stage: 'stake_removed',
+      requestedAmount: null,
+      actualAmount: '250',
+    },
+  ]);
+  for (const item of cases) {
+    const stored = repository.getCase(item.id);
+    const historicalRound = stored.observations.find(
+      (observation) => observation.kind === 'l1_round',
+    );
+    assert.equal(historicalRound.data.historicalExecution, true);
+    assert.equal(historicalRound.data.payloadAddress, PAYLOAD);
+    assert.equal(
+      stored.observations.find((observation) => observation.kind === 'l1_slash')
+        .provenance.transactionHash,
+      transaction,
+    );
+  }
+  repository.close();
+});
+
 test('L1 target removal and restoration produce one corrected case lineage', () => {
   const repository = createRepository();
   repository.recordSuccessfulL1Snapshot('mainnet', protocolSnapshot({
@@ -310,6 +381,25 @@ function createRepository() {
     registryAddress: REGISTRY,
   });
   return repository;
+}
+
+function historicalContext({ targetEpoch, actionIndex, amount }) {
+  return {
+    proposerAddress: PROPOSER,
+    round: '14',
+    targetEpoch,
+    actionIndex,
+    sequencer: SEQUENCER,
+    amount,
+    support: 2,
+    quorum: 2,
+    maxSlashUnits: actionIndex + 1,
+    unitVoteCounts: actionIndex === 0 ? [2, 0, 0] : [0, 2, 0],
+    epochIndex: actionIndex,
+    committeeIndex: 0,
+    escaped: false,
+    payloadAddress: PAYLOAD,
+  };
 }
 
 function protocol() {

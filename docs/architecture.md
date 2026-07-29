@@ -271,8 +271,13 @@ Confirmed-log scanning uses a durable block/hash checkpoint, overlapping
 reads, and reorg rewind. An operator can anchor the journal to an exact L1
 block; mainnet v5 starts at block `25533241`. Changing that anchor restarts the
 historical pass without deleting existing observations or sending historical
-notifications. Log requests remain bounded to 1,000 blocks. SQLite atomically
-records observations, reprojects
+notifications. Log requests remain bounded to 1,000 blocks. When a historical
+`Slashed` log refers to a round that has aged out of the live snapshot, the
+scanner reads the proposer at that log's exact archive block, decodes the
+stored votes and tally, and uses receipt action order to recover the target
+epoch. The reconstructed executed-round observation and the actual deduction
+are committed together; an address-only match is never accepted. SQLite
+atomically records observations, reprojects
 affected cases, records stable transitions, matches watches, and inserts
 unique delivery jobs. Delivery is at-least-once, so a provider-accepted alert
 can repeat after a crash; stable transition IDs identify that duplicate.

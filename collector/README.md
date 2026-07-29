@@ -75,7 +75,9 @@ case transitions, matches watched addresses, and queues deliveries. L1 round
 replacements and log reorgs mark prior evidence noncanonical and recompute the
 same case. A `Slashed` log attaches only through its receipt's
 `RoundExecuted` event and exact action order; address plus time is never
-accepted as a correlation key.
+accepted as a correlation key. If the live snapshot no longer retains that
+round, an archive read at the log block reconstructs its votes, tally, target
+epoch, and payload before the deduction is stored.
 
 Delivery is at-least-once. Stable transition IDs suppress ordinary duplicates,
 but a crash after provider acceptance can repeat an alert.
