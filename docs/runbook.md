@@ -1,9 +1,10 @@
 # Production runbook
 
-The supported deployment is one Node 24 backend, one SQLite database, one
-private Aztec admin endpoint, one Ethereum RPC, and an HTTPS reverse
-proxy or Cloudflare Tunnel. Do not run two backend processes for one
-installation: provider delivery and Telegram polling are single-writer work.
+The production deployment is one Node 24 backend, one SQLite database, one
+private Aztec admin endpoint, one Ethereum RPC, and an HTTPS reverse proxy or
+Cloudflare Tunnel. A fully isolated testing backend may run beside it. Never
+run two processes against the same database or with the same Telegram bot:
+provider delivery and Telegram polling are single-writer work.
 
 ## Prepare
 
@@ -44,14 +45,41 @@ pnpm --filter @slashmon/backend exec web-push generate-vapid-keys
 
 Changing VAPID keys invalidates existing browser subscriptions.
 
+### Optional parallel testing backend
+
+Create a second protected environment before its first deployment:
+
+```bash
+sudo install -m 0600 collector/deploy/slashmon-backend-testing.env.example \
+  /etc/slashmon-backend-testing.env
+sudoedit /etc/slashmon-backend-testing.env
+```
+
+`BACKEND_PORT` is mandatory for testing and must differ from production. The
+example uses `127.0.0.1:8791`; configure the testing hostname in the Cloudflare
+dashboard to use that origin. The deployer does not change tunnel settings.
+
+Testing has its own service, environment, current-release symlink, SQLite
+database, backup directory, watches, cursors, and delivery queue. It may read
+the same Aztec node and Ethereum RPC as production. Use a separate Telegram
+bot token, or leave Telegram disabled, because Telegram permits only one
+long-polling consumer per bot. A separate PWA origin and VAPID keypair are
+recommended when exercising browser enrollment and push delivery.
+
 ## Deploy
 
 Run exactly one mode from a clean checkout:
 
 ```bash
+# Production
 scripts/deploy-backend.sh --fresh
 scripts/deploy-backend.sh --upgrade
 scripts/deploy-backend.sh --reset-db
+
+# Parallel testing service
+scripts/deploy-backend.sh --testing --fresh
+scripts/deploy-backend.sh --testing --upgrade
+scripts/deploy-backend.sh --testing --reset-db
 ```
 
 - `--fresh` is for first installation or an intentional full reset. It removes
@@ -61,10 +89,13 @@ scripts/deploy-backend.sh --reset-db
 - `--reset-db` makes the same verified backup and then removes only the active
   SQLite database and sidecars. Watches, cases, channels, and cursors start
   empty.
+- `--testing` scopes every operation to `slashmon-backend-testing.service` and
+  its state. Even `--testing --fresh` does not stop or alter production.
 
 There is no automatic rollback or general schema migration. Keep the prior
 release and verified backup until source health and test deliveries succeed.
 The default database is `/var/lib/slashmon/slashmon.sqlite`.
+The testing database is `/var/lib/slashmon-testing/slashmon.sqlite`.
 
 For a self-hosted PWA, run `pnpm build` and serve `dist/` as static files.
 Frontend RPC URLs must be public HTTPS endpoints; every `VITE_*` setting is
@@ -106,6 +137,10 @@ only for the public Monitor.
 curl --fail http://127.0.0.1:8790/live
 curl --fail http://127.0.0.1:8790/health
 journalctl -u slashmon-backend.service --since '10 minutes ago'
+
+curl --fail http://127.0.0.1:8791/live
+curl --fail http://127.0.0.1:8791/health
+journalctl -u slashmon-backend-testing.service --since '10 minutes ago'
 ```
 
 Confirm:
