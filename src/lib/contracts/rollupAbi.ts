@@ -56,6 +56,47 @@ export const rollupAbi = [
     },
     {
         type: 'function',
+        name: 'getAttesterView',
+        stateMutability: 'view',
+        inputs: [{ name: '_attester', type: 'address' }],
+        outputs: [{
+            name: '',
+            type: 'tuple',
+            components: [
+                { name: 'status', type: 'uint8' },
+                { name: 'effectiveBalance', type: 'uint256' },
+                {
+                    name: 'exit',
+                    type: 'tuple',
+                    components: [
+                        { name: 'withdrawalId', type: 'uint256' },
+                        { name: 'amount', type: 'uint256' },
+                        { name: 'exitableAt', type: 'uint256' },
+                        { name: 'recipientOrWithdrawer', type: 'address' },
+                        { name: 'isRecipient', type: 'bool' },
+                        { name: 'exists', type: 'bool' },
+                    ],
+                },
+                {
+                    name: 'config',
+                    type: 'tuple',
+                    components: [
+                        {
+                            name: 'publicKey',
+                            type: 'tuple',
+                            components: [
+                                { name: 'x', type: 'uint256' },
+                                { name: 'y', type: 'uint256' },
+                            ],
+                        },
+                        { name: 'withdrawer', type: 'address' },
+                    ],
+                },
+            ],
+        }],
+    },
+    {
+        type: 'function',
         name: 'getGenesisTime',
         stateMutability: 'view',
         inputs: [],

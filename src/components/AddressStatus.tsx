@@ -14,6 +14,8 @@ export function AddressStatus({
     address,
     network,
     cases,
+    currentStake,
+    currentStakeLoading,
     protocol,
     selectedCaseId,
     onOpenProtocolGuide,
@@ -21,12 +23,14 @@ export function AddressStatus({
     address: string;
     network: Network;
     cases: SlashingCase[];
+    currentStake: string | null;
+    currentStakeLoading: boolean;
     protocol: ProtocolSnapshot | null;
     selectedCaseId: string | null;
     onOpenProtocolGuide: (protocol: ProtocolSnapshot | null) => void;
 }) {
     const status = projectAddressStatus(address, cases);
-    const summary = summarizeSequencer(cases);
+    const summary = summarizeSequencer(cases, currentStake);
     const containsSelectedCase = selectedCaseId !== null &&
         cases.some((item) => item.id === selectedCaseId);
     const [expanded, setExpanded] = useState(false);
@@ -67,7 +71,7 @@ export function AddressStatus({
                 <SummaryFact
                     label="Current stake"
                     value={summary.currentStake === null
-                        ? 'Not available'
+                        ? currentStakeLoading ? 'Loading…' : 'Not available'
                         : `${formatAztec(summary.currentStake)} AZTEC`}
                 />
             </dl>
@@ -109,7 +113,10 @@ export function AddressStatus({
     );
 }
 
-export function summarizeSequencer(cases: readonly SlashingCase[]): {
+export function summarizeSequencer(
+    cases: readonly SlashingCase[],
+    currentStake: string | null,
+): {
     activeCases: number;
     pendingAmount: string | null;
     removedAmount: string | null;
@@ -119,24 +126,11 @@ export function summarizeSequencer(cases: readonly SlashingCase[]): {
         .filter((item) => item.state.active)
         .map((item) => item.state.requestedAmount));
     const removedAmount = sumAmounts(cases.map((item) => item.state.actualAmount));
-    const stakeObservations = cases.flatMap((item) => item.observations)
-        .filter((observation) =>
-            observation.provenance.canonical &&
-            observation.kind === 'stake_status')
-        .sort((left, right) =>
-            right.provenance.observedAt.localeCompare(left.provenance.observedAt));
-    const currentStake = stakeObservations
-        .map((observation) => readAmount(
-            observation.data.currentStake ??
-            observation.data.effectiveBalance ??
-            observation.data.postSlashStake,
-        ))
-        .find((value) => value !== null) ?? null;
     return {
         activeCases: cases.filter((item) => item.state.active).length,
         pendingAmount,
         removedAmount,
-        currentStake,
+        currentStake: readAmount(currentStake),
     };
 }
 

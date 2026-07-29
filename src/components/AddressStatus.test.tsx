@@ -7,28 +7,17 @@ describe('AddressStatus', () => {
     it('summarizes known stake and pending amounts without inferring missing values', () => {
         const pending = item('pending', true, '2000000000000000000000', null);
         const completed = item('completed', false, null, '500000000000000000000');
-        completed.observations = [{
-            id: 'stake',
-            network: 'mainnet',
-            source: 'ethereum_l1',
-            kind: 'stake_status',
-            sequencer: completed.sequencer,
-            lineageId: completed.lineageId,
-            targetEpoch: completed.targetEpoch,
-            provenance: {
-                observedAt: '2026-07-29T00:00:00.000Z',
-                canonical: true,
-            },
-            data: { effectiveBalance: '197500000000000000000000' },
-        }];
 
-        expect(summarizeSequencer([pending, completed])).toEqual({
+        expect(summarizeSequencer(
+            [pending, completed],
+            '197500000000000000000000',
+        )).toEqual({
             activeCases: 1,
             pendingAmount: '2000000000000000000000',
             removedAmount: '500000000000000000000',
             currentStake: '197500000000000000000000',
         });
-        expect(summarizeSequencer([pending]).currentStake).toBeNull();
+        expect(summarizeSequencer([pending], null).currentStake).toBeNull();
     });
 
     it('collapses timelines until a linked case is selected', () => {
@@ -37,6 +26,8 @@ describe('AddressStatus', () => {
             address: entry.sequencer,
             network: 'mainnet' as const,
             cases: [entry],
+            currentStake: null,
+            currentStakeLoading: false,
             protocol: null,
             onOpenProtocolGuide: () => undefined,
         };

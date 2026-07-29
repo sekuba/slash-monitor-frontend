@@ -57,7 +57,9 @@ only for Monitor.
 Monitor can store one custom public Ethereum RPC URL per network in browser
 storage. Its sequencer list stays in browser storage unless the user explicitly
 copies a watchlist link. The selected RPC sees the browser's IP address and
-on-chain read requests.
+on-chain read requests. Both Monitor and PINGME use that RPC for batched,
+pinned-block current-stake reads of the visible watchlist addresses; PINGME
+cases and notifications remain backend-sourced if this optional read fails.
 
 Deleting a watch removes its channels and prevents future delivery. Provider
 errors disable dead endpoints. The backend prunes expired one-time tokens and

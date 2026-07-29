@@ -202,8 +202,11 @@ history remains available because one sequencer can have cases in several
 target epochs at once.
 
 Watchlist rows summarize one sequencer before expanding its cases: open-case
-count, pending requested amount, confirmed stake removed, and current stake
-when indexed. The public feed collapses cases by exact payload address. Cases
+count, pending requested amount, confirmed stake removed, and current effective
+stake. Stake is sequencer state rather than case evidence: both views batch
+`Rollup.getAttesterView` through Multicall at their displayed protocol block
+and verify that block's hash before and after the read. The public feed
+collapses cases by exact payload address. Cases
 without a payload remain separate because shared timing or stage does not prove
 that they belong to one L1 action. Payload groups are ordered by descending
 slashing round; pre-payload groups follow in most-recent order.

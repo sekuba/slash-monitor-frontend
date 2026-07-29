@@ -15,6 +15,7 @@ import { selectCaseFeed } from '@/lib/caseFeed';
 import { urlForWatchlist } from '@/lib/navigation';
 import { summarizeNetwork } from '../../shared/protocol/index.ts';
 import { useSlashingStore } from '@/store/slashingStore';
+import { useSequencerStates } from '@/hooks/useSequencerStates';
 import type {
     ExecutionHistoryScan,
     MonitorConfigInput,
@@ -66,6 +67,11 @@ export function Dashboard({
             executionScan: store.executionScan,
         });
     })();
+    const sequencerStates = useSequencerStates({
+        config: configInput,
+        protocol: projected?.protocol ?? null,
+        addresses,
+    });
 
     useEffect(() => {
         onProtocolChange(projected?.protocol ?? null);
@@ -239,6 +245,11 @@ export function Dashboard({
                         cases={projected.cases.filter(
                             (item) => item.sequencer === address,
                         )}
+                        currentStake={
+                            sequencerStates.states.get(address.toLowerCase())
+                                ?.effectiveBalance.toString() ?? null
+                        }
+                        currentStakeLoading={sequencerStates.isLoading}
                         protocol={projected.protocol}
                         selectedCaseId={selectedInFeed ? null : selectedCaseId}
                         onOpenProtocolGuide={onOpenProtocolGuide}

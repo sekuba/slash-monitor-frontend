@@ -190,7 +190,8 @@ last because it describes the reliability of the whole page.
 
 Each watchlist sequencer is one compact expandable row. Its closed state shows
 the most urgent headline, open-case count, pending requested amount, confirmed
-stake removed, and current stake when a canonical source provides it. The feed
+stake removed, and current effective stake from the Rollup at the displayed
+pinned block. This sequencer state stays separate from case evidence. The feed
 groups cases only when they share the same exact payload address. Pre-payload
 node evidence stays in separate groups. Payload groups are ordered by descending
 slashing round, with pre-payload evidence following in most-recent order.

@@ -6,12 +6,15 @@ import { NetworkHealth } from './NetworkHealth';
 import { SourceStatus } from './SourceStatus';
 import { WatchSettings } from './WatchSettings';
 import { useBackendMonitor } from '@/hooks/useBackendMonitor';
+import { useSequencerStates } from '@/hooks/useSequencerStates';
 import { selectCaseFeed } from '@/lib/caseFeed';
 import type { MonitorNetwork } from '@/types/backendApi';
+import type { MonitorConfigInput } from '@/types/slashing';
 import type { ProtocolSnapshot } from '../../shared/protocol/index.ts';
 
 export function BackendOverview({
     network,
+    configInput,
     selectedCaseId,
     onOpenMonitor,
     linkedAddresses,
@@ -20,6 +23,7 @@ export function BackendOverview({
     onProtocolChange,
 }: {
     network: MonitorNetwork;
+    configInput: MonitorConfigInput;
     selectedCaseId: string | null;
     onOpenMonitor: () => void;
     linkedAddresses: string[];
@@ -31,6 +35,14 @@ export function BackendOverview({
     const liveProtocol = monitor.error
         ? null
         : monitor.networkData?.protocol ?? null;
+    const watchedAddresses = linkedAddresses.length > 0
+        ? linkedAddresses
+        : monitor.watch?.addresses ?? [];
+    const sequencerStates = useSequencerStates({
+        config: configInput,
+        protocol: liveProtocol,
+        addresses: watchedAddresses,
+    });
 
     useEffect(() => {
         onProtocolChange(liveProtocol);
@@ -76,9 +88,6 @@ export function BackendOverview({
     }
 
     const protocol = monitor.networkData.protocol;
-    const watchedAddresses = linkedAddresses.length > 0
-        ? linkedAddresses
-        : monitor.watch?.addresses ?? [];
     const watchedCases = monitor.networkData.cases.filter(
         (item) => watchedAddresses.includes(item.sequencer),
     );
@@ -162,6 +171,11 @@ export function BackendOverview({
                             cases={watchedCases.filter(
                                 (item) => item.sequencer === address.toLowerCase(),
                             )}
+                            currentStake={
+                                sequencerStates.states.get(address.toLowerCase())
+                                    ?.effectiveBalance.toString() ?? null
+                            }
+                            currentStakeLoading={sequencerStates.isLoading}
                             protocol={protocol}
                             selectedCaseId={selectedInFeed ? null : selectedCaseId}
                             onOpenProtocolGuide={onOpenProtocolGuide}

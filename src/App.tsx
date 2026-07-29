@@ -174,6 +174,7 @@ export function App() {
                     <BackendOverview
                         key={location.network}
                         network={location.network}
+                        configInput={config}
                         selectedCaseId={location.selectedCaseId}
                         onOpenMonitor={() => navigateTo('monitor')}
                         linkedAddresses={location.watchlistAddresses}
