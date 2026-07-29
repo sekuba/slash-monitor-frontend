@@ -65,6 +65,7 @@ async function main() {
     maxHeadAgeMs: config.l1MaxHeadAgeMs,
     maxHeadStallMs: config.l1MaxHeadStallMs,
     maxFutureSkewMs: config.l1MaxFutureSkewMs,
+    slashLogStartBlock: config.l1SlashLogStartBlock,
     slashLogLookbackBlocks: config.l1SlashLogLookbackBlocks,
     slashLogChunkSize: config.l1SlashLogChunkSize,
     slashLogOverlapBlocks: config.l1SlashLogOverlapBlocks,

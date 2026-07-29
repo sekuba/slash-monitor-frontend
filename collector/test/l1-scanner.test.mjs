@@ -370,6 +370,67 @@ test('confirmed Slashed log scan uses bounded chunks and Registry-resolved histo
   assert.equal(second.initialBackfill, true);
 });
 
+test('an exact log start block re-anchors an existing durable cursor', async () => {
+  const scanner = new L1Scanner({
+    rpcUrls: ['https://rpc.example'],
+    chainId: 1,
+    registryAddress: REGISTRY,
+    confirmations: 0,
+    slashLogStartBlock: 20,
+    slashLogLookbackBlocks: 5,
+    slashLogChunkSize: 10,
+    slashLogOverlapBlocks: 2,
+    slashLogReorgRewindBlocks: 20,
+    maxHeadAgeMs: 60_000,
+    now: () => 1_000_000,
+  });
+  const client = fakeSlashLogClient();
+
+  const restarted = await scanner.scanSlashLogChunkWithClient(client, {
+    lastBlockNumber: '90',
+    lastBlockHash: blockHash(90n),
+    metadata: { initialBackfill: false },
+  });
+  assert.equal(restarted.fromBlock, '20');
+  assert.equal(restarted.toBlock, '29');
+  assert.equal(restarted.initial, true);
+  assert.equal(restarted.initialBackfill, true);
+  assert.equal(restarted.backfillStartBlock, '20');
+
+  const continued = await scanner.scanSlashLogChunkWithClient(client, {
+    lastBlockNumber: restarted.toBlock,
+    lastBlockHash: restarted.toBlockHash,
+    metadata: {
+      initialBackfill: true,
+      backfillStartBlock: restarted.backfillStartBlock,
+    },
+  });
+  assert.equal(continued.fromBlock, '28');
+  assert.equal(continued.toBlock, '37');
+  assert.equal(continued.initial, false);
+  assert.equal(continued.initialBackfill, true);
+});
+
+test('an exact log start block cannot silently skip a future range', async () => {
+  const scanner = new L1Scanner({
+    rpcUrls: ['https://rpc.example'],
+    chainId: 1,
+    registryAddress: REGISTRY,
+    confirmations: 0,
+    slashLogStartBlock: 101,
+    slashLogChunkSize: 10,
+    slashLogOverlapBlocks: 2,
+    slashLogReorgRewindBlocks: 20,
+    maxHeadAgeMs: 60_000,
+    now: () => 1_000_000,
+  });
+
+  await assert.rejects(
+    scanner.scanSlashLogChunkWithClient(fakeSlashLogClient()),
+    /start block 101 is above confirmed L1 head 100/,
+  );
+});
+
 test('confirmed Slashed log scan rewinds a mismatched persisted checkpoint', async () => {
   const scanner = new L1Scanner({
     rpcUrls: ['https://rpc.example'],

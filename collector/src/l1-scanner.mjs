@@ -31,6 +31,7 @@ export class L1Scanner {
     maxHeadAgeMs = 15 * 60_000,
     maxHeadStallMs = 2 * 60_000,
     maxFutureSkewMs = 2 * 60_000,
+    slashLogStartBlock,
     slashLogLookbackBlocks = 600,
     slashLogChunkSize = 1_000,
     slashLogOverlapBlocks = 12,
@@ -48,6 +49,9 @@ export class L1Scanner {
     this.maxHeadAgeMs = maxHeadAgeMs;
     this.maxHeadStallMs = maxHeadStallMs;
     this.maxFutureSkewMs = maxFutureSkewMs;
+    this.slashLogStartBlock = slashLogStartBlock === undefined
+      ? undefined
+      : BigInt(slashLogStartBlock);
     this.slashLogLookbackBlocks = BigInt(slashLogLookbackBlocks);
     this.slashLogChunkSize = BigInt(slashLogChunkSize);
     this.slashLogOverlapBlocks = BigInt(slashLogOverlapBlocks);
@@ -63,6 +67,9 @@ export class L1Scanner {
         fetchOptions: { signal },
       }),
     }));
+    if (this.slashLogStartBlock !== undefined && this.slashLogStartBlock < 0n) {
+      throw new RangeError('slash log start block must be non-negative');
+    }
     if (this.slashLogLookbackBlocks < 1n) throw new RangeError('slash log lookback must be positive');
     if (this.slashLogChunkSize < 2n) throw new RangeError('slash log chunk size must be at least 2');
     if (this.slashLogOverlapBlocks < 1n || this.slashLogOverlapBlocks >= this.slashLogChunkSize) {
@@ -252,9 +259,24 @@ export class L1Scanner {
     if ((cursorNumber === undefined) !== !cursorHash) {
       throw new Error('persisted slash log checkpoint is incomplete');
     }
+    if (
+      this.slashLogStartBlock !== undefined &&
+      this.slashLogStartBlock > confirmedBlockNumber
+    ) {
+      throw new Error(
+        `configured slash log start block ${this.slashLogStartBlock} is above confirmed L1 head ${confirmedBlockNumber}`,
+      );
+    }
+    const persistedStartBlock = readOptionalBigInt(
+      previous.metadata?.backfillStartBlock,
+    );
+    const restartFromConfiguredStart =
+      cursorNumber !== undefined &&
+      this.slashLogStartBlock !== undefined &&
+      persistedStartBlock !== this.slashLogStartBlock;
 
     let reorgDetected = false;
-    if (cursorNumber !== undefined) {
+    if (cursorNumber !== undefined && !restartFromConfiguredStart) {
       if (cursorNumber > confirmedBlockNumber) {
         reorgDetected = true;
       } else {
@@ -268,10 +290,12 @@ export class L1Scanner {
     }
 
     let fromBlock;
-    if (cursorNumber === undefined) {
-      fromBlock = confirmedBlockNumber + 1n > this.slashLogLookbackBlocks
-        ? confirmedBlockNumber + 1n - this.slashLogLookbackBlocks
-        : 0n;
+    if (cursorNumber === undefined || restartFromConfiguredStart) {
+      fromBlock = this.slashLogStartBlock ?? (
+        confirmedBlockNumber + 1n > this.slashLogLookbackBlocks
+          ? confirmedBlockNumber + 1n - this.slashLogLookbackBlocks
+          : 0n
+      );
     } else if (reorgDetected) {
       fromBlock = cursorNumber + 1n > this.slashLogReorgRewindBlocks
         ? cursorNumber + 1n - this.slashLogReorgRewindBlocks
@@ -281,6 +305,12 @@ export class L1Scanner {
       fromBlock = cursorNumber + 1n > this.slashLogOverlapBlocks
         ? cursorNumber + 1n - this.slashLogOverlapBlocks
         : 0n;
+    }
+    if (
+      this.slashLogStartBlock !== undefined &&
+      fromBlock < this.slashLogStartBlock
+    ) {
+      fromBlock = this.slashLogStartBlock;
     }
     const toBlock = minBigInt(confirmedBlockNumber, fromBlock + this.slashLogChunkSize - 1n);
     const checkpointBlock = toBlock === confirmedBlockNumber
@@ -364,8 +394,12 @@ export class L1Scanner {
       toBlockHash: checkpointBlock.hash,
       confirmedBlockNumber: confirmedBlockNumber.toString(),
       reorgDetected,
-      initial: cursorNumber === undefined,
-      initialBackfill: cursorNumber === undefined || previous.metadata?.initialBackfill === true,
+      initial: cursorNumber === undefined || restartFromConfiguredStart,
+      initialBackfill:
+        cursorNumber === undefined ||
+        restartFromConfiguredStart ||
+        previous.metadata?.initialBackfill === true,
+      backfillStartBlock: this.slashLogStartBlock?.toString() ?? null,
       hasMore: toBlock < confirmedBlockNumber,
       registryAddress: this.registryAddress,
       rollupAddresses: [...knownRollups].sort(),

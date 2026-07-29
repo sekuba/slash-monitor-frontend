@@ -100,6 +100,12 @@ export function loadConfig(env = process.env, cwd = process.cwd()) {
     l1MaxHeadAgeMs: 15 * 60_000,
     l1MaxHeadStallMs: 2 * 60_000,
     l1MaxFutureSkewMs: 2 * 60_000,
+    l1SlashLogStartBlock: readOptionalInteger(
+      env,
+      'L1_SLASH_LOG_START_BLOCK',
+      0,
+      1_000_000_000,
+    ),
     l1SlashLogLookbackBlocks: readInteger(
       env,
       'L1_SLASH_LOG_LOOKBACK_BLOCKS',
@@ -258,6 +264,12 @@ function readInteger(env, name, defaultValue, min, max) {
     throw new Error(`${name} must be an integer between ${min} and ${max}`);
   }
   return value;
+}
+
+function readOptionalInteger(env, name, min, max) {
+  const raw = env[name];
+  if (raw === undefined || raw === '') return undefined;
+  return readInteger(env, name, undefined, min, max);
 }
 
 function readHttpUrl(raw, name) {

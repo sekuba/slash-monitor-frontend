@@ -28,7 +28,7 @@ Node 24 is required. The main settings are:
 | --- | --- |
 | Identity | `SLASHMON_NETWORK`, `SLASHMON_PUBLIC_URL` |
 | Aztec node | `AZTEC_NODE_URL`, `AZTEC_NODE_API_KEY`, `AZTEC_ADMIN_URL`, `AZTEC_ADMIN_API_KEY` |
-| Ethereum | one `L1_RPC_URL`; optional Registry and log-lookback overrides |
+| Ethereum | one `L1_RPC_URL`; optional Registry and log-history overrides |
 | Notifications | optional complete VAPID keypair and/or Telegram bot |
 | Process | database path, bind host/port, exact CORS origin, proxy trust, log level |
 

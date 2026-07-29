@@ -26,8 +26,20 @@ Set:
 - optional Telegram and Web Push credentials.
 
 Keep the Aztec admin endpoint and all credentials private. Choose
-`L1_SLASH_LOG_LOOKBACK_BLOCKS` before first start; it bounds initial log history
-only, after which the durable SQLite cursor takes over.
+`L1_SLASH_LOG_START_BLOCK=25533241` to index mainnet v5 from its first Rollup
+block. This requires an archive RPC. The setting safely re-anchors an existing
+database whose durable log cursor was created with a different start, and
+historical observations do not send notifications. Leave it unset to use
+`L1_SLASH_LOG_LOOKBACK_BLOCKS` for a head-relative initial backfill instead.
+Log requests remain fixed at 1,000 blocks to support RPCs with that maximum.
+
+To expand an existing production or testing database, add the setting to that
+service's `/etc/slashmon-backend*.env` and deploy with `--upgrade`. Do not reset
+the database. The first log poll recognizes the changed anchor, starts again at
+block `25533241`, and advances the same SQLite journal toward the confirmed
+head. Set `BACKEND_LOG_LEVEL=debug` temporarily to follow each checkpoint in
+the service journal. Removing the setting later returns to normal cursor-based
+collection; it does not delete indexed history.
 
 Sentinel defaults are intentionally bounded. The collector checks sync on idle
 polls, then fetches the confirmed committee and exact-range history only when

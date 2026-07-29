@@ -20,7 +20,9 @@ test('loadConfig provides a complete local configuration', () => {
   assert.equal(config.port, 8790);
   assert.equal(config.l1ChainId, 1);
   assert.equal(config.l1RegistryAddress, '0x35b22e09Ee0390539439E24f06Da43D83f90e298');
+  assert.equal(config.l1SlashLogStartBlock, undefined);
   assert.equal(config.l1SlashLogLookbackBlocks, 50_000);
+  assert.equal(config.l1SlashLogChunkSize, 1_000);
   assert.equal(config.sentinelPollIntervalMs, 60_000);
   assert.equal(config.sentinelLookbackEpochs, 3);
   assert.equal(config.sentinelEpochEndBufferSlots, 2);
@@ -84,6 +86,10 @@ test('operator-facing URLs and process settings are validated', () => {
     () => loadConfig({ AZTEC_SENTINEL_VALIDATOR_CONCURRENCY: '0' }),
     /between 1 and 128/,
   );
+  assert.throws(
+    () => loadConfig({ L1_SLASH_LOG_START_BLOCK: '-1' }),
+    /between 0 and 1000000000/,
+  );
   assert.throws(() => loadConfig({ BACKEND_TRUST_PROXY: 'yes' }), /must be true or false/);
   assert.throws(() => loadConfig({ BACKEND_LOG_LEVEL: 'trace' }), /debug, info, warn, or error/);
 
@@ -91,6 +97,7 @@ test('operator-facing URLs and process settings are validated', () => {
     SLASHMON_PUBLIC_URL: 'https://slashveto.example/app',
     BACKEND_CORS_ORIGIN: 'https://slashveto.example',
     L1_RPC_URL: 'https://rpc-one.example/path',
+    L1_SLASH_LOG_START_BLOCK: '25533241',
     L1_SLASH_LOG_LOOKBACK_BLOCKS: '75000',
     BACKEND_DATABASE_PATH: '../state/slashmon.sqlite',
     BACKEND_PORT: '9000',
@@ -102,6 +109,7 @@ test('operator-facing URLs and process settings are validated', () => {
   assert.equal(config.publicUrl, 'https://slashveto.example/app/');
   assert.equal(config.corsOrigin, 'https://slashveto.example');
   assert.deepEqual(config.l1RpcUrls, ['https://rpc-one.example/path']);
+  assert.equal(config.l1SlashLogStartBlock, 25_533_241);
   assert.equal(config.l1SlashLogLookbackBlocks, 75_000);
   assert.equal(config.databasePath, '/srv/state/slashmon.sqlite');
   assert.equal(config.port, 9000);

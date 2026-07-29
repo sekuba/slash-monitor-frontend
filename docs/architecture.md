@@ -48,7 +48,9 @@ state first, then scans `RoundExecuted` logs newest-to-oldest within the useful
 execution window. It starts with small ranges, grows fast successful ranges,
 shrinks provider-rejected ranges, and pauses on rate limits while retaining
 completed work for the page session. Each refresh scans only new blocks plus a
-small reorg overlap.
+small reorg overlap. A cooperative RPC/time budget inserts a short yield between
+scan batches; it does not defer unfinished history to the normal three-minute
+state refresh.
 The page displays exact coverage. Until a receipt is inspected, the case says
 that its outcome is still being scanned; it never treats missing coverage as
 proof that no `Slashed` log exists. A stronger user-supplied RPC can complete
@@ -266,7 +268,11 @@ Unknown catch-up gaps start a new coverage generation so they cannot fabricate
 an inactivity streak.
 
 Confirmed-log scanning uses a durable block/hash checkpoint, overlapping
-reads, and reorg rewind. SQLite atomically records observations, reprojects
+reads, and reorg rewind. An operator can anchor the journal to an exact L1
+block; mainnet v5 starts at block `25533241`. Changing that anchor restarts the
+historical pass without deleting existing observations or sending historical
+notifications. Log requests remain bounded to 1,000 blocks. SQLite atomically
+records observations, reprojects
 affected cases, records stable transitions, matches watches, and inserts
 unique delivery jobs. Delivery is at-least-once, so a provider-accepted alert
 can repeat after a crash; stable transition IDs identify that duplicate.

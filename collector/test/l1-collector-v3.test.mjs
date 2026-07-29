@@ -32,10 +32,19 @@ test('confirmed Slashed logs attach only to an exact execution case', async () =
           logs: [slashLog(1)],
           initial: true,
           initialBackfill: true,
+          backfillStartBlock: 1,
         });
       }
       assert.equal(previous.lastBlockNumber, '2');
-      return slashChunk({ from: 3, to: 4, confirmed: 4, hasMore: false, logs: [] });
+      return slashChunk({
+        from: 3,
+        to: 4,
+        confirmed: 4,
+        hasMore: false,
+        logs: [],
+        initialBackfill: true,
+        backfillStartBlock: 1,
+      });
     },
   };
   const collector = new L1Collector({
@@ -54,7 +63,10 @@ test('confirmed Slashed logs attach only to an exact execution case', async () =
   assert.equal(result.ok, true);
   assert.equal(result.slashLogs.inserted, 1);
   assert.equal(logCalls, 2);
-  assert.equal(repository.getSourceState('l1_slash_logs').lastBlockNumber, '4');
+  const source = repository.getSourceState('l1_slash_logs');
+  assert.equal(source.lastBlockNumber, '4');
+  assert.equal(source.metadata.initialBackfill, false);
+  assert.equal(source.metadata.backfillStartBlock, '1');
   const [item] = repository.getSequencerRecord(SEQUENCER_A, 'mainnet').cases;
   assert.equal(item.targetEpoch, '24');
   assert.equal(item.state.stage, 'stake_removed');
@@ -108,7 +120,16 @@ function createRepository() {
   return repository;
 }
 
-function slashChunk({ from, to, confirmed, logs, hasMore, initial = false, initialBackfill = false }) {
+function slashChunk({
+  from,
+  to,
+  confirmed,
+  logs,
+  hasMore,
+  initial = false,
+  initialBackfill = false,
+  backfillStartBlock = null,
+}) {
   return {
     chainId: 1,
     fromBlock: String(from),
@@ -121,6 +142,9 @@ function slashChunk({ from, to, confirmed, logs, hasMore, initial = false, initi
     hasMore,
     initial,
     initialBackfill,
+    backfillStartBlock: backfillStartBlock === null
+      ? null
+      : String(backfillStartBlock),
     reorgDetected: false,
   };
 }

@@ -1016,6 +1016,7 @@ export class CaseRepository {
       });
       this.recordSourceSuccess('l1_slash_logs', {
         initialBackfill: Boolean(chunk.initialBackfill && chunk.hasMore),
+        backfillStartBlock: chunk.backfillStartBlock ?? null,
         confirmedBlockNumber: chunk.confirmedBlockNumber,
         rollupAddresses: chunk.rollupAddresses,
       }, observedAt, {

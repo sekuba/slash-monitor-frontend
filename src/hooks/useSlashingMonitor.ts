@@ -19,8 +19,9 @@ import type {
 
 class StaleMonitorRunError extends Error {}
 const POLL_INTERVAL_MS = 180_000;
-const MAX_EXECUTION_RPC_CALLS_PER_POLL = 12;
-const MAX_EXECUTION_SCAN_MS = 15_000;
+const MAX_EXECUTION_RPC_CALLS_PER_BATCH = 12;
+const MAX_EXECUTION_SCAN_BATCH_MS = 15_000;
+const EXECUTION_SCAN_BATCH_PAUSE_MS = 1_000;
 const ETHEREUM_BLOCK_TIME_SECONDS = 12n;
 const EXECUTION_LOOKBACK_SAFETY_BLOCKS = 5_000n;
 
@@ -130,7 +131,7 @@ export function useSlashingMonitor(
 
             let published = false;
             if (detectionSucceeded) {
-                const startedAt = Date.now();
+                let batchStartedAt = Date.now();
                 let rpcCalls = 0;
                 for (;;) {
                     let result;
@@ -186,12 +187,22 @@ export function useSlashingMonitor(
                     published = true;
                     completed = audit.status !== 'stale' &&
                         audit.status !== 'fatal';
-                    if (
-                        !result.canContinue ||
-                        rpcCalls >= MAX_EXECUTION_RPC_CALLS_PER_POLL ||
-                        Date.now() - startedAt >= MAX_EXECUTION_SCAN_MS
-                    ) {
+                    if (!result.canContinue) {
                         break;
+                    }
+                    const batchComplete =
+                        rpcCalls >= MAX_EXECUTION_RPC_CALLS_PER_BATCH ||
+                        Date.now() - batchStartedAt >=
+                            MAX_EXECUTION_SCAN_BATCH_MS;
+                    if (batchComplete) {
+                        await pauseExecutionScanBatch();
+                        assertCurrentRun(
+                            generation,
+                            runGenerationRef.current,
+                        );
+                        batchStartedAt = Date.now();
+                        rpcCalls = 0;
+                        continue;
                     }
                     await yieldToBrowser();
                 }
@@ -463,4 +474,9 @@ function yieldToBrowser(): Promise<void> {
 
 function waitForPollToStop(): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, 50));
+}
+
+function pauseExecutionScanBatch(): Promise<void> {
+    return new Promise((resolve) =>
+        setTimeout(resolve, EXECUTION_SCAN_BATCH_PAUSE_MS));
 }
