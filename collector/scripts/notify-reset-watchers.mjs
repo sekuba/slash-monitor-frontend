@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 
 import {
@@ -744,7 +744,5 @@ async function main() {
   }
 }
 
-const entryPoint = process.argv[1]
-  ? pathToFileURL(path.resolve(process.argv[1])).href
-  : null;
-if (entryPoint === import.meta.url) await main();
+const entryPoint = process.argv[1] ? fs.realpathSync(process.argv[1]) : null;
+if (entryPoint === fileURLToPath(import.meta.url)) await main();

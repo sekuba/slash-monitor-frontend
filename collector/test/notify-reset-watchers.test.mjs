@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   legacyAudienceStats,
@@ -215,4 +217,20 @@ test('reset announcement arguments are safe by default and accept a bounded cana
     },
   );
   assert.throws(() => parseArgs(['--database', '/backup.sqlite', '--limit', '0']));
+});
+
+test('reset announcement CLI runs when invoked through the production-style current symlink', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'slashmon-reset-cli-test-'));
+  const current = path.join(directory, 'current');
+  const script = fileURLToPath(new URL('../scripts/notify-reset-watchers.mjs', import.meta.url));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  fs.symlinkSync(script, current);
+
+  const result = spawnSync(process.execPath, [current, '--help'], {
+    encoding: 'utf8',
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /^Usage:/);
+  assert.match(result.stdout, /--database PATH/);
 });
