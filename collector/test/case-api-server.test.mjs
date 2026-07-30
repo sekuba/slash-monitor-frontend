@@ -141,6 +141,133 @@ test('API links an encoded case id without an event-feed lookup', async (t) => {
   assert.ok(found.body.transitions.length >= 1);
 });
 
+test('API rate limits public traffic by the Cloudflare client address', async (t) => {
+  const repository = new CaseRepository(':memory:');
+  const api = new CaseApiServer({
+    repository,
+    host: '127.0.0.1',
+    port: 0,
+    corsOrigin: 'https://slashveto.example',
+    network: 'mainnet',
+    requestRateLimitMaxRequests: 2,
+    trustLoopbackProxy: true,
+    logger: silentLogger,
+    now: () => 0,
+  });
+  const address = await api.listen();
+  const base = `http://127.0.0.1:${address.port}`;
+  t.after(async () => {
+    await api.close();
+    repository.close();
+  });
+
+  const firstClient = { headers: { 'cf-connecting-ip': '192.0.2.1' } };
+  assert.equal((await json(base, '/api/config', firstClient)).response.status, 200);
+  assert.equal((await json(base, '/api/config', firstClient)).response.status, 200);
+  const limited = await json(base, '/api/config', firstClient);
+  assert.equal(limited.response.status, 429);
+  assert.equal(limited.response.headers.get('retry-after'), '60');
+  assert.equal(limited.body.error.code, 'rate_limited');
+
+  assert.equal((await json(base, '/live', firstClient)).response.status, 200);
+  assert.equal((await json(base, '/api/config', {
+    headers: { 'cf-connecting-ip': '192.0.2.2' },
+  })).response.status, 200);
+});
+
+test('API limits watch creation per client and across rotating clients', async (t) => {
+  let now = 0;
+  const repository = new CaseRepository(':memory:');
+  const api = new CaseApiServer({
+    repository,
+    host: '127.0.0.1',
+    port: 0,
+    corsOrigin: 'https://slashveto.example',
+    network: 'mainnet',
+    requestRateLimitMaxRequests: 100,
+    rateLimitMaxMutations: 100,
+    watchCreationRateLimitMaxPerClient: 2,
+    watchCreationRateLimitMaxGlobal: 3,
+    trustLoopbackProxy: true,
+    logger: silentLogger,
+    now: () => now,
+  });
+  const address = await api.listen();
+  const base = `http://127.0.0.1:${address.port}`;
+  t.after(async () => {
+    await api.close();
+    repository.close();
+  });
+
+  assert.equal((await createWatch(base, '192.0.2.1')).response.status, 201);
+  assert.equal((await createWatch(base, '192.0.2.1')).response.status, 201);
+  const clientLimited = await createWatch(base, '192.0.2.1');
+  assert.equal(clientLimited.response.status, 429);
+  assert.equal(clientLimited.response.headers.get('retry-after'), '3600');
+  assert.equal(clientLimited.body.error.code, 'rate_limited');
+
+  assert.equal((await createWatch(base, '192.0.2.2')).response.status, 201);
+  const globallyLimited = await createWatch(base, '192.0.2.3');
+  assert.equal(globallyLimited.response.status, 429);
+  assert.equal(globallyLimited.response.headers.get('retry-after'), '3600');
+  assert.equal(globallyLimited.body.error.code, 'rate_limited');
+
+  now = 60 * 60_000;
+  assert.equal((await createWatch(base, '192.0.2.3')).response.status, 201);
+});
+
+test('API keeps a separate per-client mutation limit', async (t) => {
+  const repository = new CaseRepository(':memory:');
+  const api = new CaseApiServer({
+    repository,
+    host: '127.0.0.1',
+    port: 0,
+    corsOrigin: 'https://slashveto.example',
+    network: 'mainnet',
+    requestRateLimitMaxRequests: 100,
+    rateLimitMaxMutations: 1,
+    watchCreationRateLimitMaxPerClient: 10,
+    watchCreationRateLimitMaxGlobal: 10,
+    trustLoopbackProxy: true,
+    logger: silentLogger,
+    now: () => 0,
+  });
+  const address = await api.listen();
+  const base = `http://127.0.0.1:${address.port}`;
+  t.after(async () => {
+    await api.close();
+    repository.close();
+  });
+
+  const created = await createWatch(base, '192.0.2.1');
+  assert.equal(created.response.status, 201);
+  const limited = await json(base, `/api/watches/${created.body.watch.id}`, {
+    method: 'PATCH',
+    headers: {
+      authorization: `Bearer ${created.body.managementToken}`,
+      'cf-connecting-ip': '192.0.2.1',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ addresses: [SEQUENCER_B] }),
+  });
+  assert.equal(limited.response.status, 429);
+  assert.equal(limited.body.error.code, 'rate_limited');
+});
+
+function createWatch(base, clientAddress) {
+  return json(base, '/api/watches', {
+    method: 'POST',
+    headers: {
+      'cf-connecting-ip': clientAddress,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      network: 'mainnet',
+      addresses: [SEQUENCER_A],
+    }),
+  });
+}
+
 async function json(base, path, options) {
   const response = await fetch(`${base}${path}`, options);
   return { response, body: await response.json() };

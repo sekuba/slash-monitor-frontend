@@ -29,8 +29,13 @@ export class CaseApiServer {
     isTelegramReady = () => false,
     maxSequencers = 100,
     maxRequestBodyBytes = 64 * 1024,
+    requestRateLimitWindowMs = 60_000,
+    requestRateLimitMaxRequests = 300,
     rateLimitWindowMs = 60_000,
     rateLimitMaxMutations = 20,
+    watchCreationRateLimitWindowMs = 60 * 60_000,
+    watchCreationRateLimitMaxPerClient = 10,
+    watchCreationRateLimitMaxGlobal = 100,
     trustLoopbackProxy = false,
     linkTokenTtlMs = 10 * 60_000,
     logger,
@@ -52,7 +57,23 @@ export class CaseApiServer {
     this.linkTokenTtlMs = linkTokenTtlMs;
     this.logger = logger;
     this.now = now;
-    this.rateLimiter = new MutationRateLimiter(rateLimitWindowMs, rateLimitMaxMutations);
+    this.requestRateLimiter = new FixedWindowRateLimiter(
+      requestRateLimitWindowMs,
+      requestRateLimitMaxRequests,
+    );
+    this.mutationRateLimiter = new FixedWindowRateLimiter(
+      rateLimitWindowMs,
+      rateLimitMaxMutations,
+    );
+    this.watchCreationRateLimiter = new FixedWindowRateLimiter(
+      watchCreationRateLimitWindowMs,
+      watchCreationRateLimitMaxPerClient,
+    );
+    this.globalWatchCreationRateLimiter = new FixedWindowRateLimiter(
+      watchCreationRateLimitWindowMs,
+      watchCreationRateLimitMaxGlobal,
+      1,
+    );
     this.server = http.createServer((request, response) => {
       void this.handle(request, response).catch((error) => {
         const status = errorStatus(error);
@@ -94,6 +115,9 @@ export class CaseApiServer {
   async handle(request, response) {
     const url = new URL(request.url ?? '/', 'http://backend.invalid');
     this.setCors(response);
+    if (url.pathname === API_PREFIX || url.pathname.startsWith(`${API_PREFIX}/`)) {
+      this.limitRequest(request);
+    }
     if (request.method === 'OPTIONS') {
       response.writeHead(204);
       response.end();
@@ -151,12 +175,15 @@ export class CaseApiServer {
     if (request.method === 'POST' && url.pathname === `${API_PREFIX}/watches`) {
       this.limitMutation(request);
       const body = await this.readBody(request);
+      const selectedNetwork = normalizeNetwork(body.network ?? this.network, this.network);
+      const addresses = normalizeAddresses(body.addresses, this.maxSequencers);
+      this.limitWatchCreation(request);
       const managementToken = createOpaqueToken();
       const watch = this.repository.createWatch({
         id: randomUUID(),
         managementTokenHash: hashToken(managementToken),
-        network: normalizeNetwork(body.network ?? this.network, this.network),
-        addresses: normalizeAddresses(body.addresses, this.maxSequencers),
+        network: selectedNetwork,
+        addresses,
         now: this.now(),
       });
       return this.send(response, 201, {
@@ -328,17 +355,42 @@ export class CaseApiServer {
     };
   }
 
+  limitRequest(request) {
+    const retryAfterMs = this.requestRateLimiter.take(
+      clientAddress(request, this.trustLoopbackProxy),
+      this.now(),
+    );
+    if (retryAfterMs > 0) {
+      throw rateLimitError('Too many requests; try again shortly', retryAfterMs);
+    }
+  }
+
   limitMutation(request) {
     const key = clientAddress(request, this.trustLoopbackProxy);
-    const retryAfterMs = this.rateLimiter.take(key, this.now());
+    const retryAfterMs = this.mutationRateLimiter.take(key, this.now());
     if (retryAfterMs > 0) {
-      const error = new InputError(
-        'rate_limited',
-        'Too many changes; try again shortly',
-        429,
+      throw rateLimitError('Too many changes; try again shortly', retryAfterMs);
+    }
+  }
+
+  limitWatchCreation(request) {
+    const now = this.now();
+    const clientRetryAfterMs = this.watchCreationRateLimiter.take(
+      clientAddress(request, this.trustLoopbackProxy),
+      now,
+    );
+    if (clientRetryAfterMs > 0) {
+      throw rateLimitError(
+        'Too many watches created; try again later',
+        clientRetryAfterMs,
       );
-      error.retryAfterMs = retryAfterMs;
-      throw error;
+    }
+    const globalRetryAfterMs = this.globalWatchCreationRateLimiter.take('global', now);
+    if (globalRetryAfterMs > 0) {
+      throw rateLimitError(
+        'Watch creation is temporarily at capacity; try again later',
+        globalRetryAfterMs,
+      );
     }
   }
 
@@ -405,6 +457,12 @@ function errorStatus(error) {
     : 500;
 }
 
+function rateLimitError(message, retryAfterMs) {
+  const error = new InputError('rate_limited', message, 429);
+  error.retryAfterMs = retryAfterMs;
+  return error;
+}
+
 function publicWatch(watch, repository) {
   const cases = repository.listCases({
     network: watch.network,
@@ -421,29 +479,34 @@ function publicWatch(watch, repository) {
   };
 }
 
-class MutationRateLimiter {
-  constructor(windowMs, max) {
+class FixedWindowRateLimiter {
+  constructor(windowMs, max, maxKeys = 10_000) {
     this.windowMs = windowMs;
     this.max = max;
+    this.maxKeys = maxKeys;
     this.entries = new Map();
+    this.lastSweepWindowStart = undefined;
   }
 
   take(key, now) {
-    const recent = (this.entries.get(key) ?? []).filter(
-      (timestamp) => timestamp > now - this.windowMs,
-    );
-    if (recent.length >= this.max) {
-      return recent[0] + this.windowMs - now;
-    }
-    recent.push(now);
-    this.entries.set(key, recent);
-    if (this.entries.size > 10_000) {
-      for (const [candidate, timestamps] of this.entries) {
-        if (timestamps.every((timestamp) => timestamp <= now - this.windowMs)) {
-          this.entries.delete(candidate);
-        }
+    const windowStart = Math.floor(now / this.windowMs) * this.windowMs;
+    if (this.lastSweepWindowStart !== windowStart) {
+      for (const [candidate, entry] of this.entries) {
+        if (entry.windowStart < windowStart) this.entries.delete(candidate);
       }
+      this.lastSweepWindowStart = windowStart;
     }
+
+    let entry = this.entries.get(key);
+    if (!entry) {
+      if (this.entries.size >= this.maxKeys) {
+        return windowStart + this.windowMs - now;
+      }
+      entry = { windowStart, count: 0 };
+      this.entries.set(key, entry);
+    }
+    if (entry.count >= this.max) return windowStart + this.windowMs - now;
+    entry.count += 1;
     return 0;
   }
 }

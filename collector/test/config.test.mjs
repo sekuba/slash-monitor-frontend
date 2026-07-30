@@ -30,7 +30,10 @@ test('loadConfig provides a complete local configuration', () => {
   assert.equal(config.sentinelEpochEndBufferSlots, 2);
   assert.equal(config.sentinelValidatorConcurrency, 8);
   assert.equal(config.maxSingleValidatorStatsResponseBytes, 2 * 1024 * 1024);
+  assert.equal(config.requestRateLimitMaxRequests, 300);
   assert.equal(config.rateLimitMaxMutations, 20);
+  assert.equal(config.watchCreationRateLimitMaxPerClient, 10);
+  assert.equal(config.watchCreationRateLimitMaxGlobal, 100);
   assert.equal(config.telegramSendMaxPerSecond, 20);
   assert.equal(config.telegramLowPrioritySendMaxPerSecond, 5);
   assert.equal(config.telegramChatSendIntervalMs, 1_000);
@@ -110,7 +113,10 @@ test('operator-facing URLs and process settings are validated', () => {
     BACKEND_PORT: '9000',
     BACKEND_TRUST_PROXY: 'true',
     BACKEND_LOG_LEVEL: 'debug',
+    BACKEND_REQUEST_RATE_LIMIT_MAX_PER_MINUTE: '500',
     BACKEND_MUTATION_RATE_LIMIT_MAX_PER_MINUTE: '30',
+    BACKEND_WATCH_CREATION_RATE_LIMIT_MAX_PER_HOUR: '15',
+    BACKEND_WATCH_CREATION_RATE_LIMIT_MAX_GLOBAL_PER_HOUR: '150',
     TELEGRAM_SEND_MAX_PER_SECOND: '25',
   }, '/srv/slashmon');
   assert.equal(config.publicUrl, 'https://slashveto.example/app/');
@@ -123,7 +129,10 @@ test('operator-facing URLs and process settings are validated', () => {
   assert.equal(config.port, 9000);
   assert.equal(config.trustLoopbackProxy, true);
   assert.equal(config.logLevel, 'debug');
+  assert.equal(config.requestRateLimitMaxRequests, 500);
   assert.equal(config.rateLimitMaxMutations, 30);
+  assert.equal(config.watchCreationRateLimitMaxPerClient, 15);
+  assert.equal(config.watchCreationRateLimitMaxGlobal, 150);
   assert.equal(config.telegramSendMaxPerSecond, 25);
 });
 

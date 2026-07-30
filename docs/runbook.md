@@ -55,6 +55,12 @@ the defaults in `collector/src/config.mjs`. The deployer preserves only
 supported settings and removes empty or obsolete entries from the installed
 env.
 
+The default API limits are deliberately generous for normal browser polling:
+300 requests and 20 changes per client per minute, plus 10 new watches per
+client and 100 new watches globally per hour. Local `/live` and `/health`
+operator probes are excluded. Leave these settings out of the environment
+unless real traffic requires tuning.
+
 `L1_SLASH_LOG_START_BLOCK=25533241` starts the mainnet slash-log journal at the
 first Rollup block for the current stack. It requires archive state reads.
 Historical chunks advance a durable block/hash checkpoint and do not queue
