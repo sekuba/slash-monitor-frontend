@@ -12,6 +12,10 @@ should be able to answer, without decoding contract data:
 An alert links to the exact case whose transition triggered it, not just the
 PINGME landing page.
 
+The heading keeps the compact `sequencer · case status` form. The body states
+the event, full sequencer address, relevant slot, epoch or round, UTC
+observation time, and reason provenance without repeating explanatory prose.
+
 ## Claims allowed at each stage
 
 | Stage | What the alert may claim |
@@ -35,29 +39,32 @@ action” and “predicted payload address.”
 L1 votes contain no offense type. Alerts may attach a reason only as separately
 labelled node evidence matched by address and exact target epoch or slot:
 
-> Candidate 2,000 AZTEC slash becomes executable in 2d 4h. This node observed
-> inactivity in target epoch 123.
+> Event: Quorum reached for a 2,000 AZTEC slash
+>
+> Epoch: 123
+>
+> Reason: Inactivity (node evidence)
 
 They must not say:
 
 > L1 confirmed a 2,000 AZTEC inactivity slash.
 
 If several local offenses match the same L1 action, list them rather than
-choosing one. If no evidence matches, say “reason unknown on L1.” An approximate
-timestamp match is insufficient.
+choosing one. If no evidence matches, say `Reason: Not encoded on L1`. An
+approximate timestamp match is insufficient.
 
 ## Required context
 
 Every alert includes:
 
 - watched sequencer address;
-- case stage and previous stage;
-- exact slot, epoch, target epoch, or slashing round as applicable;
-- source (`this Aztec node`, `Sentinel`, or `Ethereum L1`);
-- source observation time; current freshness is shown when the case opens;
+- current case status in the heading;
+- exact slot, epoch, or slashing round as applicable;
+- UTC observation time;
+- reason and its node-evidence provenance, or that no reason is encoded on L1;
 - actual AZTEC amount or candidate AZTEC amount, explicitly distinguished;
 - the next transition and countdown, when deterministic; and
-- the exact slashveto.me case URL.
+- for Telegram, the exact slashveto.me case URL.
 
 Stage-specific evidence is:
 
@@ -70,9 +77,9 @@ Stage-specific evidence is:
 | Execution / slash | transaction, round, deployed payload, requested action, canonical `Slashed` amount, and post-slash/ejection state when known |
 | Reorg / correction | orphaned block or transaction and the case state that replaced it |
 
-Telegram may add Dashtec links for affected sequencers and Etherscan links for
-the exact network transaction, block, or predicted/deployed address. Web Push
-opens the same exact case.
+Telegram includes the exact case link, a Dashtec sequencer link, and an
+Etherscan transaction link when a transaction hash exists. Web Push contains no
+links in its copy and opens the exact case when selected.
 
 ## Alert transitions and noise control
 
@@ -81,7 +88,8 @@ Alert on meaningful path changes, not every poll:
 - first missed duty in an epoch;
 - newly qualifying inactive epoch or changed streak progress;
 - offense registration or safe withdrawal;
-- first L1 mention and relevant vote/penalty threshold crossings;
+- first L1 vote and slash quorum; intermediate ballot counts update the case
+  without sending alerts;
 - candidate addition, removal, amount change, or address change;
 - round close, execution start, veto, materially changed pause protection, or
   expiry;

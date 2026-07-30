@@ -24,6 +24,7 @@ const EVENT = {
     chainId: 1,
     blockNumber: '25587802',
     payloadAddress: '0x2222222222222222222222222222222222222222',
+    transactionHash: `0x${'34'.repeat(32)}`,
   },
 };
 
@@ -55,10 +56,12 @@ test('WebPushChannel builds a scoped high-urgency payload and returns the provid
   assert.equal(payload.title, EVENT.title);
   assert.equal(
     payload.body,
-    'Sequencer: 0x1111…1111\nA confirmed payload targets 0x1111…1111.',
+    'Sequencer: 0x1111111111111111111111111111111111111111\n' +
+      'A confirmed payload targets 0x1111…1111.',
   );
   assert.equal(payload.data.caseId, EVENT.data.caseId);
   assert.equal(payload.data.url, notificationPath(EVENT));
+  assert.doesNotMatch(payload.body, /https?:\/\//);
   assert.equal(
     payload.data.url,
     '?view=pingme&network=mainnet&case=case%3Amainnet%3Alineage%3A0x1111111111111111111111111111111111111111%3A24',
@@ -290,11 +293,12 @@ test('TelegramClient long polling and TelegramChannel preserve routing semantics
   assert.equal(message.chatId, '-100123');
   assert.deepEqual(message.options, { priority: 'alert' });
   assert.match(message.text, /^🚨 Sequencer targeted/);
-  assert.match(message.text, /Sequencer: 0x1111…1111/);
-  assert.match(message.text, /slashveto\.me case: https:\/\/slashveto\.example\/base\/\?view=pingme&network=mainnet&case=case%3Amainnet%3Alineage%3A0x1111111111111111111111111111111111111111%3A24/);
+  assert.match(message.text, /Sequencer: 0x1111111111111111111111111111111111111111/);
+  assert.match(message.text, /Case: https:\/\/slashveto\.example\/base\/\?view=pingme&network=mainnet&case=case%3Amainnet%3Alineage%3A0x1111111111111111111111111111111111111111%3A24/);
   assert.match(message.text, /Dashtec: https:\/\/dashtec\.xyz\/sequencers\/0x1111111111111111111111111111111111111111/);
-  assert.match(message.text, /Etherscan block: https:\/\/etherscan\.io\/block\/25587802/);
-  assert.match(message.text, /Etherscan candidate payload: https:\/\/etherscan\.io\/address\/0x2222222222222222222222222222222222222222$/);
+  assert.match(message.text, /Transaction: https:\/\/etherscan\.io\/tx\/0x3434343434343434343434343434343434343434343434343434343434343434/);
+  assert.doesNotMatch(message.text, /Etherscan block/);
+  assert.doesNotMatch(message.text, /candidate payload/);
 });
 
 test('TelegramChannel keeps queued alerts retryable until the bot identity is validated', async () => {

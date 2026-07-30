@@ -75,6 +75,49 @@ test('CaseRepository projects transitions and queues only matching watched seque
   repository.close();
 });
 
+test('L1 ballots queue only the first vote and quorum', () => {
+  const repository = createRepository();
+  repository.createWatch({
+    id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    managementTokenHash: 'hash',
+    network: 'mainnet',
+    addresses: [SEQUENCER],
+    now: 1_700_000_000_000,
+  });
+  repository.upsertEndpoint({
+    watchId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    kind: 'telegram',
+    destination: '1234',
+    now: 1_700_000_000_000,
+  });
+
+  const firstVote = repository.recordObservations([
+    l1Vote('vote-1', '2023-11-14T22:15:20.000Z', 1),
+  ], { protocol: protocol() });
+  assert.equal(firstVote.transitions, 1);
+  assert.equal(firstVote.queued, 1);
+
+  const secondVote = repository.recordObservations([
+    l1Vote('vote-2', '2023-11-14T22:16:20.000Z', 2),
+  ]);
+  assert.equal(secondVote.transitions, 0);
+  assert.equal(secondVote.queued, 0);
+
+  const quorum = repository.recordObservations([
+    l1Vote('quorum', '2023-11-14T22:17:20.000Z', 2, '100'),
+  ]);
+  assert.equal(quorum.transitions, 1);
+  assert.equal(quorum.queued, 1);
+
+  const item = repository.getCase(repository.listCases({ network: 'mainnet' })[0].id);
+  assert.equal(item.state.stage, 'candidate');
+  assert.deepEqual(item.transitions.map((transition) => transition.toStage), [
+    'l1_support',
+    'candidate',
+  ]);
+  repository.close();
+});
+
 test('L1 snapshots preserve a repeated sequencer as two exact target-epoch cases', () => {
   const repository = createRepository();
   repository.recordSuccessfulL1Snapshot('mainnet', {
@@ -454,5 +497,36 @@ function observation(id, kind, data) {
       canonical: true,
     },
     data,
+  };
+}
+
+function l1Vote(id, observedAt, support, amount = null) {
+  return {
+    id,
+    network: 'mainnet',
+    source: 'ethereum_l1',
+    kind: 'l1_round',
+    sequencer: SEQUENCER,
+    lineageId: PROPOSER,
+    targetEpoch: '8',
+    round: '10',
+    provenance: {
+      observedAt,
+      blockNumber: '100',
+      blockHash: BLOCK_HASH,
+      canonical: true,
+    },
+    data: {
+      round: '10',
+      status: amount ? 'quorum-reached' : 'below-quorum',
+      support,
+      quorum: 2,
+      amount,
+      payloadAddress: amount ? PAYLOAD : null,
+      isExecuted: false,
+      isVetoed: false,
+      stable: false,
+      escaped: false,
+    },
   };
 }

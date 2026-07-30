@@ -336,7 +336,7 @@ export class TelegramChannel {
     const icon = event.severity === 'critical' ? '🚨' : event.severity === 'warning' ? '⚠️' : '🛰️';
     const url = new URL(notificationPath(event), this.publicUrl).toString();
     const references = [
-      `slashveto.me case: ${url}`,
+      `Case: ${url}`,
       ...dashtecReferenceLines(event),
       ...etherscanReferenceLines(event),
     ];

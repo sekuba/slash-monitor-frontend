@@ -5,7 +5,7 @@ export function formatNotificationBody(transition) {
   const body = typeof transition?.body === 'string' ? transition.body.trim() : '';
   const sequencer = transitionSequencer(transition);
   return sequencer
-    ? `Sequencer: ${shortAddress(sequencer)}${body ? `\n${body}` : ''}`
+    ? `Sequencer: ${sequencer}${body ? `\n${body}` : ''}`
     : body;
 }
 
@@ -25,23 +25,14 @@ export function etherscanReferenceLines(transition) {
     : 'https://etherscan.io';
   const lines = [];
   if (HASH.test(String(data.transactionHash ?? ''))) {
-    lines.push(`Etherscan transaction: ${origin}/tx/${data.transactionHash}`);
-  }
-  if (/^\d+$/.test(String(data.blockNumber ?? ''))) {
-    lines.push(`Etherscan block: ${origin}/block/${data.blockNumber}`);
-  }
-  if (ADDRESS.test(String(data.payloadAddress ?? ''))) {
-    lines.push(`Etherscan candidate payload: ${origin}/address/${data.payloadAddress}`);
+    lines.push(`Transaction: ${origin}/tx/${data.transactionHash}`);
   }
   return lines;
 }
 
 function transitionSequencer(transition) {
-  const value = transition?.data?.sequencer ?? transition?.targets?.[0];
+  const targets = Array.isArray(transition?.targets) ? transition.targets : [];
+  const value = transition?.data?.sequencer ?? (targets.length === 1 ? targets[0] : null);
   const normalized = String(value ?? '').toLowerCase();
   return ADDRESS.test(normalized) ? normalized : null;
-}
-
-function shortAddress(value) {
-  return `${value.slice(0, 6)}…${value.slice(-4)}`;
 }

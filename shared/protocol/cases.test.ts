@@ -231,6 +231,121 @@ describe('case projection', () => {
             severity: 'warning',
         });
     });
+
+    it('notifies on the first L1 vote and quorum, not each ballot increment', () => {
+        const offense = {
+            ...observation('offense', 'node_offense', {
+                status: 'active',
+                offenseTypeName: 'inactivity',
+                amount: '2000000000000000000000',
+                expectedRound: '12',
+            }),
+            provenance: {
+                observedAt: '2026-07-29T11:00:00.000Z',
+                canonical: true,
+            },
+        };
+        const firstVote = projectCases([
+            offense,
+            observation('vote-1', 'l1_round', {
+                round: '12',
+                status: 'below-quorum',
+                support: 1,
+                quorum: 65,
+                amount: null,
+            }, 'ethereum_l1'),
+        ], protocol())[0];
+        const secondVote = projectCases([
+            offense,
+            observation('vote-2', 'l1_round', {
+                round: '12',
+                status: 'below-quorum',
+                support: 2,
+                quorum: 65,
+                amount: null,
+            }, 'ethereum_l1'),
+        ], protocol())[0];
+        const quorum = projectCases([
+            offense,
+            observation('quorum', 'l1_round', {
+                round: '12',
+                status: 'quorum-reached',
+                support: 65,
+                quorum: 65,
+                amount: '2000000000000000000000',
+                payloadAddress: '0x3333333333333333333333333333333333333333',
+            }, 'ethereum_l1'),
+        ], protocol())[0];
+
+        expect(transitionFor(null, firstVote)).toMatchObject({
+            title: '0x1111…1111 · L1 mention',
+            body: [
+                'Event: First L1 slash vote recorded',
+                'Epoch: 10',
+                'Round: 12',
+                'Time: 2026-07-29 12:00:06 UTC',
+                'Reason: Inactivity (node evidence)',
+            ].join('\n'),
+        });
+        expect(transitionFor(firstVote, secondVote)).toBeNull();
+        expect(transitionFor(firstVote, quorum)).toMatchObject({
+            title: '0x1111…1111 · Candidate',
+            body: [
+                'Event: Quorum reached for a 2,000 AZTEC slash',
+                'Epoch: 10',
+                'Round: 12',
+                'Time: 2026-07-29 12:00:06 UTC',
+                'Reason: Inactivity (node evidence)',
+                'Next: Voting closes',
+            ].join('\n'),
+        });
+    });
+
+    it('includes the relevant slot, epoch, and observation time', () => {
+        const duty = projectCases([{
+            ...observation('duty', 'duty_miss', {
+                epoch: 10,
+                slot: '9001',
+                status: 'attestation-missed',
+            }),
+            slot: '9001',
+        }], protocol())[0];
+
+        expect(transitionFor(null, duty)).toMatchObject({
+            title: '0x1111…1111 · Duty miss',
+            body: [
+                'Event: Duty missed',
+                'Epoch: 10',
+                'Slot: 9001',
+                'Time: 2026-07-29 12:00:04 UTC',
+                'Reason: Inactivity (node evidence)',
+            ].join('\n'),
+        });
+    });
+
+    it('names other offense types without repeating them', () => {
+        const offense = projectCases([{
+            ...observation('duplicate', 'node_offense', {
+                status: 'active',
+                offenseTypeName: 'duplicate_proposal',
+                amount: '5000000000000000000000',
+                expectedRound: '12',
+            }),
+            slot: '9001',
+        }], protocol())[0];
+
+        expect(transitionFor(null, offense)).toMatchObject({
+            title: '0x1111…1111 · Awaiting L1 round',
+            body: [
+                'Event: Offense recorded by this node',
+                'Epoch: 10',
+                'Slot: 9001',
+                'Round: 12',
+                'Time: 2026-07-29 12:00:09 UTC',
+                'Reason: Duplicate Proposal (node evidence)',
+            ].join('\n'),
+        });
+    });
 });
 
 function observation(

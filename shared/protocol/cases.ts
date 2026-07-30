@@ -90,6 +90,12 @@ export function transitionFor(
     current: SlashingCase,
 ): CaseTransition | null {
     if (
+        previous?.state.stage === 'l1_support' &&
+        current.state.stage === 'l1_support'
+    ) {
+        return null;
+    }
+    if (
         previous &&
         previous.state.stage === current.state.stage &&
         previous.state.headline === current.state.headline &&
@@ -116,7 +122,7 @@ export function transitionFor(
         toStage: current.state.stage,
         severity: transitionSeverity(current.state),
         title: `${shortAddress(current.sequencer)} · ${stageLabel(current.state.stage)}`,
-        body: transitionBody(current),
+        body: transitionBody(previous, current),
         observedAt,
     };
 }
@@ -553,19 +559,117 @@ function transitionFrom(data: Record<string, unknown>, label: string) {
     };
 }
 
-function transitionBody(item: SlashingCase): string {
-    const reason = item.state.reason.provenance === 'node_evidence'
-        ? ` Possible reason from node evidence: ${item.state.reason.label}.`
-        : ' L1 does not encode an offense reason.';
-    const next = item.state.nextTransition
-        ? ` Next: ${item.state.nextTransition.label}${
-            item.state.nextTransition.at ? ` at ${item.state.nextTransition.at}` : ''
-        }${
-            item.state.nextTransition.slot ? ` (slot ${item.state.nextTransition.slot})` : ''
-        }.`
-        : '';
-    return `${item.state.headline}. Target epoch ${item.targetEpoch}. ` +
-        `${item.state.explanation}${reason}${next}`;
+function transitionBody(
+    previous: SlashingCase | null,
+    item: SlashingCase,
+): string {
+    const lines = [
+        `Event: ${transitionEventLabel(previous, item)}`,
+        `Epoch: ${item.targetEpoch}`,
+    ];
+    const slot = transitionSlot(item);
+    if (slot) lines.push(`Slot: ${slot}`);
+    const round = transitionRound(item);
+    if (round) lines.push(`Round: ${round}`);
+    lines.push(`Time: ${formatTime(item.lastObservedAt)}`);
+    lines.push(item.state.reason.provenance === 'node_evidence'
+        ? `Reason: ${item.state.reason.label} (node evidence)`
+        : 'Reason: Not encoded on L1');
+    if (item.state.nextTransition) {
+        let next = `Next: ${item.state.nextTransition.label}`;
+        if (item.state.nextTransition.at) {
+            next += ` at ${formatTime(item.state.nextTransition.at)}`;
+        }
+        if (item.state.nextTransition.slot) {
+            next += `${item.state.nextTransition.at ? ' ·' : ' at'} ` +
+                `slot ${item.state.nextTransition.slot}`;
+        }
+        lines.push(next);
+    }
+    return lines.join('\n');
+}
+
+function transitionEventLabel(
+    previous: SlashingCase | null,
+    item: SlashingCase,
+): string {
+    const requested = tokenAmount(item.state.requestedAmount);
+    const actual = tokenAmount(item.state.actualAmount);
+    switch (item.state.stage) {
+        case 'precursor':
+            return item.state.headline === 'Missed duty observed'
+                ? 'Duty missed'
+                : item.state.headline;
+        case 'node_offense':
+        case 'awaiting_round':
+            return 'Offense recorded by this node';
+        case 'l1_support':
+            return previous && [
+                'candidate',
+                'delayed',
+                'executable',
+                'vetoed',
+            ].includes(previous.state.stage)
+                ? 'Slash support fell below quorum'
+                : 'First L1 slash vote recorded';
+        case 'candidate':
+            return requested
+                ? `Quorum reached for a ${requested} slash`
+                : 'Slash quorum reached';
+        case 'delayed':
+            return requested
+                ? `Voting closed for a ${requested} slash`
+                : 'Voting closed for the slash candidate';
+        case 'executable':
+            return requested
+                ? `${requested} slash became executable`
+                : 'Slash became executable';
+        case 'vetoed':
+            return 'Slash candidate vetoed';
+        case 'expired':
+            return 'Slash candidate expired';
+        case 'executed':
+            return requested
+                ? `Slash round executed for a ${requested} action`
+                : 'Slash round executed';
+        case 'stake_removed':
+            return actual ? `${actual} slashed` : 'Stake slashed';
+        case 'ejected':
+            return actual
+                ? `Sequencer ejected after a ${actual} slash`
+                : 'Sequencer ejected';
+        case 'resolved':
+            return item.state.headline;
+        case 'reorged':
+            return 'L1 evidence removed';
+    }
+}
+
+function tokenAmount(value: string | null): string | null {
+    return value ? `${formatAztec(value)} AZTEC` : null;
+}
+
+function transitionSlot(item: SlashingCase): string | null {
+    const observation = [...item.observations].reverse().find((candidate) =>
+        candidate.provenance.canonical &&
+        candidate.slot &&
+        (candidate.provenance.invalidatedAt ?? candidate.provenance.observedAt) ===
+            item.lastObservedAt);
+    return observation?.slot ?? null;
+}
+
+function transitionRound(item: SlashingCase): string | null {
+    if (item.state.round) return item.state.round;
+    return [...item.observations].reverse().find((candidate) =>
+        candidate.provenance.canonical && candidate.round)?.round ?? null;
+}
+
+function formatTime(value: string): string {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toISOString()
+        .replace('T', ' ')
+        .replace(/\.\d{3}Z$/, ' UTC');
 }
 
 function transitionSeverity(stateValue: CaseState): TransitionSeverity {

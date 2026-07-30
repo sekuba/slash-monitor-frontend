@@ -9,16 +9,16 @@ import {
 
 const SEQUENCER = '0x1111111111111111111111111111111111111111';
 
-test('case transition content identifies one sequencer and preserves educational copy', () => {
+test('case transition content identifies the full sequencer without repeating the heading', () => {
   const transition = {
     network: 'mainnet',
-    body: 'Candidate. Target epoch 24. L1 does not encode an offense reason.',
+    body: 'Event: Quorum reached for a 2,000 AZTEC slash\nEpoch: 24',
     targets: [SEQUENCER],
     data: { sequencer: SEQUENCER },
   };
   assert.equal(
     formatNotificationBody(transition),
-    'Sequencer: 0x1111…1111\n' + transition.body,
+    `Sequencer: ${SEQUENCER}\n${transition.body}`,
   );
   assert.deepEqual(dashtecReferenceLines(transition), [
     `Dashtec: https://dashtec.xyz/sequencers/${SEQUENCER}`,
@@ -36,8 +36,6 @@ test('case transition references use only its exact L1 facts', () => {
       payloadAddress,
     },
   }), [
-    `Etherscan transaction: https://sepolia.etherscan.io/tx/${transactionHash}`,
-    'Etherscan block: https://sepolia.etherscan.io/block/42',
-    `Etherscan candidate payload: https://sepolia.etherscan.io/address/${payloadAddress}`,
+    `Transaction: https://sepolia.etherscan.io/tx/${transactionHash}`,
   ]);
 });
