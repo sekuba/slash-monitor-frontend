@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env src/main.mjs",
     "test": "node --test test/*.test.mjs",
-    "check": "for file in src/*.mjs test/*.mjs; do node --check \"$file\" || exit 1; done"
+    "check": "for file in src/*.mjs scripts/*.mjs test/*.mjs; do node --check \"$file\" || exit 1; done"
   },
   "dependencies": {
     "viem": "^2.55.4",

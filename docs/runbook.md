@@ -91,6 +91,27 @@ The backend creates its current schema only in an empty database. It has no
 schema migrations or compatibility API. `--upgrade` is valid only while the
 installed database already has the exact current schema.
 
+After this v2-to-current reset, announce the reset from the retained backup.
+Omit `--send` first to verify the recipient counts, then use `--limit 1` for a
+canary. Reruns resume from a protected sidecar receipt without repeating
+successful deliveries:
+
+```bash
+sudo /usr/local/bin/node --env-file=/etc/slashmon-backend.env \
+  /opt/slashmon/current/collector/scripts/notify-reset-watchers.mjs \
+  --database /var/backups/slashmon/SLASHMON-BACKUP.sqlite
+
+sudo /usr/local/bin/node --env-file=/etc/slashmon-backend.env \
+  /opt/slashmon/current/collector/scripts/notify-reset-watchers.mjs \
+  --database /var/backups/slashmon/SLASHMON-BACKUP.sqlite --limit 1 --send
+
+# Remove --limit after checking the canary.
+```
+
+The backup remains read-only. Telegram receives the complete previous
+watchlist; PWA notifications contain as many full addresses as fit. Delivery
+requires the same Telegram bot token and VAPID keys used by v2.
+
 The script builds an immutable release from the current commit, installs
 production dependencies with the frozen lockfile, stops the single writer,
 installs the hardened systemd service, and waits for `/live`. The production
