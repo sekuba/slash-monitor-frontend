@@ -3,14 +3,32 @@ import { zeroAddress } from 'viem';
 import { resolveDeployment } from '@/lib/deployment';
 import { L1Monitor } from '@/lib/l1Monitor';
 import { SlashingDetector } from '@/lib/slashingDetector';
-import { deriveRoundPresentation } from '@/lib/utils';
 import { useSlashingStore } from '@/store/slashingStore';
-import type { CurrentChainState, DetectedSlashing, MonitorAudit, MonitorConfigInput, MonitorIssue, MonitorSnapshot, SlashingStats } from '@/types/slashing';
+import type {
+    ConfirmedExecution,
+    ConfirmedSlash,
+    CurrentChainState,
+    DetectedSlashing,
+    ExecutionHistoryScan,
+    MonitorAudit,
+    MonitorConfigInput,
+    MonitorIssue,
+    MonitorSnapshot,
+    SlashingStats,
+} from '@/types/slashing';
 
 class StaleMonitorRunError extends Error {}
 const POLL_INTERVAL_MS = 180_000;
+const MAX_EXECUTION_RPC_CALLS_PER_BATCH = 12;
+const MAX_EXECUTION_SCAN_BATCH_MS = 15_000;
+const EXECUTION_SCAN_BATCH_PAUSE_MS = 1_000;
+const ETHEREUM_BLOCK_TIME_SECONDS = 12n;
+const EXECUTION_LOOKBACK_SAFETY_BLOCKS = 5_000n;
 
-export function useSlashingMonitor(config: MonitorConfigInput) {
+export function useSlashingMonitor(
+    config: MonitorConfigInput,
+    active = true,
+) {
     const {
         initialize,
         setIsScanning,
@@ -23,7 +41,7 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
     const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const isFirstScanRef = useRef(true);
     const isPollingRef = useRef(false);
-    const isActiveRef = useRef(true);
+    const isActiveRef = useRef(active);
     const runGenerationRef = useRef(0);
 
     const initializeMonitor = useCallback(async (generation: number) => {
@@ -84,15 +102,20 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
             assertCurrentRun(generation, runGenerationRef.current);
             const previousStoreState = useSlashingStore.getState();
             let detectedSlashings = Array.from(previousStoreState.detectedSlashings.values());
+            let confirmedExecutions = previousStoreState.confirmedExecutions;
+            let confirmedSlashes = previousStoreState.confirmedSlashes;
+            let executionScan = previousStoreState.executionScan;
             const issues: MonitorIssue[] = [
                 ...preflightIssues,
                 ...buildDeploymentIssues(previousStoreState.config, currentState.l1Timestamp),
             ];
+            let detectionSucceeded = false;
 
             try {
                 const detectionResult = await detectorRef.current.detectExecutableRounds(currentState.currentRound, currentState.currentSlot);
                 detectedSlashings = detectionResult.detectedSlashings;
                 issues.push(...detectionResult.issues);
+                detectionSucceeded = true;
             }
             catch (error) {
                 if (error instanceof StaleMonitorRunError) {
@@ -106,12 +129,102 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
                 });
             }
 
-            const audit = buildAudit(issues, previousStoreState.audit.lastSuccessfulAt);
-            assertCurrentRun(generation, runGenerationRef.current);
+            let published = false;
+            if (detectionSucceeded) {
+                let batchStartedAt = Date.now();
+                let rpcCalls = 0;
+                for (;;) {
+                    let result;
+                    try {
+                        result = await l1MonitorRef.current.scanExecutionHistory(
+                            detectedSlashings,
+                            executionLookbackBlocks(previousStoreState.config),
+                        );
+                    }
+                    catch (error) {
+                        executionScan = {
+                            ...executionScan,
+                            status: 'paused',
+                            lastError: toErrorMessage(error),
+                        };
+                        const audit = buildAudit(
+                            [...issues, executionScanIssue(executionScan)],
+                            previousStoreState.audit.lastSuccessfulAt,
+                        );
+                        assertCurrentRun(generation, runGenerationRef.current);
+                        applySnapshot(buildSnapshot(
+                            currentState,
+                            detectedSlashings,
+                            confirmedExecutions,
+                            confirmedSlashes,
+                            executionScan,
+                            audit,
+                        ));
+                        published = true;
+                        completed = true;
+                        break;
+                    }
+                    rpcCalls += result.rpcCalls;
+                    confirmedExecutions = result.confirmedExecutions;
+                    confirmedSlashes = result.confirmedSlashes;
+                    executionScan = result.scan;
+                    const scanIssues = executionScan.status === 'paused'
+                        ? [executionScanIssue(executionScan)]
+                        : [];
+                    const audit = buildAudit(
+                        [...issues, ...scanIssues],
+                        previousStoreState.audit.lastSuccessfulAt,
+                    );
+                    assertCurrentRun(generation, runGenerationRef.current);
+                    applySnapshot(buildSnapshot(
+                        currentState,
+                        detectedSlashings,
+                        confirmedExecutions,
+                        confirmedSlashes,
+                        executionScan,
+                        audit,
+                    ));
+                    published = true;
+                    completed = audit.status !== 'stale' &&
+                        audit.status !== 'fatal';
+                    if (!result.canContinue) {
+                        break;
+                    }
+                    const batchComplete =
+                        rpcCalls >= MAX_EXECUTION_RPC_CALLS_PER_BATCH ||
+                        Date.now() - batchStartedAt >=
+                            MAX_EXECUTION_SCAN_BATCH_MS;
+                    if (batchComplete) {
+                        await pauseExecutionScanBatch();
+                        assertCurrentRun(
+                            generation,
+                            runGenerationRef.current,
+                        );
+                        batchStartedAt = Date.now();
+                        rpcCalls = 0;
+                        continue;
+                    }
+                    await yieldToBrowser();
+                }
+            }
 
-            const snapshot = buildSnapshot(currentState, detectedSlashings, audit);
-            applySnapshot(snapshot);
-            completed = audit.status !== 'stale' && audit.status !== 'fatal';
+            if (!published) {
+                const audit = buildAudit(
+                    issues,
+                    previousStoreState.audit.lastSuccessfulAt,
+                );
+                assertCurrentRun(generation, runGenerationRef.current);
+                applySnapshot(buildSnapshot(
+                    currentState,
+                    detectedSlashings,
+                    confirmedExecutions,
+                    confirmedSlashes,
+                    executionScan,
+                    audit,
+                ));
+                completed = audit.status !== 'stale' &&
+                    audit.status !== 'fatal';
+            }
 
         }
         catch (error) {
@@ -132,6 +245,15 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
     }, [applySnapshot, initializeMonitor, setIsScanning, setMonitorFailure]);
 
     useEffect(() => {
+        if (!active) {
+            isActiveRef.current = false;
+            if (timeoutRef.current) {
+                clearTimeout(timeoutRef.current);
+                timeoutRef.current = null;
+            }
+            return;
+        }
+
         let cancelled = false;
         const generation = runGenerationRef.current + 1;
         runGenerationRef.current = generation;
@@ -156,12 +278,26 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
 
         const start = async () => {
             try {
-                const initialState = await initializeMonitor(generation);
-                if (cancelled || generation !== runGenerationRef.current) {
-                    return;
+                while (isPollingRef.current) {
+                    if (cancelled || generation !== runGenerationRef.current) {
+                        return;
+                    }
+                    await waitForPollToStop();
                 }
-
-                await poll(initialState, generation);
+                if (
+                    l1MonitorRef.current &&
+                    detectorRef.current &&
+                    useSlashingStore.getState().isInitialized
+                ) {
+                    await poll(undefined, generation);
+                }
+                else {
+                    const initialState = await initializeMonitor(generation);
+                    if (cancelled || generation !== runGenerationRef.current) {
+                        return;
+                    }
+                    await poll(initialState, generation);
+                }
                 if (!cancelled && generation === runGenerationRef.current) {
                     scheduleNextPoll();
                 }
@@ -189,40 +325,52 @@ export function useSlashingMonitor(config: MonitorConfigInput) {
             if (runGenerationRef.current === generation) {
                 runGenerationRef.current += 1;
             }
-            isPollingRef.current = false;
             if (timeoutRef.current) {
                 clearTimeout(timeoutRef.current);
                 timeoutRef.current = null;
             }
         };
-    }, [initializeMonitor, poll, setInitializationError, setIsScanning, setMonitorFailure]);
+    }, [
+        active,
+        initializeMonitor,
+        poll,
+        setInitializationError,
+        setIsScanning,
+        setMonitorFailure,
+    ]);
 }
 
 function buildSnapshot(
     currentState: CurrentChainState,
     detectedSlashings: DetectedSlashing[],
+    confirmedExecutions: ConfirmedExecution[],
+    confirmedSlashes: ConfirmedSlash[],
+    executionScan: ExecutionHistoryScan,
     audit: MonitorAudit
 ): MonitorSnapshot {
     return {
         ...currentState,
         detectedSlashings: new Map(detectedSlashings.map((slashing) => [slashing.round, slashing])),
-        stats: buildStats(currentState, detectedSlashings),
+        confirmedExecutions,
+        confirmedSlashes,
+        executionScan,
+        stats: buildStats(currentState, detectedSlashings, confirmedSlashes),
         audit,
     };
 }
 
-function buildStats(currentState: CurrentChainState, detectedSlashings: DetectedSlashing[]): SlashingStats {
-    const storeState = useSlashingStore.getState();
-    const activeSlashings = detectedSlashings.filter((slashing) => {
-        const presentation = deriveRoundPresentation(slashing, {
-            config: storeState.config,
-            isSlashingEnabled: currentState.isSlashingEnabled,
-            pauseStartedAtSlot: currentState.pauseStartedAtSlot,
-            pauseEndsAtSlot: currentState.pauseEndsAtSlot,
-        });
-
-        return presentation.isActionable && slashing.round !== currentState.currentRound;
-    }).length;
+function buildStats(
+    currentState: CurrentChainState,
+    detectedSlashings: DetectedSlashing[],
+    confirmedSlashes: ConfirmedSlash[],
+): SlashingStats {
+    const activeSlashings = detectedSlashings.filter((slashing) =>
+        !slashing.isExecuted &&
+        !slashing.isVetoed &&
+        slashing.round !== currentState.currentRound &&
+        slashing.slashActions &&
+        slashing.slashActions.length > 0 &&
+        !['expired'].includes(slashing.status)).length;
 
     return {
         currentRound: currentState.currentRound,
@@ -230,12 +378,39 @@ function buildStats(currentState: CurrentChainState, detectedSlashings: Detected
         activeSlashings,
         vetoedPayloads: detectedSlashings.filter((slashing) => slashing.isVetoed).length,
         executedRounds: detectedSlashings.filter((slashing) => slashing.isExecuted).length,
-        totalValidatorsSlashed: detectedSlashings
-            .filter((slashing) => slashing.isExecuted)
-            .reduce((sum, slashing) => sum + (slashing.affectedValidatorCount ?? 0), 0),
-        totalSlashAmount: detectedSlashings
-            .filter((slashing) => slashing.isExecuted)
-            .reduce((sum, slashing) => sum + (slashing.totalSlashAmount ?? 0n), 0n),
+        totalValidatorsSlashed: new Set(
+            confirmedSlashes.map((slash) => slash.sequencer.toLowerCase()),
+        ).size,
+        totalSlashAmount: confirmedSlashes.reduce(
+            (sum, slash) => sum + slash.amount,
+            0n,
+        ),
+    };
+}
+
+function executionLookbackBlocks(
+    config: ReturnType<typeof useSlashingStore.getState>['config'],
+): bigint {
+    if (!config) return 10_000n;
+    const executionWindowRounds = Math.max(
+        1,
+        config.lifetimeInRounds - config.executionDelayInRounds,
+    );
+    const seconds = BigInt(executionWindowRounds) *
+        BigInt(config.slashingRoundSize) *
+        BigInt(config.slotDuration);
+    return seconds / ETHEREUM_BLOCK_TIME_SECONDS +
+        EXECUTION_LOOKBACK_SAFETY_BLOCKS;
+}
+
+function executionScanIssue(scan: ExecutionHistoryScan): MonitorIssue {
+    return {
+        source: 'l1-rpc',
+        scope: 'execution-history',
+        severity: 'warning',
+        message: `Execution history paused after ${scan.scannedBlocks} of ${scan.totalBlocks} blocks: ${
+            scan.lastError ?? 'the RPC stopped accepting history requests'
+        }`,
     };
 }
 
@@ -291,4 +466,17 @@ function assertCurrentRun(expected: number, actual: number): void {
     if (expected !== actual) {
         throw new StaleMonitorRunError();
     }
+}
+
+function yieldToBrowser(): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function waitForPollToStop(): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, 50));
+}
+
+function pauseExecutionScanBatch(): Promise<void> {
+    return new Promise((resolve) =>
+        setTimeout(resolve, EXECUTION_SCAN_BATCH_PAUSE_MS));
 }

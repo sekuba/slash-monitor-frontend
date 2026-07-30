@@ -1,68 +1,89 @@
-# Slashmon
+# slashveto.me
 
-Slashmon watches Aztec slashing and has two deliberately separate parts:
+slashveto.me tracks an Aztec sequencer from the first observed duty miss to an
+L1 slash and ejection:
 
-- **Monitor** is a browser-only view of public Ethereum state. It resolves the
-  canonical Aztec contracts and checks slashing rounds directly through public
-  L1 RPCs. Its on-page details panel can select a browser-local RPC and inspect
-  the resolved deployment metadata.
-- **PINGME** is the backend UI. It can search the complete journal for one
-  sequencer, manage address watches, and send matched alerts through Telegram
-  or Web Push. The backend records per-duty inactivity precursors and
-  registered offenses from one Aztec node, then verifies L1 slashing state.
+```text
+duty miss → node offense → L1 vote → quorum → execution delay
+          → executable → executed → stake removed → ejection
+```
 
-Node-local offenses are early warnings, not consensus. Slashmon labels them
-`pending`. Ethereum observations are labelled `confirmed`. The backend never
-turns one node's opinion into L1 truth.
+A path can stop at any step. The product keeps candidate amounts, executed
+rounds, and actual stake deductions separate. L1 votes do not encode an
+offense reason; a displayed reason is always labelled as evidence from the
+attached Aztec node.
+
+## Surfaces
+
+| Surface | Source | Purpose |
+| --- | --- | --- |
+| **Monitor** | Ethereum RPC queried in the browser | Independent view of canonical contracts, votes, candidates, execution, and slash logs. |
+| **PINGME** | Backend using one Aztec node and Ethereum RPC | Earlier Sentinel/offense evidence, durable cases, and Telegram or Web Push alerts. |
+
+Monitor never calls the backend. PINGME keeps the last known state when one
+source fails and reports that source as stale. Neither surface is an oracle:
+node evidence is one observer's report, while L1 establishes contract state
+without revealing the reason behind a vote.
+
+The primary object is a slashing case: network, contract lineage, sequencer,
+and target epoch with its source observations and state transitions. Linking is
+exact and conservative. An actual slash joins through its execution transaction
+and action order, never by address and approximate time.
 
 ## Repository
 
-- `src/` — React/Vite PWA containing Monitor and PINGME
-- `collector/` — Node backend, SQLite journal, and notification delivery
-- [`docs/architecture.md`](docs/architecture.md) — data flow and trust boundaries
-- [`docs/notifications.md`](docs/notifications.md) — notification stages, required context, and links
-- [`docs/runbook.md`](docs/runbook.md) — production deployment and operations
-- [`docs/privacy.md`](docs/privacy.md) — stored data and provider exposure
+- `shared/protocol/` contains the pure case projection, tallying, transitions,
+  and notification wording shared by frontend and backend.
+- `src/` contains the React PWA and independent browser L1 collector.
+- `collector/` contains the Node backend, SQLite repository, three evidence
+  collectors, API, durable outbox, Telegram, and Web Push.
+- `scripts/deploy-backend.sh` installs an immutable backend release under
+  systemd.
 
-The ignored `apiReference.md` and `onchainSources.md` files are research
-material. Runtime behavior must live in committed code, ABIs, and tests.
+The backend API is rooted at `/api`. `/live` reports process liveness and
+`/health` reports whether the required evidence sources are current.
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/config`, `/api/status`, `/api/network` | Capabilities, freshness, protocol state, and public cases |
+| `GET` | `/api/sequencers/:address`, `/api/cases/:id` | Public sequencer and exact-case views |
+| `POST` | `/api/watches` | Create a private watch and return its management token once |
+| `GET/PATCH/DELETE` | `/api/watches/:id` | Bearer-authenticated watch management |
+| `PUT/DELETE` | `/api/watches/:id/channels/web_push` | Web Push enrollment |
+| `POST` | `/api/watches/:id/channels/telegram-link` | One-time Telegram enrollment link |
+| `POST` | `/api/watches/:id/channels/test` | Queue a test alert |
 
 ## Development
 
-Use Node 24 and the pinned pnpm release:
+Node 24 and the pinned pnpm version are required:
 
 ```bash
 corepack enable
-pnpm install
+pnpm install --frozen-lockfile
 cp .env.example .env
 cp collector/.env.example collector/.env
-```
-
-Run the two processes in separate terminals:
-
-```bash
 pnpm dev
 pnpm dev:backend
 ```
 
-For local cross-origin development, set
-`VITE_API_BASE_URL=http://127.0.0.1:8790`; the backend example already allows
-`http://localhost:5173`. Alternatively leave `VITE_API_BASE_URL` empty and set
-`SLASHMON_DEV_API_PROXY_TARGET` for Vite's same-origin development proxy.
-
-Run the complete quality gate with:
+Run the release gate with:
 
 ```bash
 pnpm check
 ```
 
-All `VITE_*` values are public browser configuration. Backend RPC credentials,
-Telegram tokens, and VAPID private keys belong only in `collector/.env` or the
-production environment file.
+Every `VITE_*` value is public. RPC credentials, Aztec admin credentials,
+Telegram tokens, VAPID private keys, and the SQLite database belong only in the
+backend environment. The ignored `apiReference.md` and `onchainSources.md` are
+local research inputs, not runtime dependencies or published documentation.
 
-Notification watches use a bearer capability stored by browser origin. Host a
-production PINGME installation on a dedicated origin and do not add third-party
-scripts. A shared GitHub Pages origin is suitable only for the public Monitor.
+## Documentation
 
-Production backend deployments use `scripts/deploy-backend.sh`: `--fresh`
-resets all state, while `--upgrade` preserves and backs up the current database.
+- [Protocol and correctness model](docs/protocol.md)
+- [Notification contract](docs/notifications.md)
+- [Production runbook](docs/runbook.md)
+
+The protocol model was checked against the active Aztec mainnet deployment and
+[`aztec-packages` commit `def7152a`](https://github.com/AztecProtocol/aztec-packages/tree/def7152aa13dc0f880f24e45ce39442908170878)
+on 2026-07-29. Contracts and parameters are upgradeable; runtime code discovers
+the responsible lineage and reads its values.

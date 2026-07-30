@@ -1,0 +1,551 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import test from 'node:test';
+
+import { CaseRepository } from '../src/case-repository.mjs';
+import { parseOffenseSnapshot } from '../src/offenses.mjs';
+import { protocolSnapshot, targetRound } from './case-fixtures.mjs';
+
+const REGISTRY = '0x1111111111111111111111111111111111111111';
+const ROLLUP = '0x2222222222222222222222222222222222222222';
+const SLASHER = '0x3333333333333333333333333333333333333333';
+const PROPOSER = '0x4444444444444444444444444444444444444444';
+const SEQUENCER = '0x5555555555555555555555555555555555555555';
+const PAYLOAD = '0x6666666666666666666666666666666666666666';
+const BLOCK_HASH = `0x${'ab'.repeat(32)}`;
+
+test('CaseRepository projects transitions and queues only matching watched sequencers', () => {
+  const repository = createRepository();
+  repository.createWatch({
+    id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    managementTokenHash: 'hash',
+    network: 'mainnet',
+    addresses: [SEQUENCER],
+    now: 1_700_000_000_000,
+  });
+  repository.upsertEndpoint({
+    watchId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    kind: 'telegram',
+    destination: '1234',
+    now: 1_700_000_000_000,
+  });
+
+  const first = repository.recordObservations([
+    observation('inactive', 'inactivity_epoch', {
+      epoch: 8,
+      missed: 8,
+      total: 10,
+      streak: 1,
+      threshold: 2,
+      targetPercentage: 0.8,
+    }),
+  ], { protocol: protocol() });
+  assert.equal(first.transitions, 1);
+  assert.equal(first.queued, 1);
+  assert.equal(repository.getSequencerRecord(SEQUENCER, 'mainnet').cases[0].state.headline,
+    '1 of 2 qualifying inactive epochs');
+
+  const duplicate = repository.recordObservations([
+    observation('inactive', 'inactivity_epoch', {
+      epoch: 8,
+      missed: 8,
+      total: 10,
+      streak: 1,
+      threshold: 2,
+      targetPercentage: 0.8,
+    }),
+  ]);
+  assert.equal(duplicate.inserted, 0);
+  assert.equal(duplicate.transitions, 0);
+
+  const offense = repository.recordObservations([
+    observation('offense', 'node_offense', {
+      offenseTypeName: 'inactivity',
+      status: 'active',
+      amount: '1000000000000000000',
+      expectedRound: '10',
+    }),
+  ]);
+  assert.equal(offense.transitions, 1);
+  assert.equal(repository.getSequencerRecord(SEQUENCER, 'mainnet').cases[0].state.stage,
+    'awaiting_round');
+  repository.close();
+});
+
+test('L1 ballots queue only the first vote and quorum', () => {
+  const repository = createRepository();
+  repository.createWatch({
+    id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    managementTokenHash: 'hash',
+    network: 'mainnet',
+    addresses: [SEQUENCER],
+    now: 1_700_000_000_000,
+  });
+  repository.upsertEndpoint({
+    watchId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    kind: 'telegram',
+    destination: '1234',
+    now: 1_700_000_000_000,
+  });
+
+  const firstVote = repository.recordObservations([
+    l1Vote('vote-1', '2023-11-14T22:15:20.000Z', 1),
+  ], { protocol: protocol() });
+  assert.equal(firstVote.transitions, 1);
+  assert.equal(firstVote.queued, 1);
+
+  const secondVote = repository.recordObservations([
+    l1Vote('vote-2', '2023-11-14T22:16:20.000Z', 2),
+  ]);
+  assert.equal(secondVote.transitions, 0);
+  assert.equal(secondVote.queued, 0);
+
+  const quorum = repository.recordObservations([
+    l1Vote('quorum', '2023-11-14T22:17:20.000Z', 2, '100'),
+  ]);
+  assert.equal(quorum.transitions, 1);
+  assert.equal(quorum.queued, 1);
+
+  const item = repository.getCase(repository.listCases({ network: 'mainnet' })[0].id);
+  assert.equal(item.state.stage, 'candidate');
+  assert.deepEqual(item.transitions.map((transition) => transition.toStage), [
+    'l1_support',
+    'candidate',
+  ]);
+  repository.close();
+});
+
+test('L1 snapshots preserve a repeated sequencer as two exact target-epoch cases', () => {
+  const repository = createRepository();
+  repository.recordSuccessfulL1Snapshot('mainnet', {
+    chainId: 1,
+    blockNumber: '100',
+    blockHash: BLOCK_HASH,
+    blockTimestamp: '1700000100',
+    observedAt: 1_700_000_100_000,
+    registryAddress: REGISTRY,
+    rollupAddress: ROLLUP,
+    l1GenesisTime: '1700000000',
+    currentSlot: '100',
+    currentEpoch: '10',
+    slotDuration: '12',
+    epochDuration: '10',
+    stacks: [{
+      role: 'active',
+      rollupAddress: ROLLUP,
+      slasherAddress: SLASHER,
+      proposerAddress: PROPOSER,
+      currentRound: '10',
+      isSlashingEnabled: true,
+      slashingDisabledUntil: '0',
+      parameters: {
+        quorum: '2',
+        roundSize: '20',
+        roundSizeInEpochs: '2',
+        executionDelayInRounds: '2',
+        lifetimeInRounds: '4',
+        slashOffsetInRounds: '1',
+        committeeSize: '4',
+      },
+      rounds: [{
+        round: '10',
+        status: 'quorum-reached',
+        isExecuted: false,
+        isVetoed: false,
+        isExecutionPaused: false,
+        isProtected: false,
+        payloadAddress: '0x6666666666666666666666666666666666666666',
+        executableSlot: '260',
+        expirySlot: '300',
+        actions: [
+          { sequencer: SEQUENCER, amount: '100' },
+          { sequencer: SEQUENCER, amount: '300' },
+        ],
+        earlyTargets: [],
+        actionDetails: [
+          {
+            sequencer: SEQUENCER,
+            targetEpoch: '18',
+            epochIndex: 0,
+            committeeIndex: 0,
+            voteCount: 2,
+            support: 2,
+            maxSlashUnits: 1,
+            unitVoteCounts: [2, 0, 0],
+            amount: '100',
+          },
+          {
+            sequencer: SEQUENCER,
+            targetEpoch: '19',
+            epochIndex: 1,
+            committeeIndex: 0,
+            voteCount: 2,
+            support: 2,
+            maxSlashUnits: 3,
+            unitVoteCounts: [0, 0, 2],
+            amount: '300',
+          },
+        ],
+      }],
+    }],
+  });
+  const cases = repository.getSequencerRecord(SEQUENCER, 'mainnet').cases;
+  assert.deepEqual(cases.map((item) => item.targetEpoch).sort(), ['18', '19']);
+  assert.deepEqual(
+    cases.map((item) => item.state.requestedAmount).sort(),
+    ['100', '300'],
+  );
+  repository.close();
+});
+
+test('a repeated sequencer slash uses receipt action order to select the exact epoch', () => {
+  const repository = createRepository();
+  repository.recordSuccessfulL1Snapshot('mainnet', protocolSnapshot({
+    rounds: [{
+      ...targetRound({ sequencer: SEQUENCER, targetEpoch: '18', amount: '100' }),
+      actions: [
+        { sequencer: SEQUENCER, amount: '100' },
+        { sequencer: SEQUENCER, amount: '300' },
+      ],
+      actionDetails: [
+        {
+          ...targetRound({
+            sequencer: SEQUENCER,
+            targetEpoch: '18',
+            amount: '100',
+          }).actionDetails[0],
+          actionIndex: 0,
+        },
+        {
+          ...targetRound({
+            sequencer: SEQUENCER,
+            targetEpoch: '19',
+            amount: '300',
+          }).actionDetails[0],
+          actionIndex: 1,
+        },
+      ],
+    }],
+  }));
+  repository.recordSuccessfulL1SlashLogChunk('mainnet', {
+    fromBlock: '101',
+    toBlock: '101',
+    toBlockHash: BLOCK_HASH,
+    confirmedBlockNumber: '101',
+    rollupAddresses: [ROLLUP],
+    initialBackfill: false,
+    hasMore: false,
+    reorgDetected: false,
+    logs: [{
+      rollupAddress: ROLLUP,
+      blockNumber: '101',
+      blockHash: BLOCK_HASH,
+      transactionHash: `0x${'cd'.repeat(32)}`,
+      logIndex: 2,
+      transactionSlashIndex: 1,
+      sequencer: SEQUENCER,
+      amount: '250',
+      executionCandidates: [{ proposerAddress: PROPOSER, round: '14' }],
+      ejected: false,
+    }],
+  });
+  const cases = repository.getSequencerRecord(SEQUENCER, 'mainnet').cases;
+  assert.equal(
+    cases.find((item) => item.targetEpoch === '19').state.stage,
+    'stake_removed',
+  );
+  assert.equal(
+    cases.find((item) => item.targetEpoch === '18').state.stage,
+    'candidate',
+  );
+  repository.close();
+});
+
+test('historical slash backfill creates exact missing rounds for a repeated sequencer', () => {
+  const repository = createRepository();
+  repository.recordSuccessfulL1Snapshot('mainnet', protocolSnapshot());
+  const transaction = `0x${'cd'.repeat(32)}`;
+  const contexts = [
+    historicalContext({ targetEpoch: '24', actionIndex: 0, amount: '100' }),
+    historicalContext({ targetEpoch: '25', actionIndex: 1, amount: '300' }),
+  ];
+
+  repository.recordSuccessfulL1SlashLogChunk('mainnet', {
+    fromBlock: '101',
+    toBlock: '101',
+    toBlockHash: BLOCK_HASH,
+    confirmedBlockNumber: '101',
+    rollupAddresses: [ROLLUP],
+    initialBackfill: true,
+    hasMore: true,
+    reorgDetected: false,
+    logs: contexts.map((executionContext, actionIndex) => ({
+      rollupAddress: ROLLUP,
+      blockNumber: '101',
+      blockHash: BLOCK_HASH,
+      transactionHash: transaction,
+      logIndex: 151 + actionIndex,
+      transactionSlashIndex: actionIndex,
+      sequencer: SEQUENCER,
+      amount: actionIndex === 0 ? '90' : '250',
+      executionCandidates: [{ proposerAddress: PROPOSER, round: '14' }],
+      executionContext,
+      ejected: false,
+    })),
+  });
+
+  const cases = repository.getSequencerRecord(SEQUENCER, 'mainnet').cases
+    .sort((left, right) => left.targetEpoch.localeCompare(right.targetEpoch));
+  assert.deepEqual(cases.map((item) => ({
+    targetEpoch: item.targetEpoch,
+    stage: item.state.stage,
+    requestedAmount: item.state.requestedAmount,
+    actualAmount: item.state.actualAmount,
+  })), [
+    {
+      targetEpoch: '24',
+      stage: 'stake_removed',
+      requestedAmount: null,
+      actualAmount: '90',
+    },
+    {
+      targetEpoch: '25',
+      stage: 'stake_removed',
+      requestedAmount: null,
+      actualAmount: '250',
+    },
+  ]);
+  for (const item of cases) {
+    const stored = repository.getCase(item.id);
+    const historicalRound = stored.observations.find(
+      (observation) => observation.kind === 'l1_round',
+    );
+    assert.equal(historicalRound.data.historicalExecution, true);
+    assert.equal(historicalRound.data.payloadAddress, PAYLOAD);
+    assert.equal(
+      stored.observations.find((observation) => observation.kind === 'l1_slash')
+        .provenance.transactionHash,
+      transaction,
+    );
+  }
+  repository.close();
+});
+
+test('L1 target removal and restoration produce one corrected case lineage', () => {
+  const repository = createRepository();
+  repository.recordSuccessfulL1Snapshot('mainnet', protocolSnapshot({
+    block: 100,
+    rounds: [targetRound({ sequencer: SEQUENCER, targetEpoch: '24' })],
+  }));
+  assert.equal(repository.listCases({ network: 'mainnet' })[0].state.stage, 'candidate');
+
+  repository.recordSuccessfulL1Snapshot('mainnet', protocolSnapshot({
+    block: 101,
+    rounds: [{
+      ...targetRound({ sequencer: SEQUENCER, targetEpoch: '24', amount: null }),
+      actionDetails: [],
+    }],
+  }));
+  assert.equal(repository.listCases({ network: 'mainnet' })[0].state.stage, 'reorged');
+
+  repository.recordSuccessfulL1Snapshot('mainnet', protocolSnapshot({
+    block: 102,
+    rounds: [targetRound({ sequencer: SEQUENCER, targetEpoch: '24' })],
+  }));
+  const restored = repository.listCases({ network: 'mainnet' })[0];
+  assert.equal(restored.state.stage, 'candidate');
+  assert.equal(repository.getCase(restored.id).transitions.length, 3);
+  repository.close();
+});
+
+test('withdrawn node evidence can reactivate the same exact offense case', () => {
+  const repository = createRepository();
+  repository.recordSuccessfulL1Snapshot('mainnet', protocolSnapshot(), {
+    observedAt: 1_000,
+  });
+  const [offense] = parseOffenseSnapshot([{
+    validator: SEQUENCER,
+    amount: '1000',
+    offenseType: 3,
+    epochOrSlot: '24',
+  }]);
+  repository.recordSuccessfulPoll([offense], {
+    network: 'mainnet',
+    observedAt: 2_000,
+  });
+  repository.recordSuccessfulPoll([], {
+    network: 'mainnet',
+    observedAt: 3_000,
+    withdrawAfterMissedPolls: 1,
+    absenceEvidence: {
+      epoch: { advanced: true, value: '25' },
+      slot: { advanced: false, value: '0' },
+    },
+  });
+  assert.equal(repository.listCases({ network: 'mainnet' })[0].state.stage, 'resolved');
+
+  repository.recordSuccessfulPoll([offense], {
+    network: 'mainnet',
+    observedAt: 4_000,
+  });
+  const reactivated = repository.listCases({ network: 'mainnet' })[0];
+  assert.equal(reactivated.state.stage, 'node_offense');
+  assert.deepEqual(
+    reactivated.observations.map((item) => item.data.status),
+    ['active', 'withdrawn', 'active'],
+  );
+  repository.close();
+});
+
+test('repository refuses a nonempty incompatible database instead of migrating it', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'slashmon-schema-'));
+  const databasePath = path.join(directory, 'incompatible.sqlite');
+  try {
+    const incompatible = new DatabaseSync(databasePath);
+    incompatible.exec('CREATE TABLE events(id TEXT PRIMARY KEY); PRAGMA user_version = 1');
+    incompatible.close();
+    assert.throws(
+      () => new CaseRepository(databasePath),
+      /requires an empty database or its exact current schema/,
+    );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('repository reopens only an exact database owned by slashveto.me', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'slashmon-schema-'));
+  const databasePath = path.join(directory, 'slashmon.sqlite');
+  try {
+    new CaseRepository(databasePath).close();
+    assert.doesNotThrow(() => new CaseRepository(databasePath).close());
+
+    const altered = new DatabaseSync(databasePath);
+    altered.exec('CREATE TABLE unrelated(value TEXT)');
+    altered.close();
+    assert.throws(
+      () => new CaseRepository(databasePath),
+      /requires an empty database or its exact current schema/,
+    );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+function createRepository() {
+  const repository = new CaseRepository(':memory:');
+  repository.bindRuntimeIdentity({
+    network: 'mainnet',
+    chainId: 1,
+    registryAddress: REGISTRY,
+  });
+  return repository;
+}
+
+function historicalContext({ targetEpoch, actionIndex, amount }) {
+  return {
+    proposerAddress: PROPOSER,
+    round: '14',
+    targetEpoch,
+    actionIndex,
+    sequencer: SEQUENCER,
+    amount,
+    support: 2,
+    quorum: 2,
+    maxSlashUnits: actionIndex + 1,
+    unitVoteCounts: actionIndex === 0 ? [2, 0, 0] : [0, 2, 0],
+    epochIndex: actionIndex,
+    committeeIndex: 0,
+    escaped: false,
+    payloadAddress: PAYLOAD,
+  };
+}
+
+function protocol() {
+  return {
+    network: 'mainnet',
+    chainId: 1,
+    observedAt: '2023-11-14T22:13:20.000Z',
+    blockNumber: '100',
+    blockHash: BLOCK_HASH,
+    registryAddress: REGISTRY,
+    rollupAddress: ROLLUP,
+    genesisTime: '1700000000',
+    currentSlot: '100',
+    currentEpoch: '10',
+    slotDurationSeconds: 12,
+    epochDurationSlots: 10,
+    inactivity: { targetPercentage: 0.8, consecutiveEpochs: 2 },
+    lineages: [{
+      role: 'active',
+      rollupAddress: ROLLUP,
+      slasherAddress: SLASHER,
+      proposerAddress: PROPOSER,
+      currentRound: '9',
+      isSlashingEnabled: true,
+      disabledUntil: null,
+      parameters: {
+        quorum: 2,
+        roundSizeSlots: 20,
+        roundSizeEpochs: 2,
+        executionDelayRounds: 2,
+        lifetimeRounds: 4,
+        slashOffsetRounds: 6,
+        committeeSize: 4,
+      },
+    }],
+  };
+}
+
+function observation(id, kind, data) {
+  return {
+    id,
+    network: 'mainnet',
+    source: kind === 'node_offense' ? 'aztec_node' : 'aztec_sentinel',
+    kind,
+    sequencer: SEQUENCER,
+    lineageId: PROPOSER,
+    targetEpoch: '8',
+    provenance: {
+      observedAt: id === 'inactive'
+        ? '2023-11-14T22:13:20.000Z'
+        : '2023-11-14T22:14:20.000Z',
+      canonical: true,
+    },
+    data,
+  };
+}
+
+function l1Vote(id, observedAt, support, amount = null) {
+  return {
+    id,
+    network: 'mainnet',
+    source: 'ethereum_l1',
+    kind: 'l1_round',
+    sequencer: SEQUENCER,
+    lineageId: PROPOSER,
+    targetEpoch: '8',
+    round: '10',
+    provenance: {
+      observedAt,
+      blockNumber: '100',
+      blockHash: BLOCK_HASH,
+      canonical: true,
+    },
+    data: {
+      round: '10',
+      status: amount ? 'quorum-reached' : 'below-quorum',
+      support,
+      quorum: 2,
+      amount,
+      payloadAddress: amount ? PAYLOAD : null,
+      isExecuted: false,
+      isVetoed: false,
+      stable: false,
+      escaped: false,
+    },
+  };
+}

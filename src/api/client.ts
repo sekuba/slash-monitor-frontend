@@ -1,177 +1,119 @@
-import {
-    decodeCreatedSubscription,
-    decodeEventDetail,
-    decodeEventPage,
-    decodePublicConfig,
-    decodeSequencerRecord,
-    decodeStatus,
-    decodeSubscription,
-    decodeTelegramLink,
-} from './decode';
 import type { WebPushSubscriptionJson } from '@/lib/push';
 import type {
-    CreatedSubscription,
-    EventPage,
-    ManagedSubscription,
-    MonitorEvent,
-    MonitorNetwork,
-    SequencerRecordPage,
-    TelegramLink,
     BackendConfig,
     BackendStatus,
+    CreatedWatch,
+    ManagedWatch,
+    NetworkCases,
+    SequencerCases,
+    SlashingCase,
+    TelegramLink,
 } from '@/types/backendApi';
 
 const REQUEST_TIMEOUT_MS = 12_000;
-const API_ROOT = '/api/v2';
+const API_ROOT = '/api';
 
-export class SlashmonApiError extends Error {
+export class BackendApiError extends Error {
     constructor(
         message: string,
         readonly status: number,
         readonly code: string | null,
     ) {
         super(message);
-        this.name = 'SlashmonApiError';
+        this.name = 'BackendApiError';
     }
 }
 
-export class SlashmonApiClient {
+export class BackendApiClient {
     private readonly baseUrl: string;
 
     constructor(baseUrl = import.meta.env.VITE_API_BASE_URL ?? '') {
         this.baseUrl = baseUrl.replace(/\/$/, '');
     }
 
-    async getConfig(signal?: AbortSignal): Promise<BackendConfig> {
-        return decodePublicConfig(await this.request('/config', { signal }));
+    getConfig(signal?: AbortSignal): Promise<BackendConfig> {
+        return this.request('/config', { signal }) as Promise<BackendConfig>;
     }
 
-    async getStatus(network: MonitorNetwork, signal?: AbortSignal): Promise<BackendStatus> {
-        return decodeStatus(await this.request(`/status?network=${network}`, { signal }), network);
+    getStatus(signal?: AbortSignal): Promise<BackendStatus> {
+        return this.request('/status', { signal }) as Promise<BackendStatus>;
     }
 
-    async getEvents(network: MonitorNetwork, signal?: AbortSignal, cursor?: string): Promise<EventPage> {
-        const query = new URLSearchParams({ network, limit: '67' });
-        if (cursor) {
-            query.set('cursor', cursor);
-        }
-        return decodeEventPage(await this.request(`/events?${query}`, { signal }), network);
+    getNetwork(signal?: AbortSignal): Promise<NetworkCases> {
+        return this.request('/network', { signal }) as Promise<NetworkCases>;
     }
 
-    async getSubscriptionEvents(
-        id: string,
-        token: string,
-        network: MonitorNetwork,
-        signal?: AbortSignal,
-        cursor?: string,
-    ): Promise<EventPage> {
-        const query = new URLSearchParams({ limit: '67' });
-        if (cursor) {
-            query.set('cursor', cursor);
-        }
-        return decodeEventPage(await this.request(
-            `/subscriptions/${encodeURIComponent(id)}/events?${query}`,
-            { token, signal },
-        ), network);
+    getSequencer(sequencer: string, signal?: AbortSignal): Promise<SequencerCases> {
+        return this.request(`/sequencers/${encodeURIComponent(sequencer)}`, {
+            signal,
+        }) as Promise<SequencerCases>;
     }
 
-    async getEvent(id: string, network: MonitorNetwork, signal?: AbortSignal): Promise<MonitorEvent> {
-        const query = new URLSearchParams({ network });
-        return decodeEventDetail(await this.request(
-            `/events/${encodeURIComponent(id)}?${query}`,
-            { signal },
-        ), network);
+    getCase(id: string, signal?: AbortSignal): Promise<SlashingCase> {
+        return this.request(`/cases/${encodeURIComponent(id)}`, { signal }) as
+            Promise<SlashingCase>;
     }
 
-    async getSequencerRecord(
-        sequencer: string,
-        network: MonitorNetwork,
-        signal?: AbortSignal,
-        cursor?: string,
-    ): Promise<SequencerRecordPage> {
-        const query = new URLSearchParams({ network, limit: '50' });
-        if (cursor) {
-            query.set('cursor', cursor);
-        }
-        return decodeSequencerRecord(await this.request(
-            `/sequencers/${encodeURIComponent(sequencer)}/record?${query}`,
-            { signal },
-        ), network, sequencer);
-    }
-
-    async getSubscriptionEvent(
-        subscriptionId: string,
-        eventId: string,
-        token: string,
-        network: MonitorNetwork,
-        signal?: AbortSignal,
-    ): Promise<MonitorEvent> {
-        return decodeEventDetail(await this.request(
-            `/subscriptions/${encodeURIComponent(subscriptionId)}/events/${encodeURIComponent(eventId)}`,
-            { token, signal },
-        ), network);
-    }
-
-    async createSubscription(network: MonitorNetwork, sequencers: readonly string[]): Promise<CreatedSubscription> {
-        return decodeCreatedSubscription(await this.request('/subscriptions', {
+    createWatch(network: string, addresses: readonly string[]): Promise<CreatedWatch> {
+        return this.request('/watches', {
             method: 'POST',
-            body: { network, addresses: sequencers },
-        }));
+            body: { network, addresses },
+        }) as Promise<CreatedWatch>;
     }
 
-    async getSubscription(id: string, token: string, signal?: AbortSignal): Promise<ManagedSubscription> {
-        return decodeSubscription(await this.request(`/subscriptions/${encodeURIComponent(id)}`, {
+    getWatch(id: string, token: string, signal?: AbortSignal): Promise<ManagedWatch> {
+        return this.request(`/watches/${encodeURIComponent(id)}`, {
             token,
             signal,
-        }));
+        }) as Promise<ManagedWatch>;
     }
 
-    async updateSubscription(
+    updateWatch(
         id: string,
         token: string,
-        sequencers: readonly string[],
-    ): Promise<ManagedSubscription> {
-        return decodeSubscription(await this.request(`/subscriptions/${encodeURIComponent(id)}`, {
+        addresses: readonly string[],
+    ): Promise<ManagedWatch> {
+        return this.request(`/watches/${encodeURIComponent(id)}`, {
             method: 'PATCH',
             token,
-            body: { addresses: sequencers },
-        }));
+            body: { addresses },
+        }) as Promise<ManagedWatch>;
     }
 
-    async deleteSubscription(id: string, token: string): Promise<void> {
-        await this.request(`/subscriptions/${encodeURIComponent(id)}`, {
+    async deleteWatch(id: string, token: string): Promise<void> {
+        await this.request(`/watches/${encodeURIComponent(id)}`, {
             method: 'DELETE',
             token,
         });
     }
 
-    async setWebPushChannel(
+    setWebPush(
         id: string,
         token: string,
         subscription: WebPushSubscriptionJson,
-    ): Promise<void> {
-        await this.request(
-            `/subscriptions/${encodeURIComponent(id)}/channels/web-push`,
+    ): Promise<ManagedWatch> {
+        return this.request(
+            `/watches/${encodeURIComponent(id)}/channels/web_push`,
             { method: 'PUT', token, body: { subscription } },
-        );
+        ) as Promise<ManagedWatch>;
     }
 
-    async deleteWebPushChannel(id: string, token: string): Promise<void> {
+    async deleteWebPush(id: string, token: string): Promise<void> {
         await this.request(
-            `/subscriptions/${encodeURIComponent(id)}/channels/web-push`,
+            `/watches/${encodeURIComponent(id)}/channels/web_push`,
             { method: 'DELETE', token },
         );
     }
 
-    async createTelegramLink(id: string, token: string): Promise<TelegramLink> {
-        return decodeTelegramLink(await this.request(
-            `/subscriptions/${encodeURIComponent(id)}/channels/telegram-link`,
+    createTelegramLink(id: string, token: string): Promise<TelegramLink> {
+        return this.request(
+            `/watches/${encodeURIComponent(id)}/channels/telegram-link`,
             { method: 'POST', token, body: {} },
-        ));
+        ) as Promise<TelegramLink>;
     }
 
     async sendTest(id: string, token: string): Promise<void> {
-        await this.request(`/subscriptions/${encodeURIComponent(id)}/test`, {
+        await this.request(`/watches/${encodeURIComponent(id)}/channels/test`, {
             method: 'POST',
             token,
             body: {},
@@ -184,37 +126,28 @@ export class SlashmonApiClient {
         body?: Record<string, unknown>;
         signal?: AbortSignal;
     } = {}): Promise<unknown> {
-        const timeoutController = new AbortController();
-        const timeout = window.setTimeout(() => timeoutController.abort(), REQUEST_TIMEOUT_MS);
-        const handleExternalAbort = () => timeoutController.abort();
-        if (options.signal?.aborted) {
-            timeoutController.abort();
-        }
-        else {
-            options.signal?.addEventListener('abort', handleExternalAbort, { once: true });
-        }
+        const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+        const signal = options.signal
+            ? AbortSignal.any([options.signal, timeout])
+            : timeout;
         const headers = new Headers({ accept: 'application/json' });
-        if (options.body) {
-            headers.set('content-type', 'application/json');
-        }
-        if (options.token) {
-            headers.set('authorization', `Bearer ${options.token}`);
-        }
-
+        if (options.body) headers.set('content-type', 'application/json');
+        if (options.token) headers.set('authorization', `Bearer ${options.token}`);
         try {
             const response = await fetch(`${this.baseUrl}${API_ROOT}${path}`, {
                 method: options.method ?? 'GET',
                 headers,
                 body: options.body ? JSON.stringify(options.body) : undefined,
-                signal: timeoutController.signal,
+                signal,
                 cache: 'no-store',
             });
             const text = await response.text();
             const payload: unknown = text ? parseJson(text) : null;
             if (!response.ok) {
                 const apiError = readApiError(payload);
-                throw new SlashmonApiError(
-                    apiError.message ?? `Slashmon API request failed with HTTP ${response.status}`,
+                throw new BackendApiError(
+                    apiError.message ??
+                        `slashveto.me API request failed with HTTP ${response.status}`,
                     response.status,
                     apiError.code,
                 );
@@ -222,31 +155,29 @@ export class SlashmonApiClient {
             return payload;
         }
         catch (error) {
-            if (error instanceof SlashmonApiError) {
-                throw error;
-            }
+            if (error instanceof BackendApiError) throw error;
             if (error instanceof DOMException && error.name === 'AbortError') {
                 throw new Error(options.signal?.aborted
-                    ? 'Slashmon API request was cancelled'
-                    : 'Slashmon API did not respond in time');
+                    ? 'slashveto.me API request was cancelled'
+                    : 'slashveto.me API did not respond in time');
             }
             throw error;
-        }
-        finally {
-            window.clearTimeout(timeout);
-            options.signal?.removeEventListener('abort', handleExternalAbort);
         }
     }
 }
 
-export const slashmonApi = new SlashmonApiClient();
+export const backendApi = new BackendApiClient();
 
 function parseJson(value: string): unknown {
     try {
         return JSON.parse(value) as unknown;
     }
     catch {
-        throw new SlashmonApiError('Slashmon API returned invalid JSON', 502, 'invalid_json');
+        throw new BackendApiError(
+            'slashveto.me API returned invalid JSON',
+            502,
+            'invalid_json',
+        );
     }
 }
 

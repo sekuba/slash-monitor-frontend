@@ -1,5 +1,18 @@
 import type { Address } from 'viem';
-import type { DetectedSlashing, MonitorIssue, ResolvedMonitorConfig, RoundInfo, RoundStatus, SlashAction } from '@/types/slashing';
+import {
+    decodeVoteTargets,
+    matchVoteActions,
+    type VoteTarget,
+} from '../../shared/protocol/index.ts';
+import type {
+    DetectedSlashing,
+    MonitorIssue,
+    ResolvedMonitorConfig,
+    RoundInfo,
+    RoundStatus,
+    SlashAction,
+    SlashingTargetDetail,
+} from '@/types/slashing';
 import { L1Monitor } from './l1Monitor';
 import {
     buildRoundsToCheck,
@@ -13,6 +26,7 @@ import {
 interface DetailedRound {
     committees: Address[][];
     slashActions: SlashAction[];
+    targetDetails: SlashingTargetDetail[];
     payloadAddress: Address;
     isVetoed: boolean;
 }
@@ -105,7 +119,7 @@ export class SlashingDetector {
         issues: MonitorIssue[]
     ) {
         const committeeResults = await this.l1Monitor.batchGetSlashTargetCommittees(rounds.map(({ round }) => round));
-        const tallyCandidates: Array<RoundCandidate & { committees: Address[][] }> = [];
+        const voteCandidates: Array<RoundCandidate & { committees: Address[][] }> = [];
 
         committeeResults.forEach((committeeResult, index) => {
             const candidate = rounds[index];
@@ -116,20 +130,70 @@ export class SlashingDetector {
                 return;
             }
 
-            tallyCandidates.push({
+            voteCandidates.push({
                 ...candidate,
                 committees: committeeResult.data,
             });
         });
 
-        if (tallyCandidates.length === 0) {
+        if (voteCandidates.length === 0) {
             return;
         }
+
+        const tallyCandidates: Array<RoundCandidate & {
+            committees: Address[][];
+            targets: VoteTarget[];
+            escapeHatchEpochs: boolean[];
+        }> = [];
+        await Promise.all(voteCandidates.map(async (candidate) => {
+            try {
+                const targetEpochs = this.getTargetEpochs(candidate.round);
+                const [votes, escapeHatchEpochs] = await Promise.all([
+                    this.l1Monitor.getVotes(candidate.round, candidate.roundInfo.ballotCount),
+                    this.l1Monitor.getEscapeHatchFlags(targetEpochs),
+                ]);
+                const targets = decodeVoteTargets(
+                    votes,
+                    candidate.committees,
+                    this.config.committeeSize,
+                );
+                if (candidate.roundInfo.ballotCount < BigInt(this.config.quorum)) {
+                    simpleRounds.push(this.buildTargetDetection(
+                        candidate.base,
+                        candidate.committees,
+                        targets,
+                        escapeHatchEpochs,
+                        currentRound,
+                        currentSlot,
+                    ));
+                }
+                else {
+                    tallyCandidates.push({ ...candidate, targets, escapeHatchEpochs });
+                }
+            }
+            catch (error) {
+                const message = `Unable to decode exact vote targets: ${toMessage(error)}`;
+                simpleRounds.push(this.buildPartialDetection(
+                    candidate.base,
+                    currentRound,
+                    currentSlot,
+                    message,
+                    candidate.committees,
+                ));
+                issues.push(this.createIssue('round-details', message, candidate.round));
+            }
+        }));
+
+        if (tallyCandidates.length === 0) return;
 
         const tallyResults = await this.l1Monitor.batchGetTally(
             tallyCandidates.map(({ round, committees }) => ({ round, committees }))
         );
-        const payloadCandidates: Array<RoundCandidate & { committees: Address[][]; slashActions: SlashAction[] }> = [];
+        const payloadCandidates: Array<RoundCandidate & {
+            committees: Address[][];
+            slashActions: SlashAction[];
+            targetDetails: SlashingTargetDetail[];
+        }> = [];
 
         tallyResults.forEach((tallyResult, index) => {
             const candidate = tallyCandidates[index];
@@ -141,14 +205,60 @@ export class SlashingDetector {
             }
 
             if (tallyResult.data.length === 0) {
-                simpleRounds.push(candidate.base);
+                simpleRounds.push(this.buildTargetDetection(
+                    candidate.base,
+                    candidate.committees,
+                    candidate.targets,
+                    candidate.escapeHatchEpochs,
+                    currentRound,
+                    currentSlot,
+                ));
                 return;
             }
 
-            payloadCandidates.push({
-                ...candidate,
-                slashActions: tallyResult.data,
-            });
+            try {
+                const matched = matchVoteActions(
+                    tallyResult.data.map((action) => ({
+                        sequencer: action.validator.toLowerCase(),
+                        amount: action.slashAmount.toString(),
+                    })),
+                    candidate.targets,
+                    this.config.quorum,
+                    candidate.escapeHatchEpochs,
+                );
+                const actionTargets = new Map(matched.map((target, actionIndex) => [
+                    voteTargetKey(target),
+                    { ...target, actionIndex },
+                ]));
+                payloadCandidates.push({
+                    ...candidate,
+                    slashActions: tallyResult.data,
+                    targetDetails: candidate.targets.map((target) => ({
+                        ...target,
+                        ...actionTargets.get(voteTargetKey(target)),
+                        sequencer: target.sequencer as Address,
+                        targetEpoch: this.getTargetEpochs(candidate.round)[target.epochIndex],
+                        amount: actionTargets.has(voteTargetKey(target))
+                            ? BigInt(actionTargets.get(voteTargetKey(target))!.amount)
+                            : undefined,
+                        support: actionTargets.get(voteTargetKey(target))?.support ??
+                            target.voteCount,
+                        escaped: Boolean(candidate.escapeHatchEpochs[target.epochIndex]),
+                    })),
+                });
+            }
+            catch (error) {
+                const message = `Unable to link tally actions to exact epochs: ${toMessage(error)}`;
+                simpleRounds.push(this.buildPartialDetection(
+                    candidate.base,
+                    currentRound,
+                    currentSlot,
+                    message,
+                    candidate.committees,
+                    tallyResult.data,
+                ));
+                issues.push(this.createIssue('round-details', message, candidate.round));
+            }
         });
 
         if (payloadCandidates.length === 0) {
@@ -178,6 +288,7 @@ export class SlashingDetector {
             const details: DetailedRound = {
                 committees: candidate.committees,
                 slashActions: candidate.slashActions,
+                targetDetails: candidate.targetDetails,
                 payloadAddress: payloadResult.data.payloadAddress,
                 isVetoed: payloadResult.data.isVetoed,
             };
@@ -212,6 +323,7 @@ export class SlashingDetector {
             verificationStatus: 'verified',
             committees: details.committees,
             slashActions: details.slashActions,
+            targetDetails: details.targetDetails,
             payloadAddress: details.payloadAddress,
             isVetoed: details.isVetoed,
             slotWhenExecutable: this.calculateExecutableSlot(base.round),
@@ -256,8 +368,52 @@ export class SlashingDetector {
         };
     }
 
+    private buildTargetDetection(
+        base: DetectedSlashing,
+        committees: Address[][],
+        targets: VoteTarget[],
+        escapeHatchEpochs: boolean[],
+        currentRound: bigint,
+        currentSlot: bigint,
+    ): DetectedSlashing {
+        const targetEpochs = this.getTargetEpochs(base.round);
+        return {
+            ...base,
+            committees,
+            targetEpochs,
+            targetDetails: targets.map((target) => ({
+                ...target,
+                sequencer: target.sequencer as Address,
+                targetEpoch: targetEpochs[target.epochIndex],
+                support: target.voteCount,
+                escaped: Boolean(escapeHatchEpochs[target.epochIndex]),
+            })),
+            slotWhenExecutable: this.calculateExecutableSlot(base.round),
+            slotWhenExpires: this.calculateExpirySlot(base.round),
+            secondsUntilExecutable: this.calculateSecondsUntilSlot(
+                this.calculateExecutableSlot(base.round),
+                currentSlot,
+            ),
+            secondsUntilExpires: this.calculateSecondsUntilSlot(
+                this.calculateExpirySlot(base.round),
+                currentSlot,
+            ),
+            lastUpdatedTimestamp: Date.now(),
+            status: this.calculateRoundStatus(
+                base.round,
+                currentRound,
+                currentSlot,
+                base.isExecuted,
+                false,
+            ),
+            issues: escapeHatchEpochs.some(Boolean)
+                ? ['Targets in an open escape-hatch epoch are excluded from the contract tally.']
+                : undefined,
+        };
+    }
+
     private shouldLoadDetails(slashing: DetectedSlashing) {
-        return slashing.isExecuted || slashing.ballotCount >= BigInt(this.config.quorum);
+        return slashing.isExecuted || slashing.ballotCount > 0n;
     }
 
     private buildRoundsToCheck(currentRound: bigint): bigint[] {
@@ -280,4 +436,15 @@ export class SlashingDetector {
             round,
         };
     }
+}
+
+function toMessage(error: unknown): string {
+    return error instanceof Error ? error.message : 'Unknown error';
+}
+
+function voteTargetKey(target: Pick<
+    VoteTarget,
+    'epochIndex' | 'committeeIndex' | 'sequencer'
+>): string {
+    return `${target.epochIndex}:${target.committeeIndex}:${target.sequencer.toLowerCase()}`;
 }

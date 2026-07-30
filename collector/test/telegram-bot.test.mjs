@@ -95,7 +95,7 @@ test('TelegramBot persists the update offset after a durable command even if its
       calls.push(['enabled', chatId, enabled, now]);
       return true;
     },
-    getWatchlistByTelegramChat() {
+    getWatchByTelegramChat() {
       return {
         network: 'mainnet',
         addresses: [SEQUENCER_A],
@@ -106,7 +106,7 @@ test('TelegramBot persists the update offset after a durable command even if its
   const client = {
     async getMe() {
       calls.push(['get-me']);
-      return { username: 'slashmon_bot' };
+      return { username: 'slashveto_bot' };
     },
     async deleteWebhook() {
       calls.push(['delete-webhook']);
@@ -124,7 +124,7 @@ test('TelegramBot persists the update offset after a durable command even if its
     repository,
     client,
     network: 'mainnet',
-    expectedUsername: 'slashmon_bot',
+    expectedUsername: 'slashveto_bot',
     pollTimeoutSeconds: 31,
     logger,
     now: () => 99_000,
@@ -159,7 +159,7 @@ test('TelegramBot isolates a different bot identity without taking down other wo
       },
     },
     network: 'mainnet',
-    expectedUsername: 'slashmon_bot',
+    expectedUsername: 'slashveto_bot',
     logger,
     onReadinessChange: (ready) => readiness.push(ready),
     now: () => 123_000,
@@ -181,7 +181,7 @@ test('TelegramBot isolates a different bot identity without taking down other wo
   assert.deepEqual(readiness, [false]);
   assert.deepEqual(failures, [[
     'telegram',
-    'Telegram token belongs to @some_other_bot, expected @slashmon_bot',
+    'Telegram token belongs to @some_other_bot, expected @slashveto_bot',
     123_000,
   ]]);
   assert.equal(logger.records.some((record) => (
@@ -194,12 +194,12 @@ test('TelegramBot opens the delivery gate only after identity and long-poll setu
   const bot = new TelegramBot({
     repository: {},
     network: 'mainnet',
-    expectedUsername: 'slashmon_bot',
+    expectedUsername: 'slashveto_bot',
     logger: recordingLogger(),
     onReadinessChange: (ready) => readiness.push(ready),
     client: {
       async getMe() {
-        return { username: 'slashmon_bot' };
+        return { username: 'slashveto_bot' };
       },
       async deleteWebhook() {},
     },
@@ -219,7 +219,7 @@ test('TelegramBot keeps a rejected token isolated as unhealthy channel state', a
       },
     },
     network: 'mainnet',
-    expectedUsername: 'slashmon_bot',
+    expectedUsername: 'slashveto_bot',
     logger: recordingLogger(),
     now: () => 123_000,
     client: {
@@ -272,7 +272,7 @@ test('TelegramBot ignores unlinked chatter, unknown commands, and reply floods',
   let now = 10_000;
   const bot = new TelegramBot({
     repository: {
-      getWatchlistByTelegramChat() {
+      getWatchByTelegramChat() {
         return linked ? {
           network: 'mainnet',
           addresses: [SEQUENCER_A],

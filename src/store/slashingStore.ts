@@ -1,5 +1,15 @@
 import { create } from 'zustand';
-import type { CurrentChainState, DetectedSlashing, MonitorAudit, MonitorSnapshot, ResolvedMonitorConfig, SlashingStats } from '@/types/slashing';
+import type {
+    ConfirmedExecution,
+    ConfirmedSlash,
+    CurrentChainState,
+    DetectedSlashing,
+    ExecutionHistoryScan,
+    MonitorAudit,
+    MonitorSnapshot,
+    ResolvedMonitorConfig,
+    SlashingStats,
+} from '@/types/slashing';
 
 interface SlashingMonitorStore extends CurrentChainState {
     config: ResolvedMonitorConfig | null;
@@ -7,6 +17,9 @@ interface SlashingMonitorStore extends CurrentChainState {
     initializationError: string | null;
     isScanning: boolean;
     detectedSlashings: Map<bigint, DetectedSlashing>;
+    confirmedExecutions: ConfirmedExecution[];
+    confirmedSlashes: ConfirmedSlash[];
+    executionScan: ExecutionHistoryScan;
     stats: SlashingStats;
     audit: MonitorAudit;
     initialize: (config: ResolvedMonitorConfig, state: CurrentChainState) => void;
@@ -34,8 +47,20 @@ const initialAudit: MonitorAudit = {
     lastSuccessfulAt: null,
 };
 
+const initialExecutionScan: ExecutionHistoryScan = {
+    status: 'idle',
+    targetFromBlock: null,
+    headBlock: null,
+    oldestScannedBlock: null,
+    scannedBlocks: 0n,
+    totalBlocks: 0n,
+    chunkSize: 1_024n,
+    lastError: null,
+};
+
 const initialChainState: CurrentChainState = {
     l1BlockNumber: 0n,
+    l1BlockHash: `0x${'00'.repeat(32)}`,
     l1Timestamp: 0n,
     currentRound: 0n,
     currentSlot: 0n,
@@ -54,6 +79,9 @@ export const useSlashingStore = create<SlashingMonitorStore>((set) => ({
     initializationError: null,
     isScanning: false,
     detectedSlashings: new Map(),
+    confirmedExecutions: [],
+    confirmedSlashes: [],
+    executionScan: initialExecutionScan,
     stats: initialStats,
     audit: initialAudit,
     initialize: (config, state) => set({
@@ -61,6 +89,9 @@ export const useSlashingStore = create<SlashingMonitorStore>((set) => ({
         isInitialized: true,
         initializationError: null,
         detectedSlashings: new Map(),
+        confirmedExecutions: [],
+        confirmedSlashes: [],
+        executionScan: initialExecutionScan,
         stats: {
             ...initialStats,
             currentRound: state.currentRound,
@@ -92,6 +123,9 @@ export const useSlashingStore = create<SlashingMonitorStore>((set) => ({
         initializationError: null,
         isScanning: false,
         detectedSlashings: new Map(),
+        confirmedExecutions: [],
+        confirmedSlashes: [],
+        executionScan: initialExecutionScan,
         stats: initialStats,
         audit: initialAudit,
     }),

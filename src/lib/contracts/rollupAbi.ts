@@ -49,6 +49,68 @@ export const rollupAbi = [
     },
     {
         type: 'function',
+        name: 'getStatus',
+        stateMutability: 'view',
+        inputs: [{ name: '_attester', type: 'address' }],
+        outputs: [{ name: '', type: 'uint8' }],
+    },
+    {
+        type: 'function',
+        name: 'getAttesterView',
+        stateMutability: 'view',
+        inputs: [{ name: '_attester', type: 'address' }],
+        outputs: [{
+            name: '',
+            type: 'tuple',
+            components: [
+                { name: 'status', type: 'uint8' },
+                { name: 'effectiveBalance', type: 'uint256' },
+                {
+                    name: 'exit',
+                    type: 'tuple',
+                    components: [
+                        { name: 'withdrawalId', type: 'uint256' },
+                        { name: 'amount', type: 'uint256' },
+                        { name: 'exitableAt', type: 'uint256' },
+                        { name: 'recipientOrWithdrawer', type: 'address' },
+                        { name: 'isRecipient', type: 'bool' },
+                        { name: 'exists', type: 'bool' },
+                    ],
+                },
+                {
+                    name: 'config',
+                    type: 'tuple',
+                    components: [
+                        {
+                            name: 'publicKey',
+                            type: 'tuple',
+                            components: [
+                                { name: 'x', type: 'uint256' },
+                                { name: 'y', type: 'uint256' },
+                            ],
+                        },
+                        { name: 'withdrawer', type: 'address' },
+                    ],
+                },
+            ],
+        }],
+    },
+    {
+        type: 'function',
+        name: 'getGenesisTime',
+        stateMutability: 'view',
+        inputs: [],
+        outputs: [{ name: '', type: 'uint256' }],
+    },
+    {
+        type: 'function',
+        name: 'getEscapeHatchForEpoch',
+        stateMutability: 'view',
+        inputs: [{ name: '_epoch', type: 'uint256' }],
+        outputs: [{ name: '', type: 'address' }],
+    },
+    {
+        type: 'function',
         name: 'getSlotAt',
         stateMutability: 'view',
         inputs: [{ name: '_timestamp', type: 'uint256' }],
@@ -67,5 +129,13 @@ export const rollupAbi = [
         stateMutability: 'view',
         inputs: [],
         outputs: [{ name: '', type: 'uint256' }],
+    },
+    {
+        type: 'event',
+        name: 'Slashed',
+        inputs: [
+            { name: 'attester', type: 'address', indexed: true },
+            { name: 'amount', type: 'uint256', indexed: false },
+        ],
     },
 ] as const;

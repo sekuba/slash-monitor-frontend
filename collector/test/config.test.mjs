@@ -20,27 +20,17 @@ test('loadConfig provides a complete local configuration', () => {
   assert.equal(config.port, 8790);
   assert.equal(config.l1ChainId, 1);
   assert.equal(config.l1RegistryAddress, '0x35b22e09Ee0390539439E24f06Da43D83f90e298');
-  assert.equal(config.l1SlashLogLookbackBlocks, 600);
+  assert.equal(config.l1SlashLogStartBlock, undefined);
+  assert.equal(config.l1SlashLogLookbackBlocks, 50_000);
+  assert.equal(config.l1SlashLogChunkSize, 1_000);
+  assert.equal(config.l1SlashLogProviderTimeoutMs, 30_000);
+  assert.equal(config.l1SlashLogMaxRunMs, 60_000);
   assert.equal(config.sentinelPollIntervalMs, 60_000);
   assert.equal(config.sentinelLookbackEpochs, 3);
   assert.equal(config.sentinelEpochEndBufferSlots, 2);
   assert.equal(config.sentinelValidatorConcurrency, 8);
   assert.equal(config.maxSingleValidatorStatsResponseBytes, 2 * 1024 * 1024);
   assert.equal(config.rateLimitMaxMutations, 20);
-  assert.equal(config.readRateLimitMax, 180);
-  assert.equal(config.readRateLimitMaxGlobal, 600);
-  assert.equal(config.watchlistMutationRateLimitMax, 20);
-  assert.equal(config.subscriptionCreateMaxPerHourPerClient, 3);
-  assert.equal(config.subscriptionCreateMaxPerDayPerClient, 10);
-  assert.equal(config.subscriptionCreateMaxPerHourGlobal, 10);
-  assert.equal(config.subscriptionCreateMaxPerDayGlobal, 50);
-  assert.equal(config.notificationTestCooldownMs, 5 * 60_000);
-  assert.equal(config.notificationTestMaxPerHourGlobal, 30);
-  assert.equal(config.notificationTestMaxPerDayGlobal, 100);
-  assert.equal(config.webPushEnrollmentMaxPerHourPerWatchlist, 3);
-  assert.equal(config.webPushEnrollmentMaxPerDayPerWatchlist, 10);
-  assert.equal(config.webPushEnrollmentMaxPerHourGlobal, 20);
-  assert.equal(config.webPushEnrollmentMaxPerDayGlobal, 100);
   assert.equal(config.telegramSendMaxPerSecond, 20);
   assert.equal(config.telegramLowPrioritySendMaxPerSecond, 5);
   assert.equal(config.telegramChatSendIntervalMs, 1_000);
@@ -67,16 +57,16 @@ test('operator-facing URLs and process settings are validated', () => {
   );
   assert.throws(() => loadConfig({ BACKEND_CORS_ORIGIN: '*' }), /must be a valid URL/);
   assert.throws(
-    () => loadConfig({ BACKEND_CORS_ORIGIN: 'https://slashmon.example/api' }),
+    () => loadConfig({ BACKEND_CORS_ORIGIN: 'https://slashveto.example/api' }),
     /must be an origin without a path/,
   );
   assert.throws(
-    () => loadConfig({ SLASHMON_PUBLIC_URL: 'https://slashmon.example/app?token=1' }),
+    () => loadConfig({ SLASHMON_PUBLIC_URL: 'https://slashveto.example/app?token=1' }),
     /must not contain a query or fragment/,
   );
   assert.throws(
     () => loadConfig({
-      SLASHMON_PUBLIC_URL: 'https://slashmon.example',
+      SLASHMON_PUBLIC_URL: 'https://slashveto.example',
       BACKEND_CORS_ORIGIN: 'https://api.example',
     }),
     /must use the same browser origin/,
@@ -98,39 +88,43 @@ test('operator-facing URLs and process settings are validated', () => {
     () => loadConfig({ AZTEC_SENTINEL_VALIDATOR_CONCURRENCY: '0' }),
     /between 1 and 128/,
   );
+  assert.throws(
+    () => loadConfig({ L1_SLASH_LOG_START_BLOCK: '-1' }),
+    /between 0 and 1000000000/,
+  );
+  assert.throws(
+    () => loadConfig({ L1_SLASH_LOG_PROVIDER_TIMEOUT_MS: '45001' }),
+    /between 5000 and 45000/,
+  );
   assert.throws(() => loadConfig({ BACKEND_TRUST_PROXY: 'yes' }), /must be true or false/);
   assert.throws(() => loadConfig({ BACKEND_LOG_LEVEL: 'trace' }), /debug, info, warn, or error/);
 
   const config = loadConfig({
-    SLASHMON_PUBLIC_URL: 'https://slashmon.example/app',
-    BACKEND_CORS_ORIGIN: 'https://slashmon.example',
-    L1_RPC_URL: 'https://rpc-one.example, https://rpc-two.example/path',
+    SLASHMON_PUBLIC_URL: 'https://slashveto.example/app',
+    BACKEND_CORS_ORIGIN: 'https://slashveto.example',
+    L1_RPC_URL: 'https://rpc-one.example/path',
+    L1_SLASH_LOG_START_BLOCK: '25533241',
     L1_SLASH_LOG_LOOKBACK_BLOCKS: '75000',
+    L1_SLASH_LOG_PROVIDER_TIMEOUT_MS: '40000',
     BACKEND_DATABASE_PATH: '../state/slashmon.sqlite',
     BACKEND_PORT: '9000',
     BACKEND_TRUST_PROXY: 'true',
     BACKEND_LOG_LEVEL: 'debug',
     BACKEND_MUTATION_RATE_LIMIT_MAX_PER_MINUTE: '30',
-    BACKEND_NOTIFICATION_TEST_MAX_PER_HOUR_GLOBAL: '40',
-    BACKEND_WEB_PUSH_ENROLLMENT_MAX_PER_DAY_GLOBAL: '120',
     TELEGRAM_SEND_MAX_PER_SECOND: '25',
   }, '/srv/slashmon');
-  assert.equal(config.publicUrl, 'https://slashmon.example/app/');
-  assert.equal(config.corsOrigin, 'https://slashmon.example');
-  assert.deepEqual(config.l1RpcUrls, ['https://rpc-one.example/', 'https://rpc-two.example/path']);
+  assert.equal(config.publicUrl, 'https://slashveto.example/app/');
+  assert.equal(config.corsOrigin, 'https://slashveto.example');
+  assert.deepEqual(config.l1RpcUrls, ['https://rpc-one.example/path']);
+  assert.equal(config.l1SlashLogStartBlock, 25_533_241);
   assert.equal(config.l1SlashLogLookbackBlocks, 75_000);
+  assert.equal(config.l1SlashLogProviderTimeoutMs, 40_000);
   assert.equal(config.databasePath, '/srv/state/slashmon.sqlite');
   assert.equal(config.port, 9000);
   assert.equal(config.trustLoopbackProxy, true);
   assert.equal(config.logLevel, 'debug');
   assert.equal(config.rateLimitMaxMutations, 30);
-  assert.equal(config.notificationTestMaxPerHourGlobal, 40);
-  assert.equal(config.webPushEnrollmentMaxPerDayGlobal, 120);
   assert.equal(config.telegramSendMaxPerSecond, 25);
-  assert.throws(
-    () => loadConfig({ BACKEND_NOTIFICATION_TEST_COOLDOWN_MS: '999' }),
-    /between 1000 and 86400000/,
-  );
 });
 
 test('notification channels require complete, valid credentials', () => {
@@ -153,14 +147,14 @@ test('notification channels require complete, valid credentials', () => {
 
   const config = loadConfig({
     TELEGRAM_BOT_TOKEN: 'secret-token',
-    TELEGRAM_BOT_USERNAME: '@slashmon_bot',
+    TELEGRAM_BOT_USERNAME: '@slashveto_bot',
     VAPID_SUBJECT: 'mailto:operator@example.com',
     VAPID_PUBLIC_KEY,
     VAPID_PRIVATE_KEY,
   });
   assert.deepEqual(config.telegram, {
     token: 'secret-token',
-    username: 'slashmon_bot',
+    username: 'slashveto_bot',
     pollTimeoutSeconds: 25,
   });
   assert.deepEqual(config.vapid, {

@@ -8,7 +8,7 @@ export class L1Collector {
     pollIntervalMs,
     maxBackoffMs,
     maxSlashLogChunksPerPoll = 25,
-    maxSlashLogRunMs = 20_000,
+    maxSlashLogRunMs = 60_000,
     logger,
     now = Date.now,
   }) {
@@ -89,7 +89,7 @@ export class L1Collector {
     if (result.changed || snapshot.reorgDetected) {
       this.logger.info('Onchain slashing state changed', {
         changed: result.changed,
-        events: result.events,
+        transitions: result.transitions,
         reorgDetected: snapshot.reorgDetected,
       });
     }

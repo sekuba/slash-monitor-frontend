@@ -12,7 +12,7 @@ import {
 } from '../src/channels.mjs';
 
 const EVENT = {
-  id: 'event/with spaces',
+  id: 'transition/with spaces',
   network: 'mainnet',
   type: 'onchain_targeted',
   severity: 'critical',
@@ -20,9 +20,11 @@ const EVENT = {
   body: 'A confirmed payload targets 0x1111…1111.',
   targets: ['0x1111111111111111111111111111111111111111'],
   data: {
+    caseId: 'case:mainnet:lineage:0x1111111111111111111111111111111111111111:24',
     chainId: 1,
     blockNumber: '25587802',
     payloadAddress: '0x2222222222222222222222222222222222222222',
+    transactionHash: `0x${'34'.repeat(32)}`,
   },
 };
 
@@ -34,7 +36,7 @@ test('WebPushChannel builds a scoped high-urgency payload and returns the provid
       publicKey: 'public',
       privateKey: 'private',
     },
-    publicUrl: 'https://slashmon.example',
+    publicUrl: 'https://slashveto.example',
     timeoutMs: 3210,
     sendNotification: async (...args) => {
       captured = args;
@@ -54,11 +56,16 @@ test('WebPushChannel builds a scoped high-urgency payload and returns the provid
   assert.equal(payload.title, EVENT.title);
   assert.equal(
     payload.body,
-    'Sequencer: 0x1111…1111\nA confirmed payload targets 0x1111…1111.',
+    'Sequencer: 0x1111111111111111111111111111111111111111\n' +
+      'A confirmed payload targets 0x1111…1111.',
   );
-  assert.equal(payload.data.eventId, EVENT.id);
+  assert.equal(payload.data.caseId, EVENT.data.caseId);
   assert.equal(payload.data.url, notificationPath(EVENT));
-  assert.equal(payload.data.url, '?view=pingme&network=mainnet&event=event%2Fwith+spaces');
+  assert.doesNotMatch(payload.body, /https?:\/\//);
+  assert.equal(
+    payload.data.url,
+    '?view=pingme&network=mainnet&case=case%3Amainnet%3Alineage%3A0x1111111111111111111111111111111111111111%3A24',
+  );
   assert.equal(captured[2].vapidDetails.privateKey, 'private');
   assert.equal(captured[2].urgency, 'high');
   assert.equal(captured[2].TTL, 24 * 60 * 60);
@@ -71,7 +78,7 @@ test('WebPushChannel classifies expired endpoints as permanent and provider pres
   for (const statusCode of [404, 410]) {
     const channel = new WebPushChannel({
       vapid: { subject: 'mailto:a@example.com', publicKey: 'public', privateKey: 'private' },
-      publicUrl: 'https://slashmon.example',
+      publicUrl: 'https://slashveto.example',
       sendNotification: async () => { throw { statusCode, body: 'provider details must not escape' }; },
     });
     await assert.rejects(() => channel.send(delivery), (error) => {
@@ -86,7 +93,7 @@ test('WebPushChannel classifies expired endpoints as permanent and provider pres
 
   const throttled = new WebPushChannel({
     vapid: { subject: 'mailto:a@example.com', publicKey: 'public', privateKey: 'private' },
-    publicUrl: 'https://slashmon.example',
+    publicUrl: 'https://slashveto.example',
     sendNotification: async () => { throw { statusCode: 429, headers: { 'Retry-After': '17' } }; },
   });
   await assert.rejects(() => throttled.send(delivery), (error) => {
@@ -98,7 +105,7 @@ test('WebPushChannel classifies expired endpoints as permanent and provider pres
 
   const badVapid = new WebPushChannel({
     vapid: { subject: 'mailto:a@example.com', publicKey: 'public', privateKey: 'private' },
-    publicUrl: 'https://slashmon.example',
+    publicUrl: 'https://slashveto.example',
     sendNotification: async () => { throw { statusCode: 401 }; },
   });
   await assert.rejects(() => badVapid.send(delivery), (error) => {
@@ -110,7 +117,7 @@ test('WebPushChannel classifies expired endpoints as permanent and provider pres
 
   const malformed = new WebPushChannel({
     vapid: { subject: 'mailto:a@example.com', publicKey: 'public', privateKey: 'private' },
-    publicUrl: 'https://slashmon.example',
+    publicUrl: 'https://slashveto.example',
   });
   await assert.rejects(() => malformed.send({ endpointConfig: '{', event: EVENT }), (error) => {
     assert.equal(error.permanent, true);
@@ -122,7 +129,7 @@ test('WebPushChannel classifies expired endpoints as permanent and provider pres
 test('WebPushChannel stops awaiting the provider when delivery is aborted', async () => {
   const channel = new WebPushChannel({
     vapid: { subject: 'mailto:a@example.com', publicKey: 'public', privateKey: 'private' },
-    publicUrl: 'https://slashmon.example',
+    publicUrl: 'https://slashveto.example',
     sendNotification: () => new Promise(() => {}),
   });
   const controller = new AbortController();
@@ -273,7 +280,7 @@ test('TelegramClient long polling and TelegramChannel preserve routing semantics
 
   let message;
   const channel = new TelegramChannel({
-    publicUrl: 'https://slashmon.example/base/',
+    publicUrl: 'https://slashveto.example/base/',
     client: {
       async sendMessage(chatId, text, _signal, options) {
         message = { chatId, text, options };
@@ -286,18 +293,19 @@ test('TelegramClient long polling and TelegramChannel preserve routing semantics
   assert.equal(message.chatId, '-100123');
   assert.deepEqual(message.options, { priority: 'alert' });
   assert.match(message.text, /^🚨 Sequencer targeted/);
-  assert.match(message.text, /Sequencer: 0x1111…1111/);
-  assert.match(message.text, /Slashmon event: https:\/\/slashmon\.example\/base\/\?view=pingme&network=mainnet&event=event%2Fwith\+spaces/);
+  assert.match(message.text, /Sequencer: 0x1111111111111111111111111111111111111111/);
+  assert.match(message.text, /Case: https:\/\/slashveto\.example\/base\/\?view=pingme&network=mainnet&case=case%3Amainnet%3Alineage%3A0x1111111111111111111111111111111111111111%3A24/);
   assert.match(message.text, /Dashtec: https:\/\/dashtec\.xyz\/sequencers\/0x1111111111111111111111111111111111111111/);
-  assert.match(message.text, /Etherscan block: https:\/\/etherscan\.io\/block\/25587802/);
-  assert.match(message.text, /Etherscan slash payload: https:\/\/etherscan\.io\/address\/0x2222222222222222222222222222222222222222$/);
+  assert.match(message.text, /Transaction: https:\/\/etherscan\.io\/tx\/0x3434343434343434343434343434343434343434343434343434343434343434/);
+  assert.doesNotMatch(message.text, /Etherscan block/);
+  assert.doesNotMatch(message.text, /candidate payload/);
 });
 
 test('TelegramChannel keeps queued alerts retryable until the bot identity is validated', async () => {
   let ready = false;
   let sends = 0;
   const channel = new TelegramChannel({
-    publicUrl: 'https://slashmon.example/',
+    publicUrl: 'https://slashveto.example/',
     isReady: () => ready,
     client: {
       async sendMessage() {

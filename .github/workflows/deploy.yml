@@ -48,39 +48,28 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Require reachable HTTPS endpoints for the PWA
+      - name: Require HTTPS endpoints for the PWA
         env:
           PUBLIC_API_ORIGIN: https://api.slashveto.me
-          MAINNET_L1_RPC_URLS: ${{ vars.VITE_L1_RPC_URL }}
-          TESTNET_L1_RPC_URLS: ${{ vars.VITE_TESTNET_L1_RPC_URL }}
+          MAINNET_L1_RPC_URL: ${{ vars.VITE_L1_RPC_URL }}
+          TESTNET_L1_RPC_URL: ${{ vars.VITE_TESTNET_L1_RPC_URL }}
         run: |
-          require_https_list() {
+          require_https_url() {
             local name="$1"
             local value="$2"
 
-            if [[ -z "$value" ]]; then
+            if [[ -z "$value" || "$value" != https://* || "$value" == *,* ]]; then
               echo "Set the $name repository variable; Pages must never ship a localhost fallback."
               return 1
             fi
-
-            local endpoints
-            IFS=',' read -ra endpoints <<< "$value"
-            for endpoint in "${endpoints[@]}"; do
-              endpoint="${endpoint#"${endpoint%%[![:space:]]*}"}"
-              endpoint="${endpoint%"${endpoint##*[![:space:]]}"}"
-              if [[ "$endpoint" != https://* ]]; then
-                echo "$name must contain only HTTPS URLs."
-                return 1
-              fi
-            done
           }
 
           if [[ -z "$PUBLIC_API_ORIGIN" || "$PUBLIC_API_ORIGIN" != https://* || "$PUBLIC_API_ORIGIN" == *,* ]]; then
             echo "VITE_API_BASE_URL must be one public HTTPS API origin."
             exit 1
           fi
-          require_https_list VITE_L1_RPC_URL "$MAINNET_L1_RPC_URLS"
-          require_https_list VITE_TESTNET_L1_RPC_URL "$TESTNET_L1_RPC_URLS"
+          require_https_url VITE_L1_RPC_URL "$MAINNET_L1_RPC_URL"
+          require_https_url VITE_TESTNET_L1_RPC_URL "$TESTNET_L1_RPC_URL"
 
       - name: Lint, test, syntax-check, and build
         run: pnpm check

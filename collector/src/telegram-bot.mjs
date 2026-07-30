@@ -143,26 +143,26 @@ export class TelegramBot {
         response = this.link(chatId, argument);
         if (!response || !this.takeCommandReplySlot(chatId)) return;
       } else {
-        if (!this.repository.getWatchlistByTelegramChat?.(chatId)) return;
+        if (!this.repository.getWatchByTelegramChat?.(chatId)) return;
         if (!this.takeCommandReplySlot(chatId)) return;
         response = helpText();
       }
     } else {
-      const linked = this.repository.getWatchlistByTelegramChat?.(chatId);
+      const linked = this.repository.getWatchByTelegramChat?.(chatId);
       if (!linked || !KNOWN_LINKED_COMMANDS.has(command)) return;
       if (command === '/list' || command === '/status') {
         response = this.describe(chatId, linked);
       } else if (command === '/pause') {
         const changed = this.repository.setTelegramEndpointEnabled(chatId, false, this.now());
-        response = changed ? 'Alerts paused. Your watchlist is intact. Send /resume when ready.' : undefined;
+        response = changed ? 'Alerts paused. Your watch is intact. Send /resume when ready.' : undefined;
       } else if (command === '/resume') {
         const changed = this.repository.setTelegramEndpointEnabled(chatId, true, this.now());
         response = changed ? 'Alerts resumed.' : undefined;
       } else if (command === '/delete') {
         const changed = this.repository.deleteTelegramEndpoint(chatId, this.now());
-        response = changed ? 'Telegram disconnected. Slashmon kept no chat endpoint behind.' : undefined;
+        response = changed ? 'Telegram disconnected. No chat endpoint was retained.' : undefined;
       } else if (command === '/test') {
-        response = '🛰️ Test received. Slashmon can reach this chat.';
+        response = '🛰️ Test received. slashveto.me can reach this chat.';
       } else if (command === '/help') {
         response = helpText();
       }
@@ -192,15 +192,15 @@ export class TelegramBot {
     } catch {
       return null;
     }
-    const watchlist = this.repository.consumeTelegramLink(tokenHash, chatId, this.now());
-    if (!watchlist) return null;
-    return `Linked. Watching ${watchlist.addresses.length} sequencer${watchlist.addresses.length === 1 ? '' : 's'} on ${watchlist.network}.\n\n${formatAddresses(watchlist.addresses)}`;
+    const watch = this.repository.consumeTelegramLink(tokenHash, chatId, this.now());
+    if (!watch) return null;
+    return `Linked. Watching ${watch.addresses.length} sequencer${watch.addresses.length === 1 ? '' : 's'} on ${watch.network}.\n\n${formatAddresses(watch.addresses)}`;
   }
 
-  describe(chatId, knownWatchlist) {
-    const watchlist = knownWatchlist ?? this.repository.getWatchlistByTelegramChat(chatId);
-    if (!watchlist) return null;
-    return `${watchlist.telegramEnabled ? 'Alerts live' : 'Alerts paused'} for ${watchlist.addresses.length} sequencer${watchlist.addresses.length === 1 ? '' : 's'} on ${watchlist.network}.\n\n${formatAddresses(watchlist.addresses)}`;
+  describe(chatId, knownWatch) {
+    const watch = knownWatch ?? this.repository.getWatchByTelegramChat(chatId);
+    if (!watch) return null;
+    return `${watch.telegramEnabled ? 'Alerts live' : 'Alerts paused'} for ${watch.addresses.length} sequencer${watch.addresses.length === 1 ? '' : 's'} on ${watch.network}.\n\n${formatAddresses(watch.addresses)}`;
   }
 
   takeCommandReplySlot(chatId) {
@@ -258,15 +258,15 @@ function formatAddresses(addresses) {
 
 function helpText() {
   return [
-    'Slashmon watches for node-local offenses and onchain slashing payloads.',
+    'slashveto.me follows each sequencer from early node evidence through L1 slashing and ejection.',
     '',
-    '/list — show the linked watchlist',
+    '/list — show the linked watch',
     '/pause — silence Telegram alerts',
     '/resume — wake them up',
     '/test — test this chat',
     '/delete — unlink this chat',
     '/help — show this text',
     '',
-    'Addresses are managed in the Slashmon PWA. Pending node offenses are early signals, not L1 proof.',
+    'Addresses are managed in PINGME. Node and Sentinel evidence is an early warning, not L1 proof.',
   ].join('\n');
 }

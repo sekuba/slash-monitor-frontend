@@ -1,119 +1,41 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SlashmonApiClient } from './client';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { BackendApiClient } from './client';
 
-const address = '0x00000000000000000000000000000000000000aa';
-const source = {
-    status: 'healthy',
-    dataFresh: true,
-    dataAgeMs: 10,
-    lastAttemptAt: '2026-07-21T10:00:00.000Z',
-    lastSuccessAt: '2026-07-21T10:00:00.000Z',
-    lastError: null,
-};
+describe('slashveto.me API client', () => {
+    afterEach(() => vi.unstubAllGlobals());
 
-describe('Slashmon capability-scoped API reads', () => {
-    beforeEach(() => {
-        vi.stubGlobal('window', {
-            setTimeout: globalThis.setTimeout,
-            clearTimeout: globalThis.clearTimeout,
-        });
-    });
-
-    afterEach(() => {
-        vi.unstubAllGlobals();
-    });
-
-    it('keeps the capability in Authorization across history and event detail reads', async () => {
-        const fetchMock = vi.fn(async (input: string | URL | Request, _init?: RequestInit) => {
-            const url = String(input);
-            const payload = url.endsWith('/status')
-                ? {
-                    schemaVersion: 2,
-                    network: 'mainnet',
-                    status: 'healthy',
-                    generatedAt: '2026-07-21T10:00:01.000Z',
-                    sources: { l1: source, aztec: source },
-                    delivery: { status: 'healthy' },
-                }
-                : url.includes('/events/pending-event-1')
-                    ? {
-                        schemaVersion: 2,
-                        data: event('pending-event-1', 'pending_offense_detected', 'aztec_node', 'pending'),
-                    }
-                    : {
-                        schemaVersion: 2,
-                        data: [event('event-1', 'onchain_targeted', 'ethereum_l1', 'confirmed')],
-                        pagination: { nextCursor: null },
-                    };
-            return new Response(JSON.stringify(payload), {
-                status: 200,
-                headers: { 'content-type': 'application/json' },
-            });
-        });
+    it('uses the case API and keeps watch authority in the bearer header', async () => {
+        const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({
+            id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            network: 'mainnet',
+            addresses: [],
+            endpoints: [],
+            cases: [],
+            createdAt: '2026-07-29T00:00:00.000Z',
+            updatedAt: '2026-07-29T00:00:00.000Z',
+        }), { status: 200 }));
         vi.stubGlobal('fetch', fetchMock);
-        const client = new SlashmonApiClient('https://api.slashmon.invalid');
-
-        await client.getEvents('mainnet');
-        await client.getSubscriptionEvents('watch/1', 'bearer-secret', 'mainnet');
-        const detail = await client.getSubscriptionEvent(
-            'watch/1',
-            'pending-event-1',
-            'bearer-secret',
-            'mainnet',
+        const client = new BackendApiClient('https://api.example');
+        await client.getWatch(
+            'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            'secret-token',
         );
 
-        expect(detail.certainty).toBe('pending');
-        expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
-            'https://api.slashmon.invalid/api/v2/events?network=mainnet&limit=67',
-            'https://api.slashmon.invalid/api/v2/subscriptions/watch%2F1/events?limit=67',
-            'https://api.slashmon.invalid/api/v2/subscriptions/watch%2F1/events/pending-event-1',
-        ]);
-        for (const [index, [, init]] of fetchMock.mock.calls.entries()) {
-            expect((init?.headers as Headers).get('authorization')).toBe(
-                index === 0 ? null : 'Bearer bearer-secret',
-            );
-            expect(init?.cache).toBe('no-store');
-        }
+        expect(String(fetchMock.mock.calls[0][0])).toBe(
+            'https://api.example/api/watches/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        );
+        expect((fetchMock.mock.calls[0][1]?.headers as Headers).get('authorization'))
+            .toBe('Bearer secret-token');
     });
 
-    it('requests an address-scoped sequencer record with cursor pagination', async () => {
-        const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({
-            schemaVersion: 2,
-            data: {
-                sequencer: address,
-                protocol: null,
-                events: [],
-            },
-            pagination: { nextCursor: null },
-        }), {
-            status: 200,
-            headers: { 'content-type': 'application/json' },
-        }));
+    it('opens exact case IDs without an event feed', async () => {
+        const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) =>
+            new Response('{}', { status: 200 }));
         vi.stubGlobal('fetch', fetchMock);
-        const client = new SlashmonApiClient('https://api.slashmon.invalid');
-
-        const record = await client.getSequencerRecord(address, 'mainnet', undefined, 'older-1');
-
-        expect(record.sequencer).toBe(address);
-        expect(fetchMock).toHaveBeenCalledOnce();
+        const client = new BackendApiClient('https://api.example');
+        await client.getCase('case:mainnet:lineage:address:42');
         expect(String(fetchMock.mock.calls[0][0])).toBe(
-            `https://api.slashmon.invalid/api/v2/sequencers/${address}/record?network=mainnet&limit=50&cursor=older-1`,
+            'https://api.example/api/cases/case%3Amainnet%3Alineage%3Aaddress%3A42',
         );
     });
 });
-
-function event(id: string, type: string, eventSource: string, certainty: 'pending' | 'confirmed') {
-    return {
-        id,
-        network: 'mainnet',
-        type,
-        source: eventSource,
-        certainty,
-        sequencer: address,
-        targets: [address],
-        title: 'Test event',
-        body: 'Test event body',
-        data: {},
-        occurredAt: '2026-07-21T10:00:00.000Z',
-    };
-}

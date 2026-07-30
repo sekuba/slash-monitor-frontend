@@ -11,7 +11,7 @@ vi.mock('./hooks/useSlashingMonitor', () => ({
 describe('top-level view isolation', () => {
     beforeEach(() => {
         scannerSpy.mockClear();
-        installBrowser('https://slashmon.example/');
+        installBrowser('https://slashveto.example/');
     });
 
     afterEach(() => {
@@ -19,63 +19,54 @@ describe('top-level view isolation', () => {
     });
 
     it('renders PINGME and permanent navigation without initializing the client scanner', () => {
-        installBrowser('https://slashmon.example/?view=pingme&network=mainnet');
+        installBrowser('https://slashveto.example/?view=pingme&network=mainnet');
 
         const markup = renderToStaticMarkup(<App />);
 
         expect(scannerSpy).not.toHaveBeenCalled();
-        expect(markup).toContain('Connecting To Pingme');
-        expect(markup).toContain('Watch sequencers');
-        expect(markup).not.toContain('PWA Web Push');
-        expect(markup).not.toContain('>Telegram</h3>');
-        expect(markup).not.toContain('Address-First Alerts');
-        expect(markup).not.toContain('Pick the mainnet sequencers');
+        expect(markup).toContain('Loading current cases');
         expect(markup).toContain('Monitor');
         expect(markup).toContain('>PINGME</button>');
-        expect(markup).not.toContain('Debug');
-        expect(markup).not.toContain('On-chain details &amp; RPC');
-        expect(markup).not.toContain('Client scanner network');
         expect(markup).toContain('brutal-button--nav-selected');
     });
 
-    it('keeps the network feed collapsed while a sequencer record is selected', () => {
+    it('opens a PINGME case link without starting the browser scanner', () => {
         installBrowser(
-            'https://slashmon.example/?view=pingme&sequencer=0x1111111111111111111111111111111111111111',
+            'https://slashveto.example/?view=pingme&case=case%3Amainnet%3Aactive%3A0xabc%3A42',
         );
 
         const markup = renderToStaticMarkup(<App />);
 
         expect(scannerSpy).not.toHaveBeenCalled();
-        expect(markup).toContain('<details');
-        expect(markup).toContain('Network feed');
-        expect(markup).toContain('id="sequencer-record-timeline"');
+        expect(markup).toContain('Loading current cases');
     });
 
     it('treats removed and unknown views as the Monitor', () => {
-        installBrowser('https://slashmon.example/?view=unknown&network=testnet');
+        installBrowser('https://slashveto.example/?view=unknown&network=testnet');
 
         const markup = renderToStaticMarkup(<App />);
 
         expect(scannerSpy).toHaveBeenCalledOnce();
-        expect(markup).not.toContain('Debug');
         expect(markup).toContain('On-chain details &amp; RPC');
-        expect(markup).not.toContain('Client scanner network');
         expect(markup).toContain('Switch client scanner to Mainnet');
-        expect(markup).toContain('INITIALIZING CLIENTSIDE L1 MONITOR');
+        expect(markup).toContain('Verifying the canonical L1 contracts');
     });
 
     it('uses the saved RPC override only for the selected Monitor network', () => {
-        installBrowser('https://slashmon.example/', {
+        installBrowser('https://slashveto.example/', {
             'slashmon:monitor-rpc:1': 'https://rpc.example/mainnet',
             'slashmon:monitor-rpc:11155111': 'https://rpc.example/testnet',
         });
 
         renderToStaticMarkup(<App />);
 
-        expect(scannerSpy).toHaveBeenCalledWith(expect.objectContaining({
-            chainId: 1,
-            l1RpcUrl: 'https://rpc.example/mainnet',
-        }));
+        expect(scannerSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                chainId: 1,
+                l1RpcUrl: 'https://rpc.example/mainnet',
+            }),
+            true,
+        );
     });
 
 });

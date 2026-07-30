@@ -1,123 +1,124 @@
-# Runbook
+# Production runbook
 
-The supported production deployment is one Node 24 backend under systemd, one
-SQLite database, and an HTTPS reverse proxy. Never run two backend instances for
-the same installation.
+Production is one Node 24 process, one SQLite database, one Aztec public/admin
+endpoint pair, one archive-capable Ethereum RPC, and an HTTPS reverse proxy or
+Cloudflare Tunnel. Never run two processes against the same database or poll
+the same Telegram bot from production and testing.
 
-## Prepare
+## Prepare the environment
 
 Install Node 24 at `/usr/local/bin/node`, enable Corepack, and create the
-backend environment:
+protected production env:
 
 ```bash
 /usr/local/bin/node --version
 corepack enable
-sudo install -m 0600 collector/deploy/slashmon-backend.env.example /etc/slashmon-backend.env
+sudo install -m 0600 collector/deploy/slashmon-backend.env.example \
+  /etc/slashmon-backend.env
 sudoedit /etc/slashmon-backend.env
 ```
 
-Set the public PWA URL, its exact CORS origin, both Aztec endpoints, and at least
-one Ethereum RPC. Keep the admin RPC private. Choose
-`L1_SLASH_LOG_LOOKBACK_BLOCKS` before first start; it bounds only the initial
-confirmed-log history. Its default is 600 Ethereum blocks, approximately the
-current mainnet wall-clock span of three Aztec epochs with a small margin.
-Later scans resume from SQLite.
+The minimal production file is:
 
-Sentinel duty indexing checks sync every 60 seconds and quietly indexes a
-three-epoch window on first start. It fetches one confirmed L1 committee and
-exact-range stats only for that committee when a new epoch closes; idle polls
-make neither call. `AZTEC_SENTINEL_LOOKBACK_EPOCHS` applies to both the L1
-committee and Aztec history sides of catch-up. The defaults are 3 epochs,
-an epoch-end buffer of 2 slots, 8 concurrent validator requests, and a 2 MiB
-per-validator response limit. If the Aztec node overrides
-`SENTINEL_EPOCH_END_BUFFER_SLOTS`, set
-`AZTEC_SENTINEL_EPOCH_END_BUFFER_SLOTS` to the same value; the node does not
-expose this internal Sentinel setting through its admin API.
-Override `AZTEC_SENTINEL_POLL_INTERVAL_MS`,
-`AZTEC_SENTINEL_LOOKBACK_EPOCHS`,
-`AZTEC_SENTINEL_EPOCH_END_BUFFER_SLOTS`,
-`AZTEC_SENTINEL_VALIDATOR_CONCURRENCY`, or
-`AZTEC_SENTINEL_VALIDATOR_MAX_RESPONSE_BYTES` only for an observed node or RPC
-constraint. The deployment script preserves these settings.
+```dotenv
+SLASHMON_PUBLIC_URL=https://slashveto.me
+BACKEND_CORS_ORIGIN=https://slashveto.me
+BACKEND_TRUST_PROXY=true
+AZTEC_NODE_URL=http://127.0.0.1:8080
+AZTEC_ADMIN_URL=http://127.0.0.1:8880
+L1_RPC_URL=https://YOUR-ARCHIVE-ETHEREUM-RPC
+L1_SLASH_LOG_START_BLOCK=25533241
+```
 
-Telegram and Web Push are independently optional. Create one Telegram bot or
-generate a stable VAPID keypair:
+Change the public origin and three upstream URLs. Keep
+`BACKEND_TRUST_PROXY=true` only when a trusted proxy connects directly to the
+loopback listener. Add `AZTEC_NODE_API_KEY` or `AZTEC_ADMIN_API_KEY` only when
+the corresponding endpoint requires one.
+
+Add a complete Telegram pair and/or VAPID triple to enable notifications:
+
+```dotenv
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_BOT_USERNAME=...
+VAPID_SUBJECT=mailto:operator@example.com
+VAPID_PUBLIC_KEY=...
+VAPID_PRIVATE_KEY=...
+```
+
+Generate VAPID keys with:
 
 ```bash
 pnpm --filter @slashmon/backend exec web-push generate-vapid-keys
 ```
 
-Changing VAPID keys requires browsers to subscribe again.
+All omitted collection, retry, request-limit, bind, port, and log settings use
+the defaults in `collector/src/config.mjs`. The deployer preserves only
+supported settings and removes empty or obsolete entries from the installed
+env.
 
-## Deploy
+`L1_SLASH_LOG_START_BLOCK=25533241` starts the mainnet slash-log journal at the
+first Rollup block for the current stack. It requires archive state reads.
+Historical chunks advance a durable block/hash checkpoint and do not queue
+historical notifications. A failed chunk leaves the checkpoint unchanged.
 
-Run one mode from a clean checkout of the commit to deploy:
+## Fresh install, wipe, or upgrade
+
+Run the script from a clean checkout as its normal owner:
 
 ```bash
+# First install, or an intentional irreversible deletion of all backend state
+# and retained backend backups:
 scripts/deploy-backend.sh --fresh
-scripts/deploy-backend.sh --upgrade
+
+# Installed service: verify and back up SQLite, then start with a new database:
 scripts/deploy-backend.sh --reset-db
+
+# Installed service: verify and back up SQLite, then preserve the database:
+scripts/deploy-backend.sh --upgrade
 ```
 
-Use `--fresh` only for the first deployment or a full machine-level reset. It
-permanently removes all Slashmon state and `/var/backups/slashmon`; it creates
-no backup. Use `--upgrade` for a schema-compatible release. It stops the only
-writer, checkpoints and checks SQLite, saves a timestamped database under
-`/var/backups/slashmon`, switches the immutable release, and restarts without
-deleting state.
+For this production cutover, use `--fresh` when
+`slashmon-backend.service` has never been installed. Use `--reset-db` when it
+is already installed and the current database should be wiped. Both start an
+empty schema and backfill from the configured anchor; only `--reset-db` retains
+a verified copy of the previous database.
 
-Use `--reset-db` when a release intentionally requires an empty database. It
-performs the same checkpoint, integrity check, and timestamped backup, then
-removes only `slashmon.sqlite` and its SQLite sidecars. The new process creates
-the current schema; watches, notification endpoints, journal history, and
-collector cursors restart empty. Backups and earlier releases remain available.
-Keep the previous release and backup until source polls and test deliveries
-succeed. No mode provides automatic rollback.
+Stop and disable any differently named backend that still owns port 8790 before
+`--fresh`. The deployer manages only `slashmon-backend.service` and refuses to
+start when another process is listening.
 
-The unit stores the database at `/var/lib/slashmon/slashmon.sqlite`. Startup
-accepts an empty database or the current schema only; there is no automatic
-schema migration. Releases that only change API reads or stored JSON metadata
-remain compatible and should use `--upgrade`.
+The backend creates its current schema only in an empty database. It has no
+schema migrations or compatibility API. `--upgrade` is valid only while the
+installed database already has the exact current schema.
 
-To self-host the PWA, install all dependencies and run `pnpm build` in the
-release. Serve `dist/` as static files. Frontend RPC URLs must be public HTTPS
-endpoints; never put credentials in `VITE_*` variables.
+The script builds an immutable release from the current commit, installs
+production dependencies with the frozen lockfile, stops the single writer,
+installs the hardened systemd service, and waits for `/live`. The production
+database is `/var/lib/slashmon/slashmon.sqlite`; backups are stored under
+`/var/backups/slashmon`.
 
-## HTTPS tunnel
+An isolated testing deployment uses the same arguments with `--testing` first:
 
-Keep the backend on `127.0.0.1:8790`. Expose `/api/v2/*` over HTTPS and apply
-request-body, read, and mutation rate limits. Serve the PWA on the exact origin
-in `BACKEND_CORS_ORIGIN`; `SLASHMON_PUBLIC_URL` is its full installed URL for
-notification links.
+```bash
+scripts/deploy-backend.sh --testing --fresh
+scripts/deploy-backend.sh --testing --reset-db
+scripts/deploy-backend.sh --testing --upgrade
+```
 
-For a Cloudflare Tunnel that connects directly to the loopback listener, set
-`BACKEND_TRUST_PROXY=true`. The backend then prefers Cloudflare's canonical
-`CF-Connecting-IP` value and falls back to the rightmost valid
-`X-Forwarded-For` address. Forwarded addresses are ignored unless the socket
-peer is loopback. Leave this setting false if the backend is directly reachable
-or the proxy connects over a non-loopback hop.
+Testing requires `/etc/slashmon-backend-testing.env`, an explicit nonproduction
+port, separate state, and a different Telegram bot.
 
-### Abuse-control defaults
+## HTTPS and browser boundary
 
-The backend defaults to 180 API reads per minute per client and 600 globally,
-plus 20 mutations per minute per client and per managed watch list. Anonymous
-watch-list creation is limited to 3/hour and 10/day per client, with durable
-global limits of 10/hour and 50/day. Notification tests have a five-minute
-per-watch-list cooldown and durable global limits of 30/hour and 100/day.
+Keep the backend on `127.0.0.1:8790` and expose only `/api/*` over HTTPS.
+`/live` and `/health` are local operator probes and must not be included in the
+Cloudflare Tunnel route. The PWA origin must exactly match
+`BACKEND_CORS_ORIGIN`; `SLASHMON_PUBLIC_URL` is the complete installed PWA URL
+used in notifications.
 
-New Web Push endpoints are limited to 3/hour and 10/day per watch list, and
-20/hour and 100/day globally. These admission budgets use private SQLite
-journal entries, so endpoint rotation, process restarts, and watch-list deletion
-cannot reset them. The entries are removed by the normal seven-day notification
-maintenance pass. Telegram starts at 20 sends/second globally, five
-low-priority test or command sends/second, and one send/second per chat; real
-alerts are scheduled first.
-
-Every value is configurable in `collector/.env.example`. At the current small
-traffic level, treat repeated 429 responses as an abuse or integration signal
-before increasing a limit.
-
-Use a restrictive browser policy. A same-origin baseline is:
+Apply proxy request limits and send HSTS, `X-Content-Type-Options: nosniff`, a
+no-referrer policy, and a restrictive Content Security Policy. A starting
+policy is:
 
 ```text
 default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
@@ -126,33 +127,46 @@ connect-src 'self' https://YOUR-L1-RPCS; base-uri 'self';
 form-action 'self'; frame-ancestors 'none'
 ```
 
-Also send HSTS, `X-Content-Type-Options: nosniff`, and a no-referrer policy.
-Add the API and any operator-selectable Monitor RPC origins to `connect-src`.
+Add the API origin and only the actual browser-selectable Monitor RPC origins
+to `connect-src`.
 
-GitHub Pages cannot host the backend. A project path on a shared
-`name.github.io` origin is Monitor-only because sibling projects share browser
-storage. A dedicated custom domain can host PINGME.
+PINGME needs a dedicated browser origin because its management token is stored
+as an origin-wide bearer capability. Do not add analytics, ads, tag managers,
+or third-party scripts to that origin.
 
 ## Verify
 
 ```bash
 curl --fail http://127.0.0.1:8790/live
 curl --fail http://127.0.0.1:8790/health
+curl --fail http://127.0.0.1:8790/api/config
 journalctl -u slashmon-backend.service --since '10 minutes ago'
 ```
 
-Confirm that:
+`/health` remains `503` while the three evidence views are starting or stale.
+Before opening watches, confirm:
 
-- Aztec and L1 health advance independently;
-- the database identity matches the intended network;
-- confirmed-log catch-up eventually becomes healthy;
-- a Telegram link and test alert work, when enabled; and
-- a Web Push endpoint receives verification and a test alert, when enabled.
+- the node, Registry, Rollup, chain, and database identities agree;
+- Aztec, Sentinel, current L1, and historical slash-log cursors advance;
+- slash-log backfill reaches the confirmed head;
+- Telegram linking and a test alert work when configured; and
+- Web Push enrollment and a test alert work when configured.
 
-An upstream outage should degrade health without deleting the last good state.
-Repeatedly restarting does not repair a stale node or RPC. Web Push 404/410 is
-endpoint-specific; shared authentication failures keep urgent work retryable
-and degrade channel health.
+An outage must degrade one source without deleting its last good state.
+Changing VAPID keys invalidates existing Web Push subscriptions. Web Push
+404/410 disables only that endpoint.
 
-Delivery is at-least-once. A crash after provider acceptance but before the
-success commit can duplicate an alert; stable event IDs are the comparison key.
+## Sensitive data
+
+The database contains public sequencer evidence plus private watch membership,
+hashed management/link tokens, Telegram chat IDs, Web Push endpoints and
+encryption material, and delivery state. Protect it and its backups as secrets.
+The systemd unit uses a private state directory and `UMask=0077`.
+
+The API never exposes watch membership, endpoints, tokens, or delivery state
+without the bearer management token. Logs must not contain RPC credentials,
+provider tokens, management or link tokens, push key material, Telegram chat
+associations, or full secret URLs.
+
+slashveto.me never needs validator keys, seed phrases, wallet signatures, or an
+Aztec keystore.

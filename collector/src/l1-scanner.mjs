@@ -1,8 +1,16 @@
-import { createPublicClient, getAddress, http, zeroAddress } from 'viem';
+import {
+  createPublicClient,
+  decodeEventLog,
+  getAddress,
+  http,
+  zeroAddress,
+} from 'viem';
 
 import {
   canonicalRollupUpdatedEvent,
+  escapeHatchAbi,
   registryAbi,
+  roundExecutedEvent,
   rollupAbi,
   slashedEvent,
   slasherAbi,
@@ -23,11 +31,12 @@ export class L1Scanner {
     maxHeadAgeMs = 15 * 60_000,
     maxHeadStallMs = 2 * 60_000,
     maxFutureSkewMs = 2 * 60_000,
+    slashLogStartBlock,
     slashLogLookbackBlocks = 600,
     slashLogChunkSize = 1_000,
     slashLogOverlapBlocks = 12,
     slashLogReorgRewindBlocks = 128,
-    slashLogProviderTimeoutMs = 5_000,
+    slashLogProviderTimeoutMs = 30_000,
     clientFactory,
     now = Date.now,
   }) {
@@ -40,6 +49,9 @@ export class L1Scanner {
     this.maxHeadAgeMs = maxHeadAgeMs;
     this.maxHeadStallMs = maxHeadStallMs;
     this.maxFutureSkewMs = maxFutureSkewMs;
+    this.slashLogStartBlock = slashLogStartBlock === undefined
+      ? undefined
+      : BigInt(slashLogStartBlock);
     this.slashLogLookbackBlocks = BigInt(slashLogLookbackBlocks);
     this.slashLogChunkSize = BigInt(slashLogChunkSize);
     this.slashLogOverlapBlocks = BigInt(slashLogOverlapBlocks);
@@ -55,6 +67,9 @@ export class L1Scanner {
         fetchOptions: { signal },
       }),
     }));
+    if (this.slashLogStartBlock !== undefined && this.slashLogStartBlock < 0n) {
+      throw new RangeError('slash log start block must be non-negative');
+    }
     if (this.slashLogLookbackBlocks < 1n) throw new RangeError('slash log lookback must be positive');
     if (this.slashLogChunkSize < 2n) throw new RangeError('slash log chunk size must be at least 2');
     if (this.slashLogOverlapBlocks < 1n || this.slashLogOverlapBlocks >= this.slashLogChunkSize) {
@@ -244,9 +259,24 @@ export class L1Scanner {
     if ((cursorNumber === undefined) !== !cursorHash) {
       throw new Error('persisted slash log checkpoint is incomplete');
     }
+    if (
+      this.slashLogStartBlock !== undefined &&
+      this.slashLogStartBlock > confirmedBlockNumber
+    ) {
+      throw new Error(
+        `configured slash log start block ${this.slashLogStartBlock} is above confirmed L1 head ${confirmedBlockNumber}`,
+      );
+    }
+    const persistedStartBlock = readOptionalBigInt(
+      previous.metadata?.backfillStartBlock,
+    );
+    const restartFromConfiguredStart =
+      cursorNumber !== undefined &&
+      this.slashLogStartBlock !== undefined &&
+      persistedStartBlock !== this.slashLogStartBlock;
 
     let reorgDetected = false;
-    if (cursorNumber !== undefined) {
+    if (cursorNumber !== undefined && !restartFromConfiguredStart) {
       if (cursorNumber > confirmedBlockNumber) {
         reorgDetected = true;
       } else {
@@ -260,10 +290,12 @@ export class L1Scanner {
     }
 
     let fromBlock;
-    if (cursorNumber === undefined) {
-      fromBlock = confirmedBlockNumber + 1n > this.slashLogLookbackBlocks
-        ? confirmedBlockNumber + 1n - this.slashLogLookbackBlocks
-        : 0n;
+    if (cursorNumber === undefined || restartFromConfiguredStart) {
+      fromBlock = this.slashLogStartBlock ?? (
+        confirmedBlockNumber + 1n > this.slashLogLookbackBlocks
+          ? confirmedBlockNumber + 1n - this.slashLogLookbackBlocks
+          : 0n
+      );
     } else if (reorgDetected) {
       fromBlock = cursorNumber + 1n > this.slashLogReorgRewindBlocks
         ? cursorNumber + 1n - this.slashLogReorgRewindBlocks
@@ -273,6 +305,12 @@ export class L1Scanner {
       fromBlock = cursorNumber + 1n > this.slashLogOverlapBlocks
         ? cursorNumber + 1n - this.slashLogOverlapBlocks
         : 0n;
+    }
+    if (
+      this.slashLogStartBlock !== undefined &&
+      fromBlock < this.slashLogStartBlock
+    ) {
+      fromBlock = this.slashLogStartBlock;
     }
     const toBlock = minBigInt(confirmedBlockNumber, fromBlock + this.slashLogChunkSize - 1n);
     const checkpointBlock = toBlock === confirmedBlockNumber
@@ -340,6 +378,7 @@ export class L1Scanner {
       for (const log of emitterLogs) logs.push(normalizeSlashLog(log, rollupAddress));
     }
     logs.sort(compareLogs);
+    await attachExecutionContext(client, logs);
 
     // As with state snapshots, number-pinned calls are followed by a hash
     // check. A provider switching forks mid-range cannot advance the cursor.
@@ -355,8 +394,12 @@ export class L1Scanner {
       toBlockHash: checkpointBlock.hash,
       confirmedBlockNumber: confirmedBlockNumber.toString(),
       reorgDetected,
-      initial: cursorNumber === undefined,
-      initialBackfill: cursorNumber === undefined || previous.metadata?.initialBackfill === true,
+      initial: cursorNumber === undefined || restartFromConfiguredStart,
+      initialBackfill:
+        cursorNumber === undefined ||
+        restartFromConfiguredStart ||
+        previous.metadata?.initialBackfill === true,
+      backfillStartBlock: this.slashLogStartBlock?.toString() ?? null,
       hasMore: toBlock < confirmedBlockNumber,
       registryAddress: this.registryAddress,
       rollupAddresses: [...knownRollups].sort(),
@@ -583,6 +626,7 @@ export class L1Scanner {
         const scanned = await scanRound(client, {
           proposerAddress,
           slasherAddress,
+          rollupAddress,
           blockNumber,
           round,
           currentRound,
@@ -656,6 +700,7 @@ async function scanRound(client, input) {
   const {
     proposerAddress,
     slasherAddress,
+    rollupAddress,
     blockNumber,
     round,
     currentRound,
@@ -672,8 +717,17 @@ async function scanRound(client, input) {
   let committees = [];
   let earlyTargets = [];
   let actions = [];
+  let actionDetails = [];
   let payloadAddress = null;
   let isVetoed = false;
+  const targetEpochs = [];
+  if (round >= config.slashOffsetInRounds) {
+    const startEpoch = (round - config.slashOffsetInRounds) * config.roundSizeInEpochs;
+    for (let offset = 0n; offset < config.roundSizeInEpochs; offset += 1n) {
+      targetEpochs.push((startEpoch + offset).toString());
+    }
+  }
+  let escapeHatchEpochs = targetEpochs.map(() => false);
 
   if (isExecuted || ballotCount > 0n) {
     committees = await read(
@@ -683,6 +737,12 @@ async function scanRound(client, input) {
       'getSlashTargetCommittees',
       blockNumber,
       [round],
+    );
+    escapeHatchEpochs = await readEscapeHatchEpochs(
+      client,
+      rollupAddress,
+      blockNumber,
+      targetEpochs,
     );
     if (ballotCount > 0n) {
       const previousCount = previousRound && BigInt(previousRound.ballotCount) <= ballotCount
@@ -708,6 +768,12 @@ async function scanRound(client, input) {
       sequencer: getAddress(action.validator).toLowerCase(),
       amount: action.slashAmount.toString(),
     }));
+    actionDetails = matchActionsToTargets(
+      actions,
+      earlyTargets,
+      config.quorum,
+      escapeHatchEpochs,
+    );
     if (actions.length > 0) {
       const contractActions = actions.map((action) => ({ validator: action.sequencer, slashAmount: BigInt(action.amount) }));
       payloadAddress = getAddress(await read(
@@ -737,13 +803,6 @@ async function scanRound(client, input) {
   const status = role === 'pending' && !isExecuted && ['newly-executable', 'executable'].includes(proposerStatus)
     ? 'pending-activation'
     : proposerStatus;
-  const targetEpochs = [];
-  if (round >= config.slashOffsetInRounds) {
-    const startEpoch = (round - config.slashOffsetInRounds) * config.roundSizeInEpochs;
-    for (let offset = 0n; offset < config.roundSizeInEpochs; offset += 1n) {
-      targetEpochs.push((startEpoch + offset).toString());
-    }
-  }
   const isExecutionPaused = !isSlashingEnabled && !isExecuted;
   const isProtected = !isExecuted && isRoundProtectedByPause({
     round,
@@ -760,13 +819,23 @@ async function scanRound(client, input) {
     isExecuted,
     status,
     committees: committees.map((committee) => committee.map((address) => getAddress(address).toLowerCase())),
-    earlyTargets,
+    earlyTargets: earlyTargets.map((target) => ({
+      ...target,
+      targetEpoch: targetEpochs[target.epochIndex],
+      escaped: Boolean(escapeHatchEpochs[target.epochIndex]),
+    })),
     actions,
+    actionDetails: actionDetails.map((detail, actionIndex) => ({
+      ...detail,
+      actionIndex,
+      targetEpoch: targetEpochs[detail.epochIndex],
+    })),
     payloadAddress,
     isVetoed,
     executableSlot: executableSlot.toString(),
     expirySlot: expirySlot.toString(),
     targetEpochs,
+    escapeHatchEpochs,
     isAuthorized: role !== 'pending',
     proposerStatus,
     isExecutionPaused,
@@ -799,8 +868,13 @@ export function mergeEarlyTargets(previousTargets, addedTargets) {
   const merged = new Map();
   for (const target of [...previousTargets, ...addedTargets]) {
     const sequencer = String(target.sequencer).toLowerCase();
-    const current = merged.get(sequencer) ?? {
+    const epochIndex = Number(target.epochIndex);
+    const committeeIndex = Number(target.committeeIndex);
+    const key = `${epochIndex}:${committeeIndex}:${sequencer}`;
+    const current = merged.get(key) ?? {
       sequencer,
+      epochIndex,
+      committeeIndex,
       voteCount: 0,
       maxSlashUnits: 0,
       unitVoteCounts: [0, 0, 0],
@@ -810,9 +884,12 @@ export function mergeEarlyTargets(previousTargets, addedTargets) {
     for (let index = 0; index < 3; index += 1) {
       current.unitVoteCounts[index] += Number(target.unitVoteCounts?.[index] ?? 0);
     }
-    merged.set(sequencer, current);
+    merged.set(key, current);
   }
-  return [...merged.values()].sort((a, b) => a.sequencer.localeCompare(b.sequencer));
+  return [...merged.values()].sort((a, b) =>
+    a.epochIndex - b.epochIndex ||
+    a.committeeIndex - b.committeeIndex ||
+    a.sequencer.localeCompare(b.sequencer));
 }
 
 export function decodeEarlyTargets(encodedVotes, committees, committeeSizeInput) {
@@ -832,8 +909,11 @@ export function decodeEarlyTargets(encodedVotes, committees, committeeSizeInput)
       const rawAddress = committees[epochIndex]?.[committeeIndex];
       if (!rawAddress) continue;
       const sequencer = getAddress(rawAddress).toLowerCase();
-      const tally = tallies.get(sequencer) ?? {
+      const key = `${epochIndex}:${committeeIndex}:${sequencer}`;
+      const tally = tallies.get(key) ?? {
         sequencer,
+        epochIndex,
+        committeeIndex,
         voteCount: 0,
         maxSlashUnits: 0,
         unitVoteCounts: [0, 0, 0],
@@ -841,10 +921,81 @@ export function decodeEarlyTargets(encodedVotes, committees, committeeSizeInput)
       tally.voteCount += 1;
       tally.maxSlashUnits = Math.max(tally.maxSlashUnits, units);
       tally.unitVoteCounts[units - 1] += 1;
-      tallies.set(sequencer, tally);
+      tallies.set(key, tally);
     }
   }
-  return [...tallies.values()].sort((a, b) => a.sequencer.localeCompare(b.sequencer));
+  return [...tallies.values()].sort((a, b) =>
+    a.epochIndex - b.epochIndex ||
+    a.committeeIndex - b.committeeIndex ||
+    a.sequencer.localeCompare(b.sequencer));
+}
+
+export function matchActionsToTargets(
+  actions,
+  targets,
+  quorumInput,
+  escapeHatchEpochs = [],
+) {
+  const quorum = Number(quorumInput);
+  if (!Number.isSafeInteger(quorum) || quorum < 1) return [];
+  const qualified = targets.flatMap((target) => {
+    if (escapeHatchEpochs[target.epochIndex]) return [];
+    let cumulative = 0;
+    let units = 0;
+    for (let index = 2; index >= 0; index -= 1) {
+      cumulative += Number(target.unitVoteCounts?.[index] ?? 0);
+      if (cumulative >= quorum) {
+        units = index + 1;
+        break;
+      }
+    }
+    return units === 0 ? [] : [{
+      ...target,
+      support: cumulative,
+      slashUnits: units,
+    }];
+  });
+  if (qualified.length !== actions.length) {
+    throw new Error(
+      `local vote decoding produced ${qualified.length} actions, contract returned ${actions.length}`,
+    );
+  }
+  return qualified.map((target, index) => {
+    const action = actions[index];
+    if (target.sequencer !== action.sequencer) {
+      throw new Error('local vote decoding disagrees with the contract tally order');
+    }
+    return { ...target, amount: action.amount };
+  });
+}
+
+async function readEscapeHatchEpochs(
+  client,
+  rollupAddress,
+  blockNumber,
+  targetEpochs,
+) {
+  const hatchAddresses = await Promise.all(targetEpochs.map(async (epoch) =>
+    getAddress(await read(
+      client,
+      rollupAddress,
+      rollupAbi,
+      'getEscapeHatchForEpoch',
+      blockNumber,
+      [BigInt(epoch)],
+    ))));
+  return await Promise.all(hatchAddresses.map(async (hatch, index) => {
+    if (hatch === zeroAddress) return false;
+    const [isOpen] = await read(
+      client,
+      hatch,
+      escapeHatchAbi,
+      'isHatchOpen',
+      blockNumber,
+      [BigInt(targetEpochs[index])],
+    );
+    return Boolean(isOpen);
+  }));
 }
 
 export function calculateStatus(input) {
@@ -954,6 +1105,210 @@ function normalizeSlashLog(log, expectedEmitter) {
     logIndex,
     sequencer: getAddress(log.args.attester).toLowerCase(),
     amount: amount.toString(),
+  };
+}
+
+async function attachExecutionContext(client, logs) {
+  const byTransaction = new Map();
+  const reconstructedRounds = new Map();
+  const slashIndex = new Map();
+  for (const log of [...logs].sort((left, right) => left.logIndex - right.logIndex)) {
+    const next = slashIndex.get(log.transactionHash) ?? 0;
+    log.transactionSlashIndex = next;
+    slashIndex.set(log.transactionHash, next + 1);
+  }
+  for (const log of logs) {
+    const transactionHash = log.transactionHash;
+    if (!byTransaction.has(transactionHash)) {
+      const receipt = await client.getTransactionReceipt({ hash: transactionHash });
+      const candidates = [];
+      for (const receiptLog of receipt.logs ?? []) {
+        try {
+          const decoded = decodeEventLog({
+            abi: [roundExecutedEvent],
+            data: receiptLog.data,
+            topics: receiptLog.topics,
+            strict: true,
+          });
+          candidates.push({
+            proposerAddress: getAddress(receiptLog.address).toLowerCase(),
+            round: decoded.args.round.toString(),
+            slashCount: decoded.args.slashCount.toString(),
+          });
+        } catch {
+          // Other logs in the execution receipt are expected.
+        }
+      }
+      if (candidates.length === 0) {
+        throw new Error(`Slashed transaction ${transactionHash} has no RoundExecuted event`);
+      }
+      byTransaction.set(transactionHash, candidates);
+    }
+    log.executionCandidates = byTransaction.get(transactionHash);
+    const matchingContexts = [];
+    for (const candidate of log.executionCandidates) {
+      const cacheKey = [
+        log.blockNumber,
+        log.rollupAddress,
+        candidate.proposerAddress,
+        candidate.round,
+      ].join(':');
+      if (!reconstructedRounds.has(cacheKey)) {
+        reconstructedRounds.set(
+          cacheKey,
+          reconstructExecutedRound(client, {
+            ...candidate,
+            rollupAddress: log.rollupAddress,
+            blockNumber: BigInt(log.blockNumber),
+          }),
+        );
+      }
+      const reconstructed = await reconstructedRounds.get(cacheKey);
+      if (!reconstructed) continue;
+      const detail = reconstructed.actionDetails[log.transactionSlashIndex];
+      if (detail?.sequencer !== log.sequencer) continue;
+      matchingContexts.push({
+        proposerAddress: candidate.proposerAddress,
+        round: candidate.round,
+        targetEpoch: detail.targetEpoch,
+        actionIndex: log.transactionSlashIndex,
+        sequencer: detail.sequencer,
+        amount: detail.amount,
+        support: detail.support,
+        quorum: reconstructed.quorum,
+        maxSlashUnits: detail.maxSlashUnits,
+        unitVoteCounts: detail.unitVoteCounts,
+        epochIndex: detail.epochIndex,
+        committeeIndex: detail.committeeIndex,
+        escaped: detail.escaped,
+        payloadAddress: reconstructed.payloadAddress,
+      });
+    }
+    if (matchingContexts.length !== 1) {
+      throw new Error(
+        `Slashed log ${transactionHash}:${log.logIndex} has ${matchingContexts.length} ` +
+        'exact historical RoundExecuted links',
+      );
+    }
+    [log.executionContext] = matchingContexts;
+    const status = await read(
+      client,
+      log.rollupAddress,
+      rollupAbi,
+      'getStatus',
+      BigInt(log.blockNumber),
+      [log.sequencer],
+    );
+    log.attesterStatus = Number(status);
+    log.ejected = log.attesterStatus === 2 || log.attesterStatus === 3;
+  }
+}
+
+async function reconstructExecutedRound(client, {
+  proposerAddress,
+  round: roundInput,
+  slashCount: slashCountInput,
+  rollupAddress,
+  blockNumber,
+}) {
+  const round = BigInt(roundInput);
+  const slashCount = BigInt(slashCountInput);
+  const [
+    instance,
+    [isExecuted, ballotCount],
+    quorum,
+    roundSizeInEpochs,
+    slashOffsetInRounds,
+    committeeSize,
+  ] = await Promise.all([
+    read(client, proposerAddress, slashingProposerAbi, 'INSTANCE', blockNumber),
+    read(client, proposerAddress, slashingProposerAbi, 'getRound', blockNumber, [round]),
+    read(client, proposerAddress, slashingProposerAbi, 'QUORUM', blockNumber),
+    read(client, proposerAddress, slashingProposerAbi, 'ROUND_SIZE_IN_EPOCHS', blockNumber),
+    read(client, proposerAddress, slashingProposerAbi, 'SLASH_OFFSET_IN_ROUNDS', blockNumber),
+    read(client, proposerAddress, slashingProposerAbi, 'COMMITTEE_SIZE', blockNumber),
+  ]);
+  if (getAddress(instance).toLowerCase() !== rollupAddress) return null;
+  if (!isExecuted) {
+    throw new Error(`RoundExecuted event for round ${round} is not reflected at block ${blockNumber}`);
+  }
+
+  const committees = await read(
+    client,
+    proposerAddress,
+    slashingProposerAbi,
+    'getSlashTargetCommittees',
+    blockNumber,
+    [round],
+  );
+  const encodedVotes = await readVotes(
+    client,
+    proposerAddress,
+    blockNumber,
+    round,
+    0n,
+    BigInt(ballotCount),
+  );
+  const targets = decodeEarlyTargets(encodedVotes, committees, committeeSize);
+  const targetEpochs = [];
+  if (round >= BigInt(slashOffsetInRounds)) {
+    const startEpoch =
+      (round - BigInt(slashOffsetInRounds)) * BigInt(roundSizeInEpochs);
+    for (let offset = 0n; offset < BigInt(roundSizeInEpochs); offset += 1n) {
+      targetEpochs.push((startEpoch + offset).toString());
+    }
+  }
+  const escapeHatchEpochs = await readEscapeHatchEpochs(
+    client,
+    rollupAddress,
+    blockNumber,
+    targetEpochs,
+  );
+  const tally = await read(
+    client,
+    proposerAddress,
+    slashingProposerAbi,
+    'getTally',
+    blockNumber,
+    [round, committees],
+  );
+  const actions = tally.map((action) => ({
+    sequencer: getAddress(action.validator).toLowerCase(),
+    amount: action.slashAmount.toString(),
+  }));
+  if (BigInt(actions.length) !== slashCount) {
+    throw new Error(
+      `RoundExecuted event for round ${round} reports ${slashCount} slashes, ` +
+      `historical tally returned ${actions.length}`,
+    );
+  }
+  const actionDetails = matchActionsToTargets(
+    actions,
+    targets,
+    quorum,
+    escapeHatchEpochs,
+  ).map((detail, actionIndex) => ({
+    ...detail,
+    actionIndex,
+    targetEpoch: targetEpochs[detail.epochIndex],
+    escaped: Boolean(escapeHatchEpochs[detail.epochIndex]),
+  }));
+  const contractActions = actions.map((action) => ({
+    validator: action.sequencer,
+    slashAmount: BigInt(action.amount),
+  }));
+  const payloadAddress = getAddress(await read(
+    client,
+    proposerAddress,
+    slashingProposerAbi,
+    'getPayloadAddress',
+    blockNumber,
+    [round, contractActions],
+  )).toLowerCase();
+  return {
+    quorum: Number(quorum),
+    actionDetails,
+    payloadAddress,
   };
 }
 

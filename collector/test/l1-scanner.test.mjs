@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { encodeAbiParameters, encodeEventTopics } from 'viem';
 
 import {
   L1Scanner,
@@ -7,8 +8,10 @@ import {
   decodeEarlyTargets,
   deduplicateStacks,
   isRoundProtectedByPause,
+  matchActionsToTargets,
   mergeEarlyTargets,
 } from '../src/l1-scanner.mjs';
+import { roundExecutedEvent } from '../src/l1-abis.mjs';
 
 const REGISTRY = '0x35b22e09Ee0390539439E24f06Da43D83f90e298';
 const ROLLUP = '0x1000000000000000000000000000000000000001';
@@ -113,18 +116,24 @@ test('decodeEarlyTargets exposes address-level targeting from the first two-bit 
   assert.deepEqual(targets, [
     {
       sequencer: committees[0][0],
+      epochIndex: 0,
+      committeeIndex: 0,
       voteCount: 2,
       maxSlashUnits: 1,
       unitVoteCounts: [2, 0, 0],
     },
     {
       sequencer: committees[0][1],
+      epochIndex: 0,
+      committeeIndex: 1,
       voteCount: 1,
       maxSlashUnits: 2,
       unitVoteCounts: [0, 1, 0],
     },
     {
       sequencer: committees[0][2],
+      epochIndex: 0,
+      committeeIndex: 2,
       voteCount: 1,
       maxSlashUnits: 3,
       unitVoteCounts: [0, 0, 1],
@@ -132,14 +141,83 @@ test('decodeEarlyTargets exposes address-level targeting from the first two-bit 
   ]);
 });
 
-test('mergeEarlyTargets increments an existing per-address vote cursor', () => {
+test('mergeEarlyTargets increments one exact committee-position vote cursor', () => {
   const sequencer = '0x1111111111111111111111111111111111111111';
   assert.deepEqual(mergeEarlyTargets([
-    { sequencer, voteCount: 2, maxSlashUnits: 1, unitVoteCounts: [2, 0, 0] },
+    {
+      sequencer,
+      epochIndex: 0,
+      committeeIndex: 0,
+      voteCount: 2,
+      maxSlashUnits: 1,
+      unitVoteCounts: [2, 0, 0],
+    },
   ], [
-    { sequencer, voteCount: 1, maxSlashUnits: 3, unitVoteCounts: [0, 0, 1] },
+    {
+      sequencer,
+      epochIndex: 0,
+      committeeIndex: 0,
+      voteCount: 1,
+      maxSlashUnits: 3,
+      unitVoteCounts: [0, 0, 1],
+    },
   ]), [
-    { sequencer, voteCount: 3, maxSlashUnits: 3, unitVoteCounts: [2, 0, 1] },
+    {
+      sequencer,
+      epochIndex: 0,
+      committeeIndex: 0,
+      voteCount: 3,
+      maxSlashUnits: 3,
+      unitVoteCounts: [2, 0, 1],
+    },
+  ]);
+});
+
+test('matchActionsToTargets preserves exact target epochs for repeated addresses', () => {
+  const sequencer = '0x1111111111111111111111111111111111111111';
+  assert.deepEqual(matchActionsToTargets([
+    { sequencer, amount: '100' },
+    { sequencer, amount: '300' },
+  ], [
+    {
+      sequencer,
+      epochIndex: 0,
+      committeeIndex: 0,
+      voteCount: 2,
+      maxSlashUnits: 1,
+      unitVoteCounts: [2, 0, 0],
+    },
+    {
+      sequencer,
+      epochIndex: 1,
+      committeeIndex: 0,
+      voteCount: 2,
+      maxSlashUnits: 3,
+      unitVoteCounts: [0, 0, 2],
+    },
+  ], 2), [
+    {
+      sequencer,
+      epochIndex: 0,
+      committeeIndex: 0,
+      voteCount: 2,
+      maxSlashUnits: 1,
+      unitVoteCounts: [2, 0, 0],
+      support: 2,
+      slashUnits: 1,
+      amount: '100',
+    },
+    {
+      sequencer,
+      epochIndex: 1,
+      committeeIndex: 0,
+      voteCount: 2,
+      maxSlashUnits: 3,
+      unitVoteCounts: [0, 0, 2],
+      support: 2,
+      slashUnits: 3,
+      amount: '300',
+    },
   ]);
 });
 
@@ -278,6 +356,10 @@ test('confirmed Slashed log scan uses bounded chunks and Registry-resolved histo
     ['78', ROLLUP.toLowerCase(), TARGET.toLowerCase(), '10'],
     ['84', SECOND_ROLLUP.toLowerCase(), TARGET.toLowerCase(), '20'],
   ]);
+  assert.deepEqual(first.logs.map((log) => log.executionContext), [
+    historicalExecutionContext({ amount: '10' }),
+    historicalExecutionContext({ amount: '20' }),
+  ]);
 
   const second = await scanner.scanSlashLogChunkWithClient(client, {
     lastBlockNumber: first.toBlock,
@@ -290,6 +372,111 @@ test('confirmed Slashed log scan uses bounded chunks and Registry-resolved histo
   assert.equal(second.fromBlock, '84', 'the overlap is rescanned deliberately');
   assert.equal(second.toBlock, '93', 'the range remains bounded to one chunk');
   assert.equal(second.initialBackfill, true);
+});
+
+test('historical execution reconstruction separates repeated sequencers by action and epoch', async () => {
+  const scanner = new L1Scanner({
+    rpcUrls: ['https://rpc.example'],
+    chainId: 1,
+    registryAddress: REGISTRY,
+    confirmations: 0,
+    slashLogLookbackBlocks: 10,
+    slashLogChunkSize: 10,
+    slashLogOverlapBlocks: 2,
+    slashLogReorgRewindBlocks: 20,
+    maxHeadAgeMs: 60_000,
+    now: () => 1_000_000,
+  });
+
+  const result = await scanner.scanSlashLogChunkWithClient(
+    fakeSlashLogClient({ repeatedSequencer: true }),
+  );
+  assert.deepEqual(result.logs.map((log) => ({
+    logIndex: log.logIndex,
+    transactionSlashIndex: log.transactionSlashIndex,
+    targetEpoch: log.executionContext.targetEpoch,
+    actionIndex: log.executionContext.actionIndex,
+    requestedAmount: log.executionContext.amount,
+    actualAmount: log.amount,
+  })), [
+    {
+      logIndex: 151,
+      transactionSlashIndex: 0,
+      targetEpoch: '12',
+      actionIndex: 0,
+      requestedAmount: '100',
+      actualAmount: '90',
+    },
+    {
+      logIndex: 152,
+      transactionSlashIndex: 1,
+      targetEpoch: '13',
+      actionIndex: 1,
+      requestedAmount: '300',
+      actualAmount: '250',
+    },
+  ]);
+});
+
+test('an exact log start block re-anchors an existing durable cursor', async () => {
+  const scanner = new L1Scanner({
+    rpcUrls: ['https://rpc.example'],
+    chainId: 1,
+    registryAddress: REGISTRY,
+    confirmations: 0,
+    slashLogStartBlock: 20,
+    slashLogLookbackBlocks: 5,
+    slashLogChunkSize: 10,
+    slashLogOverlapBlocks: 2,
+    slashLogReorgRewindBlocks: 20,
+    maxHeadAgeMs: 60_000,
+    now: () => 1_000_000,
+  });
+  const client = fakeSlashLogClient();
+
+  const restarted = await scanner.scanSlashLogChunkWithClient(client, {
+    lastBlockNumber: '90',
+    lastBlockHash: blockHash(90n),
+    metadata: { initialBackfill: false },
+  });
+  assert.equal(restarted.fromBlock, '20');
+  assert.equal(restarted.toBlock, '29');
+  assert.equal(restarted.initial, true);
+  assert.equal(restarted.initialBackfill, true);
+  assert.equal(restarted.backfillStartBlock, '20');
+
+  const continued = await scanner.scanSlashLogChunkWithClient(client, {
+    lastBlockNumber: restarted.toBlock,
+    lastBlockHash: restarted.toBlockHash,
+    metadata: {
+      initialBackfill: true,
+      backfillStartBlock: restarted.backfillStartBlock,
+    },
+  });
+  assert.equal(continued.fromBlock, '28');
+  assert.equal(continued.toBlock, '37');
+  assert.equal(continued.initial, false);
+  assert.equal(continued.initialBackfill, true);
+});
+
+test('an exact log start block cannot silently skip a future range', async () => {
+  const scanner = new L1Scanner({
+    rpcUrls: ['https://rpc.example'],
+    chainId: 1,
+    registryAddress: REGISTRY,
+    confirmations: 0,
+    slashLogStartBlock: 101,
+    slashLogChunkSize: 10,
+    slashLogOverlapBlocks: 2,
+    slashLogReorgRewindBlocks: 20,
+    maxHeadAgeMs: 60_000,
+    now: () => 1_000_000,
+  });
+
+  await assert.rejects(
+    scanner.scanSlashLogChunkWithClient(fakeSlashLogClient()),
+    /start block 101 is above confirmed L1 head 100/,
+  );
 });
 
 test('confirmed Slashed log scan rewinds a mismatched persisted checkpoint', async () => {
@@ -489,6 +676,7 @@ function fakeL1Client({ replacementHash, brokenPendingStack = false, pausedExecu
           getCurrentSlot: pausedExecutableRound ? 70n : 0n,
           getCurrentEpoch: 0n,
           getGenesisTime: 100n,
+          getEscapeHatchForEpoch: `0x${'00'.repeat(20)}`,
           getSlotDuration: 12n,
           getEpochDuration: 32n,
         }[functionName];
@@ -532,9 +720,10 @@ function fakeSlashLogClient({
   headNumber = 100n,
   replaceCheckpoint = false,
   registryDeploymentBlock = 0n,
+  repeatedSequencer = false,
 } = {}) {
   let explicitHeadReads = 0;
-  const updates = [{
+  const updates = repeatedSequencer ? [] : [{
     address: REGISTRY,
     blockNumber: 83n,
     blockHash: blockHash(83n),
@@ -542,7 +731,24 @@ function fakeSlashLogClient({
     logIndex: 0,
     args: { instance: SECOND_ROLLUP, version: 2n },
   }];
-  const slashes = [
+  const slashes = repeatedSequencer ? [
+    {
+      address: ROLLUP,
+      blockNumber: 98n,
+      blockHash: blockHash(98n),
+      transactionHash: transactionHash(98n),
+      logIndex: 151,
+      args: { attester: TARGET, amount: 90n },
+    },
+    {
+      address: ROLLUP,
+      blockNumber: 98n,
+      blockHash: blockHash(98n),
+      transactionHash: transactionHash(98n),
+      logIndex: 152,
+      args: { attester: TARGET, amount: 250n },
+    },
+  ] : [
     {
       address: ROLLUP,
       blockNumber: 78n,
@@ -579,9 +785,36 @@ function fakeSlashLogClient({
     async getBytecode({ blockNumber }) {
       return blockNumber < registryDeploymentBlock ? '0x' : '0x01';
     },
-    async readContract({ functionName, blockNumber }) {
-      assert.equal(functionName, 'getCanonicalRollup');
-      return blockNumber < 83n ? ROLLUP : SECOND_ROLLUP;
+    async readContract({ address, functionName, blockNumber }) {
+      if (functionName === 'getStatus') return 2;
+      if (functionName === 'getCanonicalRollup') {
+        return repeatedSequencer || blockNumber < 83n ? ROLLUP : SECOND_ROLLUP;
+      }
+      if (functionName === 'getEscapeHatchForEpoch') return `0x${'00'.repeat(20)}`;
+      assert.equal(address.toLowerCase(), PROPOSER.toLowerCase());
+      if (functionName === 'getRound') return [true, 2n];
+      return {
+        INSTANCE: repeatedSequencer || blockNumber < 83n ? ROLLUP : SECOND_ROLLUP,
+        QUORUM: 2n,
+        ROUND_SIZE_IN_EPOCHS: repeatedSequencer ? 2n : 1n,
+        SLASH_OFFSET_IN_ROUNDS: 1n,
+        COMMITTEE_SIZE: 4n,
+        getSlashTargetCommittees: repeatedSequencer
+          ? [
+            [TARGET, PROPOSER, SLASHER, ROLLUP],
+            [TARGET, PROPOSER, SLASHER, ROLLUP],
+          ]
+          : [[TARGET, PROPOSER, SLASHER, ROLLUP]],
+        getVotes: repeatedSequencer ? '0x0101' : '0x01',
+        getTally: repeatedSequencer ? [
+          { validator: TARGET, slashAmount: 100n },
+          { validator: TARGET, slashAmount: 300n },
+        ] : [{
+          validator: TARGET,
+          slashAmount: blockNumber < 83n ? 10n : 20n,
+        }],
+        getPayloadAddress: PAYLOAD,
+      }[functionName];
     },
     async getLogs({ address, event, fromBlock, toBlock }) {
       const rows = event.name === 'CanonicalRollupUpdated' ? updates : slashes;
@@ -591,6 +824,41 @@ function fakeSlashLogClient({
         log.blockNumber <= toBlock
       );
     },
+    async getTransactionReceipt() {
+      return {
+        logs: [{
+          address: PROPOSER,
+          topics: encodeEventTopics({
+            abi: [roundExecutedEvent],
+            eventName: 'RoundExecuted',
+            args: { round: 7n },
+          }),
+          data: encodeAbiParameters(
+            [{ type: 'uint256' }],
+            [repeatedSequencer ? 2n : 1n],
+          ),
+        }],
+      };
+    },
+  };
+}
+
+function historicalExecutionContext({ amount }) {
+  return {
+    proposerAddress: PROPOSER.toLowerCase(),
+    round: '7',
+    targetEpoch: '6',
+    actionIndex: 0,
+    sequencer: TARGET.toLowerCase(),
+    amount,
+    support: 2,
+    quorum: 2,
+    maxSlashUnits: 1,
+    unitVoteCounts: [2, 0, 0],
+    epochIndex: 0,
+    committeeIndex: 0,
+    escaped: false,
+    payloadAddress: PAYLOAD.toLowerCase(),
   };
 }
 

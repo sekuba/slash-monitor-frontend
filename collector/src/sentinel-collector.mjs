@@ -278,8 +278,8 @@ export class SentinelCollector {
       dutiesInserted: accumulator.dutiesInserted + result.dutiesInserted,
       committeeRows: accumulator.committeeRows + result.epochsFinalized,
       inactiveEpochs: accumulator.inactiveEpochs + result.inactiveEpochs,
-      events: accumulator.events + result.events,
-    }), { dutiesInserted: 0, committeeRows: 0, inactiveEpochs: 0, events: 0 });
+      transitions: accumulator.transitions + result.transitions,
+    }), { dutiesInserted: 0, committeeRows: 0, inactiveEpochs: 0, transitions: 0 });
     const result = {
       ok: true,
       epochsIndexed: input.indexed.length,

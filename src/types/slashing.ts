@@ -1,14 +1,14 @@
 import type { Address } from 'viem';
 
 export interface MonitorConfigInput {
-    l1RpcUrl: string | string[];
+    l1RpcUrl: string;
     chainId: number;
     registryAddress: Address;
 }
 
 export interface DeploymentAddresses {
-    deploymentBlockNumber: bigint;
-    deploymentTimestamp: bigint;
+    resolvedAtBlockNumber: bigint;
+    resolvedAtTimestamp: bigint;
     rollupAddress: Address;
     slasherAddress: Address;
     slashingProposerAddress: Address;
@@ -33,12 +33,14 @@ export interface SlashingContractParameters {
     committeeSize: number;
     slotDuration: number;
     epochDuration: number;
+    l1GenesisTime: bigint;
 }
 
 export type ResolvedMonitorConfig = RuntimeMonitorConfig & SlashingContractParameters;
 
 export interface CurrentChainState {
     l1BlockNumber: bigint;
+    l1BlockHash: `0x${string}`;
     l1Timestamp: bigint;
     currentRound: bigint;
     currentSlot: bigint;
@@ -77,6 +79,7 @@ export interface DetectedSlashing {
     verificationStatus: VerificationStatus;
     issues?: string[];
     committees?: Address[][];
+    targetDetails?: SlashingTargetDetail[];
     slashActions?: SlashAction[];
     payloadAddress?: Address;
     slotWhenExecutable?: bigint;
@@ -88,6 +91,54 @@ export interface DetectedSlashing {
     totalSlashAmount?: bigint;
     affectedValidatorCount?: number;
 }
+
+export interface SlashingTargetDetail {
+    sequencer: Address;
+    epochIndex: number;
+    committeeIndex: number;
+    targetEpoch: bigint;
+    voteCount: number;
+    support: number;
+    maxSlashUnits: number;
+    unitVoteCounts: [number, number, number];
+    slashUnits?: number;
+    amount?: bigint;
+    escaped?: boolean;
+    actionIndex?: number;
+}
+
+export interface ConfirmedSlash {
+    sequencer: Address;
+    targetEpoch: bigint;
+    round: bigint;
+    amount: bigint;
+    actionIndex: number;
+    transactionHash: `0x${string}`;
+    blockNumber: bigint;
+    blockHash: `0x${string}`;
+    ejected: boolean;
+    attesterStatus: number;
+}
+
+export interface ConfirmedExecution {
+    round: bigint;
+    slashCount: bigint;
+    transactionHash: `0x${string}`;
+    blockNumber: bigint;
+    blockHash: `0x${string}`;
+}
+
+export interface ExecutionHistoryScan {
+    status: 'idle' | 'scanning' | 'complete' | 'paused';
+    targetFromBlock: bigint | null;
+    headBlock: bigint | null;
+    oldestScannedBlock: bigint | null;
+    scannedBlocks: bigint;
+    totalBlocks: bigint;
+    chunkSize: bigint;
+    lastError: string | null;
+}
+
 export interface SlashingStats {
     currentRound: bigint;
     totalRoundsMonitored: number;
@@ -100,7 +151,7 @@ export interface SlashingStats {
 
 export interface MonitorIssue {
     source: 'l1-rpc' | 'deployment';
-    scope: 'deployment' | 'chain-state' | 'rounds' | 'round-details';
+    scope: 'deployment' | 'chain-state' | 'rounds' | 'round-details' | 'execution-history';
     severity?: 'warning' | 'error';
     message: string;
     round?: bigint;
@@ -115,6 +166,9 @@ export interface MonitorAudit {
 
 export interface MonitorSnapshot extends CurrentChainState {
     detectedSlashings: Map<bigint, DetectedSlashing>;
+    confirmedExecutions: ConfirmedExecution[];
+    confirmedSlashes: ConfirmedSlash[];
+    executionScan: ExecutionHistoryScan;
     stats: SlashingStats;
     audit: MonitorAudit;
 }

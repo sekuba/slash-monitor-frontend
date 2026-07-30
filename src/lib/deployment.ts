@@ -97,8 +97,8 @@ export async function resolveDeploymentWithClient(
     });
 
     return {
-        deploymentBlockNumber: blockNumber,
-        deploymentTimestamp: head.timestamp,
+        resolvedAtBlockNumber: blockNumber,
+        resolvedAtTimestamp: head.timestamp,
         rollupAddress,
         slasherAddress,
         slashingProposerAddress,

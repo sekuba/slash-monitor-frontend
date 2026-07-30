@@ -13,8 +13,8 @@ const addresses = {
 };
 
 const deployment: DeploymentAddresses = {
-    deploymentBlockNumber: 123n,
-    deploymentTimestamp: 456n,
+    resolvedAtBlockNumber: 123n,
+    resolvedAtTimestamp: 456n,
     rollupAddress: addresses.rollup,
     slasherAddress: addresses.slasher,
     slashingProposerAddress: addresses.proposer,
@@ -32,8 +32,8 @@ describe('deployment discovery', () => {
         expect(deploymentsMatch(deployment, { ...deployment })).toBe(true);
         expect(deploymentsMatch(deployment, {
             ...deployment,
-            deploymentBlockNumber: 999n,
-            deploymentTimestamp: 999n,
+            resolvedAtBlockNumber: 999n,
+            resolvedAtTimestamp: 999n,
         })).toBe(true);
 
         const changes: Partial<DeploymentAddresses>[] = [

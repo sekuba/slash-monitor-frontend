@@ -1,67 +1,62 @@
 import { describe, expect, it } from 'vitest';
-import { parseAppSearch, urlForNetwork, urlForSequencer, urlForView } from './navigation';
+import {
+    parseAppSearch,
+    urlForCase,
+    urlForNetwork,
+    urlForView,
+    urlForWatchlist,
+} from './navigation';
 
-describe('query-based application navigation', () => {
-    it('parses supported views and defaults unknown values to the mainnet monitor', () => {
-        expect(parseAppSearch('')).toEqual({ view: 'monitor', network: 'mainnet', selectedEventId: null, selectedSequencer: null });
-        expect(parseAppSearch('?view=pingme&network=testnet&event=event_1&sequencer=0x1111111111111111111111111111111111111111')).toEqual({
-            view: 'pingme',
-            network: 'testnet',
-            selectedEventId: 'event_1',
-            selectedSequencer: '0x1111111111111111111111111111111111111111',
-        });
-        expect(parseAppSearch('?view=unknown&network=unknown&event=not%20valid&sequencer=invalid')).toEqual({
+describe('navigation', () => {
+    it('parses the view, network, public watchlist, and exact case', () => {
+        expect(parseAppSearch('')).toEqual({
             view: 'monitor',
             network: 'mainnet',
-            selectedEventId: null,
-            selectedSequencer: null,
+            watchlistAddresses: [],
+            selectedCaseId: null,
         });
-        expect(parseAppSearch('?view=admin')).toEqual({ view: 'monitor', network: 'mainnet', selectedEventId: null, selectedSequencer: null });
-    });
-
-    it('preserves the network and unrelated query state when changing views', () => {
-        const pingme = urlForView('https://slashmon.example/?network=testnet&utm_source=alert', 'pingme');
-        expect(pingme.searchParams.get('view')).toBe('pingme');
-        expect(pingme.searchParams.get('network')).toBe('testnet');
-        expect(pingme.searchParams.get('utm_source')).toBe('alert');
-
-        const monitor = urlForView(pingme.href, 'monitor');
-        expect(monitor.searchParams.has('view')).toBe(false);
-        expect(monitor.searchParams.get('network')).toBe('testnet');
-    });
-
-    it('removes a notification event whenever navigation leaves PINGME', () => {
-        const current = 'https://slashmon.example/?view=pingme&network=testnet&event=event-1';
-        expect(urlForView(current, 'monitor').searchParams.has('event')).toBe(false);
-        expect(urlForView(current, 'pingme').searchParams.get('event')).toBe('event-1');
-    });
-
-    it('preserves the active view when switching networks and drops a stale event selection', () => {
-        const next = urlForNetwork(
-            'https://slashmon.example/?view=pingme&network=testnet&event=testnet-event&utm_source=push',
-            'mainnet',
-        );
-        expect(parseAppSearch(next.search)).toEqual({
+        expect(parseAppSearch(
+            '?view=pingme&network=testnet&watch=0x1111111111111111111111111111111111111111%2C0x2222222222222222222222222222222222222222&case=case%3Atestnet%3Aabc',
+        )).toEqual({
             view: 'pingme',
-            network: 'mainnet',
-            selectedEventId: null,
-            selectedSequencer: null,
+            network: 'testnet',
+            watchlistAddresses: [
+                '0x1111111111111111111111111111111111111111',
+                '0x2222222222222222222222222222222222222222',
+            ],
+            selectedCaseId: 'case:testnet:abc',
         });
-        expect(next.searchParams.has('event')).toBe(false);
-        expect(next.searchParams.get('utm_source')).toBe('push');
     });
 
-    it('opens and clears a sequencer record without carrying an event selection', () => {
-        const address = '0x1111111111111111111111111111111111111111';
-        const record = urlForSequencer(
-            'https://slashmon.example/?view=pingme&event=event-1&utm_source=alert',
-            address,
+    it('keeps a case on its evidence page and clears focus when changing context', () => {
+        const caseUrl = urlForCase(
+            'https://slashveto.me/?watch=0x1111111111111111111111111111111111111111',
+            'case:mainnet:abc',
         );
-        expect(record.searchParams.get('view')).toBe('pingme');
-        expect(record.searchParams.get('sequencer')).toBe(address);
-        expect(record.searchParams.has('event')).toBe(false);
-        expect(record.searchParams.get('utm_source')).toBe('alert');
+        expect(caseUrl.searchParams.has('view')).toBe(false);
+        expect(caseUrl.searchParams.get('case')).toBe('case:mainnet:abc');
+        expect(caseUrl.searchParams.has('watch')).toBe(true);
+        expect(urlForView(caseUrl.href, 'monitor').searchParams.has('case')).toBe(false);
+        expect(urlForNetwork(caseUrl.href, 'testnet').searchParams.has('case')).toBe(false);
+    });
 
-        expect(urlForSequencer(record.href, null).searchParams.has('sequencer')).toBe(false);
+    it('creates credential-free links for watchlists on either page', () => {
+        const address = '0xABCDEFabcdefABCDEFabcdefABCDEFabcdefABCD';
+        const pingme = urlForWatchlist(
+            'https://slashveto.me/?case=case%3Amainnet%3Aabc',
+            'pingme',
+            'mainnet',
+            [address, address.toLowerCase()],
+        );
+        expect(pingme.searchParams.get('view')).toBe('pingme');
+        expect(pingme.searchParams.get('watch')).toBe(address.toLowerCase());
+        expect(pingme.searchParams.has('case')).toBe(false);
+        expect(pingme.href).not.toContain('token');
+    });
+
+    it('rejects a malformed watchlist atomically', () => {
+        expect(parseAppSearch(
+            '?watch=0x1111111111111111111111111111111111111111%2Cnope',
+        ).watchlistAddresses).toEqual([]);
     });
 });

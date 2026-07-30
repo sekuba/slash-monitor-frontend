@@ -4,6 +4,8 @@ import { createECDH } from 'node:crypto';
 const DEFAULT_ADMIN_POLL_INTERVAL_MS = 15_000;
 const DEFAULT_SENTINEL_POLL_INTERVAL_MS = 60_000;
 const DEFAULT_L1_POLL_INTERVAL_MS = 30_000;
+const DEFAULT_L1_SLASH_LOG_PROVIDER_TIMEOUT_MS = 30_000;
+const L1_SLASH_LOG_MAX_RUN_MS = 60_000;
 const DEFAULT_DATABASE_PATH = './data/slashmon.sqlite';
 const NETWORK_DEFAULTS = {
   mainnet: {
@@ -26,7 +28,9 @@ export function loadConfig(env = process.env, cwd = process.cwd()) {
   if (new URL(publicUrl).origin !== corsOrigin) {
     throw new Error('SLASHMON_PUBLIC_URL and BACKEND_CORS_ORIGIN must use the same browser origin');
   }
-  const l1RpcUrls = readUrlList(env.L1_RPC_URL ?? 'http://127.0.0.1:8545', 'L1_RPC_URL');
+  const l1RpcUrls = [
+    readHttpUrl(env.L1_RPC_URL ?? 'http://127.0.0.1:8545', 'L1_RPC_URL'),
+  ];
   const vapid = readVapid(env);
   const telegram = readTelegram(env);
 
@@ -98,10 +102,16 @@ export function loadConfig(env = process.env, cwd = process.cwd()) {
     l1MaxHeadAgeMs: 15 * 60_000,
     l1MaxHeadStallMs: 2 * 60_000,
     l1MaxFutureSkewMs: 2 * 60_000,
+    l1SlashLogStartBlock: readOptionalInteger(
+      env,
+      'L1_SLASH_LOG_START_BLOCK',
+      0,
+      1_000_000_000,
+    ),
     l1SlashLogLookbackBlocks: readInteger(
       env,
       'L1_SLASH_LOG_LOOKBACK_BLOCKS',
-      600,
+      50_000,
       1,
       10_000_000,
     ),
@@ -109,8 +119,14 @@ export function loadConfig(env = process.env, cwd = process.cwd()) {
     l1SlashLogOverlapBlocks: 12,
     l1SlashLogReorgRewindBlocks: 512,
     l1SlashLogMaxChunksPerPoll: 25,
-    l1SlashLogMaxRunMs: 20_000,
-    l1SlashLogProviderTimeoutMs: 5_000,
+    l1SlashLogMaxRunMs: L1_SLASH_LOG_MAX_RUN_MS,
+    l1SlashLogProviderTimeoutMs: readInteger(
+      env,
+      'L1_SLASH_LOG_PROVIDER_TIMEOUT_MS',
+      DEFAULT_L1_SLASH_LOG_PROVIDER_TIMEOUT_MS,
+      5_000,
+      45_000,
+    ),
 
     bindHost: readString(env.BACKEND_BIND_HOST, '127.0.0.1'),
     port: readInteger(env, 'BACKEND_PORT', 8_790, 1, 65_535),
@@ -124,108 +140,8 @@ export function loadConfig(env = process.env, cwd = process.cwd()) {
       1,
       100_000,
     ),
-    readRateLimitWindowMs: 60_000,
-    readRateLimitMax: readInteger(
-      env,
-      'BACKEND_READ_RATE_LIMIT_MAX_PER_MINUTE',
-      180,
-      1,
-      1_000_000,
-    ),
-    readRateLimitMaxGlobal: readInteger(
-      env,
-      'BACKEND_READ_RATE_LIMIT_MAX_PER_MINUTE_GLOBAL',
-      600,
-      1,
-      10_000_000,
-    ),
-    watchlistMutationRateLimitWindowMs: 60_000,
-    watchlistMutationRateLimitMax: readInteger(
-      env,
-      'BACKEND_WATCHLIST_MUTATION_RATE_LIMIT_MAX_PER_MINUTE',
-      20,
-      1,
-      100_000,
-    ),
-    subscriptionCreateMaxPerHourPerClient: readInteger(
-      env,
-      'BACKEND_SUBSCRIPTION_CREATE_MAX_PER_HOUR_PER_IP',
-      3,
-      1,
-      100_000,
-    ),
-    subscriptionCreateMaxPerDayPerClient: readInteger(
-      env,
-      'BACKEND_SUBSCRIPTION_CREATE_MAX_PER_DAY_PER_IP',
-      10,
-      1,
-      1_000_000,
-    ),
-    subscriptionCreateMaxPerHourGlobal: readInteger(
-      env,
-      'BACKEND_SUBSCRIPTION_CREATE_MAX_PER_HOUR_GLOBAL',
-      10,
-      1,
-      1_000_000,
-    ),
-    subscriptionCreateMaxPerDayGlobal: readInteger(
-      env,
-      'BACKEND_SUBSCRIPTION_CREATE_MAX_PER_DAY_GLOBAL',
-      50,
-      1,
-      10_000_000,
-    ),
-    notificationTestCooldownMs: readInteger(
-      env,
-      'BACKEND_NOTIFICATION_TEST_COOLDOWN_MS',
-      5 * 60_000,
-      1_000,
-      24 * 60 * 60_000,
-    ),
-    notificationTestMaxPerHourGlobal: readInteger(
-      env,
-      'BACKEND_NOTIFICATION_TEST_MAX_PER_HOUR_GLOBAL',
-      30,
-      1,
-      1_000_000,
-    ),
-    notificationTestMaxPerDayGlobal: readInteger(
-      env,
-      'BACKEND_NOTIFICATION_TEST_MAX_PER_DAY_GLOBAL',
-      100,
-      1,
-      10_000_000,
-    ),
-    webPushEnrollmentMaxPerHourPerWatchlist: readInteger(
-      env,
-      'BACKEND_WEB_PUSH_ENROLLMENT_MAX_PER_HOUR_PER_WATCHLIST',
-      3,
-      1,
-      100_000,
-    ),
-    webPushEnrollmentMaxPerDayPerWatchlist: readInteger(
-      env,
-      'BACKEND_WEB_PUSH_ENROLLMENT_MAX_PER_DAY_PER_WATCHLIST',
-      10,
-      1,
-      1_000_000,
-    ),
-    webPushEnrollmentMaxPerHourGlobal: readInteger(
-      env,
-      'BACKEND_WEB_PUSH_ENROLLMENT_MAX_PER_HOUR_GLOBAL',
-      20,
-      1,
-      1_000_000,
-    ),
-    webPushEnrollmentMaxPerDayGlobal: readInteger(
-      env,
-      'BACKEND_WEB_PUSH_ENROLLMENT_MAX_PER_DAY_GLOBAL',
-      100,
-      1,
-      10_000_000,
-    ),
     trustLoopbackProxy: readBoolean(env.BACKEND_TRUST_PROXY, false, 'BACKEND_TRUST_PROXY'),
-    maxSequencersPerWatchlist: 100,
+    maxWatchedSequencers: 100,
 
     deliveryPollIntervalMs: 1_000,
     deliveryBatchSize: 50,
@@ -358,6 +274,12 @@ function readInteger(env, name, defaultValue, min, max) {
   return value;
 }
 
+function readOptionalInteger(env, name, min, max) {
+  const raw = env[name];
+  if (raw === undefined || raw === '') return undefined;
+  return readInteger(env, name, undefined, min, max);
+}
+
 function readHttpUrl(raw, name) {
   let url;
   try {
@@ -372,14 +294,6 @@ function readHttpUrl(raw, name) {
     throw new Error(`${name} must not contain credentials`);
   }
   return url.toString();
-}
-
-function readUrlList(raw, name) {
-  const values = raw.split(',').map((value) => value.trim()).filter(Boolean);
-  if (values.length === 0 || values.length > 10) {
-    throw new Error(`${name} must contain between 1 and 10 URLs`);
-  }
-  return values.map((value) => readHttpUrl(value, name));
 }
 
 function readOptionalSecret(raw) {

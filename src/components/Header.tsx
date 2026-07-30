@@ -3,9 +3,14 @@ import type { AppView } from '@/lib/navigation';
 interface HeaderProps {
     activeView: AppView;
     onNavigate: (view: AppView) => void;
+    onOpenProtocolGuide: () => void;
 }
 
-export function Header({ activeView, onNavigate }: HeaderProps) {
+export function Header({
+    activeView,
+    onNavigate,
+    onOpenProtocolGuide,
+}: HeaderProps) {
     return (<header className="bg-brand-black border-b-6 border-chartreuse shadow-brutal-chartreuse">
       <div className="max-w-7xl mx-auto px-4 py-6">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
@@ -17,11 +22,18 @@ export function Header({ activeView, onNavigate }: HeaderProps) {
             </div>
             <div className="min-w-0">
               <h1 className="text-2xl font-black text-chartreuse tracking-tight sm:text-3xl">AZTEC SLASHING MONITOR</h1>
-              <p className="text-xs text-aqua font-bold uppercase tracking-wider sm:text-sm">Real-time Detection &amp; Veto</p>
+              <p className="text-xs text-aqua font-bold uppercase tracking-wider sm:text-sm">Early warning · exact L1 status · operator info</p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-3 sm:justify-end">
+            <button
+              type="button"
+              onClick={onOpenProtocolGuide}
+              className="brutal-button brutal-button--aqua"
+            >
+              How slashing works
+            </button>
             {(['monitor', 'pingme'] as const).map((view) => (
               <button
                 key={view}

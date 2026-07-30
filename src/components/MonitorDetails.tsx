@@ -73,12 +73,12 @@ export function MonitorDetails({ configInput, network, onResetRpc, onToggleNetwo
                             className={`brutal-button brutal-button--lg w-full sm:w-auto ${isMainnet ? 'brutal-button--danger' : 'brutal-button--aqua'}`}
                             aria-label={`Switch client scanner to ${isMainnet ? 'Testnet' : 'Mainnet'}`}
                         >
-                            <span className={`h-3 w-3 rounded-full ${isMainnet ? 'bg-vermillion' : 'bg-aqua'}`} aria-hidden="true" />
+                            <span className={`h-3 w-3 ${isMainnet ? 'bg-vermillion' : 'bg-aqua'}`} aria-hidden="true" />
                             {network}
                         </button>
                     </div>
                     <p className="mb-4 break-all font-mono text-xs text-whisper-white">
-                        {formatRpcUrls(configInput.l1RpcUrl)}
+                        {configInput.l1RpcUrl || 'Not configured'}
                         {override && (
                             <span className="ml-2 bg-chartreuse px-2 py-1 font-sans font-black text-brand-black">CUSTOM</span>
                         )}
@@ -117,8 +117,8 @@ export function MonitorDetails({ configInput, network, onResetRpc, onToggleNetwo
                 <MetadataSection title="Deployment">
                     <Metadata label="Chain ID" value={configInput.chainId.toString()} />
                     <Metadata label="Registry" value={configInput.registryAddress} />
-                    <Metadata label="Resolved at block" value={config?.deploymentBlockNumber.toString() ?? unavailable} />
-                    <Metadata label="Resolved at time" value={formatTimestamp(config?.deploymentTimestamp, unavailable)} />
+                    <Metadata label="Resolved at block" value={config?.resolvedAtBlockNumber.toString() ?? unavailable} />
+                    <Metadata label="Resolved at time" value={formatTimestamp(config?.resolvedAtTimestamp, unavailable)} />
                     <Metadata label="Rollup" value={config?.rollupAddress ?? unavailable} />
                     <Metadata label="Rollup version" value={config?.rollupVersion.toString() ?? unavailable} />
                     <Metadata label="Active Slasher" value={config?.slasherAddress ?? unavailable} />
@@ -171,11 +171,6 @@ function Metadata({ label, value }: { label: string; value: string }) {
             <div className="break-all font-mono text-sm font-bold text-whisper-white">{value}</div>
         </div>
     );
-}
-
-function formatRpcUrls(value: string | string[]): string {
-    const urls = Array.isArray(value) ? value : [value];
-    return urls.filter(Boolean).join(', ') || 'Not configured';
 }
 
 function formatTimestamp(value: bigint | undefined, unavailable: string, zeroLabel?: string): string {
