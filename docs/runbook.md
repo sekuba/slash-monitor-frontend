@@ -2,8 +2,7 @@
 
 Production is one Node 24 process, one SQLite database, one Aztec public/admin
 endpoint pair, one archive-capable Ethereum RPC, and an HTTPS reverse proxy or
-Cloudflare Tunnel. Never run two processes against the same database or poll
-the same Telegram bot from production and testing.
+Cloudflare Tunnel.
 
 ## Prepare the environment
 
