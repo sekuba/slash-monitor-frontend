@@ -1,85 +1,89 @@
 # slashveto.me
 
-slashveto.me helps Aztec sequencer operators answer two questions:
-
-1. Is one of my sequencers beginning to move through the slashing process?
-2. What does confirmed L1 state say about slashing risk across the network?
-
-An operator enters one or more sequencer addresses. For each address,
-slashveto.me should show a single, linked Slashing Timeline rather than a collection
-of unrelated events:
+slashveto.me tracks an Aztec sequencer from the first observed duty miss to an
+L1 slash and ejection:
 
 ```text
-duty miss → node offense → L1 mention → candidate → execution delay
+duty miss → node offense → L1 vote → quorum → execution delay
           → executable → executed → stake removed → ejection
 ```
 
-That path can stop at any step. Examples include “one inactive epoch observed;
-the configured consecutive-epoch threshold has not been met” and “candidate
-slash becomes executable in two days; this node observed inactivity in the
-target epoch.” The second statement deliberately says **node evidence**:
-onchain slash votes contain a validator, target epoch, and penalty unit, but no
-offense reason.
+A path can stop at any step. The product keeps candidate amounts, executed
+rounds, and actual stake deductions separate. L1 votes do not encode an
+offense reason; a displayed reason is always labelled as evidence from the
+attached Aztec node.
 
-## Two independent views
+## Surfaces
 
-| Surface | Data source | Purpose |
+| Surface | Source | Purpose |
 | --- | --- | --- |
-| **Monitor** | Public Ethereum RPCs, queried by the browser | Backend-independent view of canonical contracts, rounds, votes, candidate actions, vetoes, execution, and actual slash logs. |
-| **PINGME** | slashveto.me backend, one Aztec node, Ethereum RPCs | Earlier node and Sentinel warnings, linked per-sequencer history, realtime status, and Telegram or Web Push delivery. |
+| **Monitor** | Ethereum RPC queried in the browser | Independent view of canonical contracts, votes, candidates, execution, and slash logs. |
+| **PINGME** | Backend using one Aztec node and Ethereum RPC | Earlier Sentinel/offense evidence, durable cases, and Telegram or Web Push alerts. |
 
-The overlap is intentional. Monitor must remain useful when
-`api.slashveto.me` or the attached Aztec node is unavailable. PINGME provides
-continuity while a browser is closed and evidence that is not published to L1.
-Neither view is an oracle: local evidence is an observer's report, while L1
-reveals voting and stake outcomes but not the underlying offense.
+Monitor never calls the backend. PINGME keeps the last known state when one
+source fails and reports that source as stale. Neither surface is an oracle:
+node evidence is one observer's report, while L1 establishes contract state
+without revealing the reason behind a vote.
 
-Both views expose the same case feed and educational Slashing Timeline.
-Watchlists can be shared as address-only URLs without exposing PINGME's private
-management capability. Individual cases retain a compact copy-link action for
-alerts and investigations.
+The primary object is a slashing case: network, contract lineage, sequencer,
+and target epoch with its source observations and state transitions. Linking is
+exact and conservative. An actual slash joins through its execution transaction
+and action order, never by address and approximate time.
 
-Watchlist rows collapse cases per sequencer and retain a compact stake and
-pending-amount summary. The public feed collapses only cases that share an
-exact payload address.
+## Repository
 
-## Read this first
+- `shared/protocol/` contains the pure case projection, tallying, transitions,
+  and notification wording shared by frontend and backend.
+- `src/` contains the React PWA and independent browser L1 collector.
+- `collector/` contains the Node backend, SQLite repository, three evidence
+  collectors, API, durable outbox, Telegram, and Web Push.
+- `scripts/deploy-backend.sh` installs an immutable backend release under
+  systemd.
 
-- [Aztec protocol model](docs/protocol.md) — slots, blocks, checkpoints,
-  committees, proposals, signals, and proofs
-- [Slashing and ejection](docs/slashing.md) — all v5 offenses and the exact
-  warning-to-stake-removal lifecycle
-- [Monitor architecture](docs/architecture.md) — trust boundaries, case
-  linking, and requirements for the refactor
-- [V3 architecture record](docs/v3-plan.md) — the implemented case-first
-  clean break and its acceptance contract
-- [Notification contract](docs/notifications.md) — what an alert may claim at
-  each stage
-- [Privacy](docs/privacy.md) and [production runbook](docs/runbook.md)
+The backend API is rooted at `/api`. `/live` reports process liveness and
+`/health` reports whether the required evidence sources are current.
 
-The protocol documentation was researched against the active Aztec mainnet
-deployment and `aztec-packages` commit
-[`def7152a`](https://github.com/AztecProtocol/aztec-packages/tree/def7152aa13dc0f880f24e45ce39442908170878)
-on 2026-07-29. Parameters and canonical contracts are upgradeable. Runtime
-views must resolve them from the Registry and read their current values rather
-than treating the examples in these documents as constants.
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/config`, `/api/status`, `/api/network` | Capabilities, freshness, protocol state, and public cases |
+| `GET` | `/api/sequencers/:address`, `/api/cases/:id` | Public sequencer and exact-case views |
+| `POST` | `/api/watches` | Create a private watch and return its management token once |
+| `GET/PATCH/DELETE` | `/api/watches/:id` | Bearer-authenticated watch management |
+| `PUT/DELETE` | `/api/watches/:id/channels/web_push` | Web Push enrollment |
+| `POST` | `/api/watches/:id/channels/telegram-link` | One-time Telegram enrollment link |
+| `POST` | `/api/watches/:id/channels/test` | Queue a test alert |
 
 ## Development
 
-Use Node 24 and the pinned pnpm version:
+Node 24 and the pinned pnpm version are required:
 
 ```bash
 corepack enable
-pnpm install
+pnpm install --frozen-lockfile
 cp .env.example .env
 cp collector/.env.example collector/.env
 pnpm dev
 pnpm dev:backend
 ```
 
-Run `pnpm check` before deployment. All `VITE_*` values are public. RPC
-credentials, Telegram tokens, VAPID private keys, and the Aztec admin endpoint
-belong only in the backend environment.
+Run the release gate with:
 
-The ignored `apiReference.md` and `onchainSources.md` files are research
-snapshots, not runtime inputs or committed documentation.
+```bash
+pnpm check
+```
+
+Every `VITE_*` value is public. RPC credentials, Aztec admin credentials,
+Telegram tokens, VAPID private keys, and the SQLite database belong only in the
+backend environment. The ignored `apiReference.md` and `onchainSources.md` are
+local research inputs, not runtime dependencies or published documentation.
+
+## Documentation
+
+- [Protocol and correctness model](docs/protocol.md)
+- [Notification contract](docs/notifications.md)
+- [Production runbook](docs/runbook.md)
+
+The protocol model was checked against the active Aztec mainnet deployment and
+[`aztec-packages` commit `def7152a`](https://github.com/AztecProtocol/aztec-packages/tree/def7152aa13dc0f880f24e45ce39442908170878)
+on 2026-07-29. Contracts and parameters are upgradeable; runtime code discovers
+the responsible lineage and reads its values.

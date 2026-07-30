@@ -11,7 +11,7 @@ import type {
 } from '@/types/backendApi';
 
 const REQUEST_TIMEOUT_MS = 12_000;
-const API_ROOT = '/api/v3';
+const API_ROOT = '/api';
 
 export class BackendApiError extends Error {
     constructor(

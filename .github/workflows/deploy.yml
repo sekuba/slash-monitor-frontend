@@ -48,7 +48,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Require reachable HTTPS endpoints for the PWA
+      - name: Require HTTPS endpoints for the PWA
         env:
           PUBLIC_API_ORIGIN: https://api.slashveto.me
           MAINNET_L1_RPC_URL: ${{ vars.VITE_L1_RPC_URL }}

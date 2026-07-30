@@ -4,7 +4,7 @@ import test from 'node:test';
 import { CaseRepository } from '../src/case-repository.mjs';
 import { SentinelCollector } from '../src/sentinel-collector.mjs';
 import { SEQUENCER_A, silentLogger } from './helpers.mjs';
-import { REGISTRY, protocolSnapshot } from './v3-fixtures.mjs';
+import { REGISTRY, protocolSnapshot } from './case-fixtures.mjs';
 
 test('sentinel reports an unavailable canonical L1 dependency', async () => {
   const repository = createRepository();

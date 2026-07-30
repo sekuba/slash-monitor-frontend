@@ -5,7 +5,7 @@ import { CaseRepository } from '../src/case-repository.mjs';
 import { OffenseCollector, validateNodeIdentity } from '../src/collector.mjs';
 import { parseOffenseSnapshot } from '../src/offenses.mjs';
 import { OFFENSE_A, silentLogger } from './helpers.mjs';
-import { REGISTRY, ROLLUP, protocolSnapshot } from './v3-fixtures.mjs';
+import { REGISTRY, ROLLUP, protocolSnapshot } from './case-fixtures.mjs';
 
 test('node identity comparison is case-insensitive but rejects a different Rollup', () => {
   assert.doesNotThrow(() => validateNodeIdentity({

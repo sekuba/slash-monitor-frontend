@@ -10,7 +10,7 @@ import {
   hash,
   protocolSnapshot,
   targetRound,
-} from './v3-fixtures.mjs';
+} from './case-fixtures.mjs';
 
 test('confirmed Slashed logs attach only to an exact execution case', async () => {
   const repository = createRepository();

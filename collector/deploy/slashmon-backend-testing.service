@@ -1,6 +1,6 @@
 [Unit]
 Description=slashveto.me testing backend
-Documentation=file:/opt/slashmon/testing/collector/README.md
+Documentation=file:/opt/slashmon/testing/docs/runbook.md
 Wants=network-online.target
 After=network-online.target
 StartLimitIntervalSec=60

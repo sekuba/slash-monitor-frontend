@@ -5,8 +5,8 @@ export interface StoredWatchCredentials {
     managementToken: string;
 }
 
-const STORAGE_PREFIX = 'slashmon:v3:watch:';
-const CHANGE_EVENT_PREFIX = 'slashmon:v3:watch-change:';
+const STORAGE_PREFIX = 'slashmon:watch:';
+const CHANGE_EVENT_PREFIX = 'slashmon:watch-change:';
 
 export function isWatchStorageSafe(
     locationValue: { readonly hostname: string } | undefined =

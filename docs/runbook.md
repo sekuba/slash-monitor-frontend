@@ -1,143 +1,124 @@
 # Production runbook
 
-The production deployment is one Node 24 backend, one SQLite database, one
-private Aztec admin endpoint, one Ethereum RPC, and an HTTPS reverse proxy or
-Cloudflare Tunnel. A fully isolated testing backend may run beside it. Never
-run two processes against the same database or with the same Telegram bot:
-provider delivery and Telegram polling are single-writer work.
+Production is one Node 24 process, one SQLite database, one Aztec public/admin
+endpoint pair, one archive-capable Ethereum RPC, and an HTTPS reverse proxy or
+Cloudflare Tunnel. Never run two processes against the same database or poll
+the same Telegram bot from production and testing.
 
-## Prepare
+## Prepare the environment
 
 Install Node 24 at `/usr/local/bin/node`, enable Corepack, and create the
-protected environment:
+protected production env:
 
 ```bash
 /usr/local/bin/node --version
 corepack enable
-sudo install -m 0600 collector/deploy/slashmon-backend.env.example /etc/slashmon-backend.env
+sudo install -m 0600 collector/deploy/slashmon-backend.env.example \
+  /etc/slashmon-backend.env
 sudoedit /etc/slashmon-backend.env
 ```
 
-Set:
+The minimal production file is:
 
-- the network, public PWA URL, and exact CORS origin;
-- public and admin endpoints for the same Aztec node;
-- one Ethereum RPC; and
-- optional Telegram and Web Push credentials.
+```dotenv
+SLASHMON_PUBLIC_URL=https://slashveto.me
+BACKEND_CORS_ORIGIN=https://slashveto.me
+BACKEND_TRUST_PROXY=true
+AZTEC_NODE_URL=http://127.0.0.1:8080
+AZTEC_ADMIN_URL=http://127.0.0.1:8880
+L1_RPC_URL=https://YOUR-ARCHIVE-ETHEREUM-RPC
+L1_SLASH_LOG_START_BLOCK=25533241
+```
 
-Keep the Aztec admin endpoint and all credentials private. Choose
-`L1_SLASH_LOG_START_BLOCK=25533241` to index mainnet v5 from its first Rollup
-block. This requires an archive RPC. The setting safely re-anchors an existing
-database whose durable log cursor was created with a different start, and
-historical observations do not send notifications. Leave it unset to use
-`L1_SLASH_LOG_LOOKBACK_BLOCKS` for a head-relative initial backfill instead.
-Log requests remain fixed at 1,000 blocks to support RPCs with that maximum.
-Each provider gets 30 seconds for a chunk, and each backfill pass yields after
-60 seconds so a fresh L1 snapshot runs regularly. For a slower archive node,
-raise `L1_SLASH_LOG_PROVIDER_TIMEOUT_MS` up to `45000`; keep it below the
-60-second pass budget.
+Change the public origin and three upstream URLs. Keep
+`BACKEND_TRUST_PROXY=true` only when a trusted proxy connects directly to the
+loopback listener. Add `AZTEC_NODE_API_KEY` or `AZTEC_ADMIN_API_KEY` only when
+the corresponding endpoint requires one.
 
-To expand an existing production or testing database, add the setting to that
-service's `/etc/slashmon-backend*.env` and deploy with `--upgrade`. Do not reset
-the database. The first log poll recognizes the changed anchor, starts again at
-block `25533241`, and advances the same SQLite journal toward the confirmed
-head. Set `BACKEND_LOG_LEVEL=debug` temporarily to follow each checkpoint in
-the service journal. Removing the setting later returns to normal cursor-based
-collection; it does not delete indexed history.
+Add a complete Telegram pair and/or VAPID triple to enable notifications:
 
-Every successful chunk advances the durable block/hash checkpoint. A failed
-chunk leaves that checkpoint unchanged and is safe to retry after an upgrade.
-Historical slash transactions require archive state calls at their execution
-blocks so the backend can reconstruct rounds that are no longer in the live
-snapshot. No manual cursor or database reset is required after fixing such a
-failure.
+```dotenv
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_BOT_USERNAME=...
+VAPID_SUBJECT=mailto:operator@example.com
+VAPID_PUBLIC_KEY=...
+VAPID_PRIVATE_KEY=...
+```
 
-Sentinel defaults are intentionally bounded. The collector checks sync on idle
-polls, then fetches the confirmed committee and exact-range history only when
-an epoch becomes ready. If the node overrides its Sentinel epoch-end buffer,
-set the backend buffer to the same value. All optional collection and abuse
-controls are documented in
-[`collector/.env.example`](../collector/.env.example).
-
-Telegram and Web Push are independently optional. Generate a stable VAPID
-keypair with:
+Generate VAPID keys with:
 
 ```bash
 pnpm --filter @slashmon/backend exec web-push generate-vapid-keys
 ```
 
-Changing VAPID keys invalidates existing browser subscriptions.
+All omitted collection, retry, request-limit, bind, port, and log settings use
+the defaults in `collector/src/config.mjs`. The deployer preserves only
+supported settings and removes empty or obsolete entries from the installed
+env.
 
-### Optional parallel testing backend
+`L1_SLASH_LOG_START_BLOCK=25533241` starts the mainnet slash-log journal at the
+first Rollup block for the current stack. It requires archive state reads.
+Historical chunks advance a durable block/hash checkpoint and do not queue
+historical notifications. A failed chunk leaves the checkpoint unchanged.
 
-Create a second protected environment before its first deployment:
+## Fresh install, wipe, or upgrade
 
-```bash
-sudo install -m 0600 collector/deploy/slashmon-backend-testing.env.example \
-  /etc/slashmon-backend-testing.env
-sudoedit /etc/slashmon-backend-testing.env
-```
-
-`BACKEND_PORT` is mandatory for testing and must differ from production. The
-example uses `127.0.0.1:8791`; configure the testing hostname in the Cloudflare
-dashboard to use that origin. The deployer does not change tunnel settings.
-
-Testing has its own service, environment, current-release symlink, SQLite
-database, backup directory, watches, cursors, and delivery queue. It may read
-the same Aztec node and Ethereum RPC as production. Use a separate Telegram
-bot token, or leave Telegram disabled, because Telegram permits only one
-long-polling consumer per bot. A separate PWA origin and VAPID keypair are
-recommended when exercising browser enrollment and push delivery.
-
-## Deploy
-
-Run exactly one mode from a clean checkout:
+Run the script from a clean checkout as its normal owner:
 
 ```bash
-# Production
+# First install, or an intentional irreversible deletion of all backend state
+# and retained backend backups:
 scripts/deploy-backend.sh --fresh
-scripts/deploy-backend.sh --upgrade
+
+# Installed service: verify and back up SQLite, then start with a new database:
 scripts/deploy-backend.sh --reset-db
 
-# Parallel testing service
-scripts/deploy-backend.sh --testing --fresh
-scripts/deploy-backend.sh --testing --upgrade
-scripts/deploy-backend.sh --testing --reset-db
+# Installed service: verify and back up SQLite, then preserve the database:
+scripts/deploy-backend.sh --upgrade
 ```
 
-- `--fresh` is for first installation or an intentional full reset. It removes
-  backend state and its backup directory without creating a backup.
-- `--upgrade` stops the writer, checkpoints and verifies SQLite, makes a
-  timestamped backup, switches releases, and preserves state.
-- `--reset-db` makes the same verified backup and then removes only the active
-  SQLite database and sidecars. Watches, cases, channels, and cursors start
-  empty.
-- `--testing` scopes every operation to `slashmon-backend-testing.service` and
-  its state. Even `--testing --fresh` does not stop or alter production.
+For this production cutover, use `--fresh` when
+`slashmon-backend.service` has never been installed. Use `--reset-db` when it
+is already installed and the current database should be wiped. Both start an
+empty schema and backfill from the configured anchor; only `--reset-db` retains
+a verified copy of the previous database.
 
-There is no automatic rollback or general schema migration. Keep the prior
-release and verified backup until source health and test deliveries succeed.
-The default database is `/var/lib/slashmon/slashmon.sqlite`.
-The testing database is `/var/lib/slashmon-testing/slashmon.sqlite`.
+Stop and disable any differently named backend that still owns port 8790 before
+`--fresh`. The deployer manages only `slashmon-backend.service` and refuses to
+start when another process is listening.
 
-For a self-hosted PWA, run `pnpm build` and serve `dist/` as static files.
-Frontend RPC URLs must be public HTTPS endpoints; every `VITE_*` setting is
-visible to the browser.
+The backend creates its current schema only in an empty database. It has no
+schema migrations or compatibility API. `--upgrade` is valid only while the
+installed database already has the exact current schema.
 
-## HTTPS boundary
+The script builds an immutable release from the current commit, installs
+production dependencies with the frozen lockfile, stops the single writer,
+installs the hardened systemd service, and waits for `/live`. The production
+database is `/var/lib/slashmon/slashmon.sqlite`; backups are stored under
+`/var/backups/slashmon`.
 
-Keep the backend on `127.0.0.1:8790` and expose only `/api/v3/*` over HTTPS.
-Apply proxy-level read limits; the process applies request-body and mutation
-limits. The PWA origin
-must exactly match `BACKEND_CORS_ORIGIN`; `SLASHMON_PUBLIC_URL` is the complete
-installed URL used in notifications.
+An isolated testing deployment uses the same arguments with `--testing` first:
 
-Set `BACKEND_TRUST_PROXY=true` only when a Cloudflare Tunnel connects directly
-to the loopback listener. The backend then accepts Cloudflare's canonical
-client address and a constrained forwarded-address fallback. Otherwise leave
-it false.
+```bash
+scripts/deploy-backend.sh --testing --fresh
+scripts/deploy-backend.sh --testing --reset-db
+scripts/deploy-backend.sh --testing --upgrade
+```
 
-Use a restrictive browser policy. A starting point is:
+Testing requires `/etc/slashmon-backend-testing.env`, an explicit nonproduction
+port, separate state, and a different Telegram bot.
+
+## HTTPS and browser boundary
+
+Keep the backend on `127.0.0.1:8790` and expose only `/api/*` over HTTPS.
+`/live` and `/health` are local operator probes and must not be included in the
+Cloudflare Tunnel route. The PWA origin must exactly match
+`BACKEND_CORS_ORIGIN`; `SLASHMON_PUBLIC_URL` is the complete installed PWA URL
+used in notifications.
+
+Apply proxy request limits and send HSTS, `X-Content-Type-Options: nosniff`, a
+no-referrer policy, and a restrictive Content Security Policy. A starting
+policy is:
 
 ```text
 default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
@@ -146,38 +127,46 @@ connect-src 'self' https://YOUR-L1-RPCS; base-uri 'self';
 form-action 'self'; frame-ancestors 'none'
 ```
 
-Also send HSTS, `X-Content-Type-Options: nosniff`, and a no-referrer policy.
-Add only the actual API and operator-selectable Monitor RPC origins to
-`connect-src`.
+Add the API origin and only the actual browser-selectable Monitor RPC origins
+to `connect-src`.
 
-PINGME needs a dedicated browser origin because its management token is an
-origin-wide bearer capability. A shared `name.github.io` origin is suitable
-only for the public Monitor.
+PINGME needs a dedicated browser origin because its management token is stored
+as an origin-wide bearer capability. Do not add analytics, ads, tag managers,
+or third-party scripts to that origin.
 
 ## Verify
 
 ```bash
 curl --fail http://127.0.0.1:8790/live
 curl --fail http://127.0.0.1:8790/health
+curl --fail http://127.0.0.1:8790/api/config
 journalctl -u slashmon-backend.service --since '10 minutes ago'
-
-curl --fail http://127.0.0.1:8791/live
-curl --fail http://127.0.0.1:8791/health
-journalctl -u slashmon-backend-testing.service --since '10 minutes ago'
 ```
 
-Confirm:
+`/health` remains `503` while the three evidence views are starting or stale.
+Before opening watches, confirm:
 
-- Aztec and L1 cursors advance independently and report freshness;
-- node, Registry, Rollup, chain, and database identities agree;
-- confirmed-log catch-up reaches healthy state;
-- a Telegram link and test work, when configured; and
-- Web Push verification and a test alert work, when configured.
+- the node, Registry, Rollup, chain, and database identities agree;
+- Aztec, Sentinel, current L1, and historical slash-log cursors advance;
+- slash-log backfill reaches the confirmed head;
+- Telegram linking and a test alert work when configured; and
+- Web Push enrollment and a test alert work when configured.
 
-An upstream outage should degrade one source without deleting its last good
-state or stopping the other source. Repeated restarts do not repair a stale
-node or RPC. Web Push 404/410 disables only that endpoint; shared
-authentication failures remain visible and retryable.
+An outage must degrade one source without deleting its last good state.
+Changing VAPID keys invalidates existing Web Push subscriptions. Web Push
+404/410 disables only that endpoint.
 
-Delivery is at-least-once. A crash after provider acceptance but before the
-success commit can duplicate an alert; compare stable transition IDs.
+## Sensitive data
+
+The database contains public sequencer evidence plus private watch membership,
+hashed management/link tokens, Telegram chat IDs, Web Push endpoints and
+encryption material, and delivery state. Protect it and its backups as secrets.
+The systemd unit uses a private state directory and `UMask=0077`.
+
+The API never exposes watch membership, endpoints, tokens, or delivery state
+without the bearer management token. Logs must not contain RPC credentials,
+provider tokens, management or link tokens, push key material, Telegram chat
+associations, or full secret URLs.
+
+slashveto.me never needs validator keys, seed phrases, wallet signatures, or an
+Aztec keystore.

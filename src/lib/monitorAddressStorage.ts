@@ -1,6 +1,6 @@
 import type { MonitorNetwork } from '@/types/backendApi';
 
-const PREFIX = 'slashmon:v3:monitor-addresses:';
+const PREFIX = 'slashmon:monitor-addresses:';
 
 export function loadMonitorAddresses(network: MonitorNetwork): string[] {
     try {

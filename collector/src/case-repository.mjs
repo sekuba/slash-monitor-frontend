@@ -31,6 +31,25 @@ const DUTY_STATUSES = new Set([
 ]);
 const DELIVERY_RETENTION_MS = 30 * 24 * 60 * 60_000;
 const TOKEN_RETENTION_MS = 24 * 60 * 60_000;
+const DATABASE_APPLICATION_ID = 0x534c4d4e;
+const DATABASE_SCHEMA_VERSION = 3;
+const DATABASE_TABLES = new Set([
+  'runtime_identity',
+  'source_state',
+  'protocol_snapshot',
+  'observations',
+  'cases',
+  'case_transitions',
+  'offense_state',
+  'sentinel_epoch_index',
+  'sentinel_performance',
+  'watches',
+  'watch_addresses',
+  'delivery_endpoints',
+  'telegram_links',
+  'telegram_state',
+  'deliveries',
+]);
 
 export class CaseRepository {
   constructor(databasePath) {
@@ -51,14 +70,27 @@ export class CaseRepository {
   }
 
   initializeSchema() {
+    const applicationId = Number(
+      this.db.prepare('PRAGMA application_id').get().application_id,
+    );
     const version = Number(this.db.prepare('PRAGMA user_version').get().user_version);
-    const tableCount = Number(this.db.prepare(`
-      SELECT COUNT(*) AS count FROM sqlite_master
+    const tables = this.db.prepare(`
+      SELECT name FROM sqlite_master
       WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
-    `).get().count);
-    if (version === 3 && tableCount > 0) return;
-    if (version !== 0 || tableCount !== 0) {
-      throw new Error(`slashveto.me v3 requires an empty database; found schema ${version}`);
+      ORDER BY name
+    `).all().map((row) => row.name);
+    if (
+      applicationId === DATABASE_APPLICATION_ID &&
+      version === DATABASE_SCHEMA_VERSION &&
+      sameValues(tables, DATABASE_TABLES)
+    ) {
+      return;
+    }
+    if (applicationId !== 0 || version !== 0 || tables.length !== 0) {
+      throw new Error(
+        `slashveto.me requires an empty database or its exact current schema; ` +
+        `found application ${applicationId}, schema ${version}, ${tables.length} tables`,
+      );
     }
     this.db.exec(`
       BEGIN IMMEDIATE;
@@ -228,7 +260,8 @@ export class CaseRepository {
       CREATE INDEX deliveries_ready_idx
         ON deliveries(status, next_attempt_at, created_at);
 
-      PRAGMA user_version = 3;
+      PRAGMA application_id = ${DATABASE_APPLICATION_ID};
+      PRAGMA user_version = ${DATABASE_SCHEMA_VERSION};
       COMMIT;
     `);
   }
@@ -273,7 +306,7 @@ export class CaseRepository {
         existing.registryAddress !== normalized.registryAddress
       ) {
         throw new Error(
-          `slashveto.me v3 database belongs to ${existing.network} chain ${existing.chainId} ` +
+          `slashveto.me database belongs to ${existing.network} chain ${existing.chainId} ` +
           `Registry ${existing.registryAddress}`,
         );
       }
@@ -2020,4 +2053,9 @@ function parseJson(value, fallback) {
 
 function truncate(value, max = 1_000) {
   return String(value?.message ?? value ?? 'Unknown error').slice(0, max);
+}
+
+function sameValues(values, expected) {
+  return values.length === expected.size &&
+    values.every((value) => expected.has(value));
 }

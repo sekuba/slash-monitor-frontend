@@ -8,9 +8,9 @@ import {
   REGISTRY,
   protocolSnapshot,
   targetRound,
-} from './v3-fixtures.mjs';
+} from './case-fixtures.mjs';
 
-test('v3 API exposes current cases and capability-authenticated watches only', async (t) => {
+test('API exposes current cases and capability-authenticated watches only', async (t) => {
   const repository = new CaseRepository(':memory:');
   repository.bindRuntimeIdentity({
     network: 'mainnet',
@@ -41,7 +41,7 @@ test('v3 API exposes current cases and capability-authenticated watches only', a
     repository.close();
   });
 
-  const status = await json(base, '/api/v3/status');
+  const status = await json(base, '/api/status');
   assert.equal(status.response.status, 200);
   assert.equal(status.body.status, 'healthy');
   assert.deepEqual(
@@ -49,12 +49,17 @@ test('v3 API exposes current cases and capability-authenticated watches only', a
     ['ethereum_l1', 'aztec_node', 'aztec_sentinel'],
   );
 
-  const network = await json(base, '/api/v3/network');
+  const config = await json(base, '/api/config');
+  assert.equal(config.response.status, 200);
+  assert.equal(config.body.network, 'mainnet');
+  assert.equal('apiVersion' in config.body, false);
+
+  const network = await json(base, '/api/network');
   assert.equal(network.body.cases.length, 1);
   assert.equal(network.body.cases[0].targetEpoch, '24');
   assert.equal(network.body.summary.candidates, 1);
 
-  const created = await json(base, '/api/v3/watches', {
+  const created = await json(base, '/api/watches', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -66,7 +71,7 @@ test('v3 API exposes current cases and capability-authenticated watches only', a
   assert.equal(created.body.watch.cases.length, 1);
   assert.match(created.body.managementToken, /^[A-Za-z0-9_-]+$/);
 
-  const watchPath = `/api/v3/watches/${created.body.watch.id}`;
+  const watchPath = `/api/watches/${created.body.watch.id}`;
   assert.equal((await json(base, watchPath)).response.status, 401);
   const updated = await json(base, watchPath, {
     method: 'PATCH',
@@ -80,12 +85,12 @@ test('v3 API exposes current cases and capability-authenticated watches only', a
   assert.deepEqual(updated.body.addresses, [SEQUENCER_A, SEQUENCER_B]);
   assert.equal(updated.response.headers.get('access-control-allow-origin'), 'https://slashveto.example');
 
-  const removedApi = await json(base, '/api/v2/network');
-  assert.equal(removedApi.response.status, 404);
-  assert.equal(removedApi.body.error.code, 'not_found');
+  const versionedApi = await json(base, '/api/v3/network');
+  assert.equal(versionedApi.response.status, 404);
+  assert.equal(versionedApi.body.error.code, 'not_found');
 });
 
-test('v3 API links an encoded case id without an event-feed lookup', async (t) => {
+test('API links an encoded case id without an event-feed lookup', async (t) => {
   const repository = new CaseRepository(':memory:');
   repository.bindRuntimeIdentity({
     network: 'mainnet',
@@ -111,7 +116,7 @@ test('v3 API links an encoded case id without an event-feed lookup', async (t) =
     repository.close();
   });
 
-  const found = await json(base, `/api/v3/cases/${encodeURIComponent(item.id)}`);
+  const found = await json(base, `/api/cases/${encodeURIComponent(item.id)}`);
   assert.equal(found.response.status, 200);
   assert.equal(found.body.id, item.id);
   assert.ok(found.body.transitions.length >= 1);

@@ -9,7 +9,6 @@ import type {
 export type MonitorNetwork = Network;
 
 export interface BackendConfig {
-    apiVersion: 3;
     network: MonitorNetwork;
     maxSequencers: number;
     notifications: {

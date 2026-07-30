@@ -7,7 +7,7 @@ import test from 'node:test';
 
 import { CaseRepository } from '../src/case-repository.mjs';
 import { parseOffenseSnapshot } from '../src/offenses.mjs';
-import { protocolSnapshot, targetRound } from './v3-fixtures.mjs';
+import { protocolSnapshot, targetRound } from './case-fixtures.mjs';
 
 const REGISTRY = '0x1111111111111111111111111111111111111111';
 const ROLLUP = '0x2222222222222222222222222222222222222222';
@@ -400,16 +400,35 @@ test('withdrawn node evidence can reactivate the same exact offense case', () =>
   repository.close();
 });
 
-test('v3 refuses a nonempty legacy database instead of migrating it', () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'slashmon-v3-'));
-  const databasePath = path.join(directory, 'legacy.sqlite');
+test('repository refuses a nonempty incompatible database instead of migrating it', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'slashmon-schema-'));
+  const databasePath = path.join(directory, 'incompatible.sqlite');
   try {
-    const legacy = new DatabaseSync(databasePath);
-    legacy.exec('CREATE TABLE events(id TEXT PRIMARY KEY); PRAGMA user_version = 1');
-    legacy.close();
+    const incompatible = new DatabaseSync(databasePath);
+    incompatible.exec('CREATE TABLE events(id TEXT PRIMARY KEY); PRAGMA user_version = 1');
+    incompatible.close();
     assert.throws(
       () => new CaseRepository(databasePath),
-      /requires an empty database; found schema 1/,
+      /requires an empty database or its exact current schema/,
+    );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('repository reopens only an exact database owned by slashveto.me', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'slashmon-schema-'));
+  const databasePath = path.join(directory, 'slashmon.sqlite');
+  try {
+    new CaseRepository(databasePath).close();
+    assert.doesNotThrow(() => new CaseRepository(databasePath).close());
+
+    const altered = new DatabaseSync(databasePath);
+    altered.exec('CREATE TABLE unrelated(value TEXT)');
+    altered.close();
+    assert.throws(
+      () => new CaseRepository(databasePath),
+      /requires an empty database or its exact current schema/,
     );
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BackendApiClient } from './client';
 
-describe('slashveto.me v3 API client', () => {
+describe('slashveto.me API client', () => {
     afterEach(() => vi.unstubAllGlobals());
 
     it('uses the case API and keeps watch authority in the bearer header', async () => {
@@ -22,7 +22,7 @@ describe('slashveto.me v3 API client', () => {
         );
 
         expect(String(fetchMock.mock.calls[0][0])).toBe(
-            'https://api.example/api/v3/watches/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            'https://api.example/api/watches/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         );
         expect((fetchMock.mock.calls[0][1]?.headers as Headers).get('authorization'))
             .toBe('Bearer secret-token');
@@ -35,7 +35,7 @@ describe('slashveto.me v3 API client', () => {
         const client = new BackendApiClient('https://api.example');
         await client.getCase('case:mainnet:lineage:address:42');
         expect(String(fetchMock.mock.calls[0][0])).toBe(
-            'https://api.example/api/v3/cases/case%3Amainnet%3Alineage%3Aaddress%3A42',
+            'https://api.example/api/cases/case%3Amainnet%3Alineage%3Aaddress%3A42',
         );
     });
 });

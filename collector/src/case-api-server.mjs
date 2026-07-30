@@ -12,7 +12,7 @@ import {
   safeHashMatches,
 } from './security.mjs';
 
-const API_PREFIX = '/api/v3';
+const API_PREFIX = '/api';
 
 export class CaseApiServer {
   constructor({
@@ -54,7 +54,7 @@ export class CaseApiServer {
     this.rateLimiter = new MutationRateLimiter(rateLimitWindowMs, rateLimitMaxMutations);
     this.server = http.createServer((request, response) => {
       void this.handle(request, response).catch((error) => {
-        this.logger?.error?.('v3 API request failed', {
+        this.logger?.error?.('API request failed', {
           method: request.method,
           path: request.url,
           error: String(error?.message ?? error),
@@ -100,7 +100,6 @@ export class CaseApiServer {
     }
     if (request.method === 'GET' && url.pathname === `${API_PREFIX}/config`) {
       return this.send(response, 200, {
-        apiVersion: 3,
         network: this.network,
         maxSequencers: this.maxSequencers,
         notifications: {
@@ -124,7 +123,7 @@ export class CaseApiServer {
       });
     }
 
-    const sequencerMatch = /^\/api\/v3\/sequencers\/(0x[0-9a-fA-F]{40})$/.exec(
+    const sequencerMatch = /^\/api\/sequencers\/(0x[0-9a-fA-F]{40})$/.exec(
       url.pathname,
     );
     if (request.method === 'GET' && sequencerMatch) {
@@ -133,7 +132,7 @@ export class CaseApiServer {
         this.network,
       ));
     }
-    const caseMatch = /^\/api\/v3\/cases\/([^/]+)$/.exec(url.pathname);
+    const caseMatch = /^\/api\/cases\/([^/]+)$/.exec(url.pathname);
     if (request.method === 'GET' && caseMatch) {
       const item = this.repository.getCase(decodeURIComponent(caseMatch[1]));
       if (!item) throw new InputError('case_not_found', 'Slashing case not found', 404);
@@ -157,7 +156,7 @@ export class CaseApiServer {
       });
     }
 
-    const watchMatch = /^\/api\/v3\/watches\/([0-9a-fA-F-]{36})$/.exec(url.pathname);
+    const watchMatch = /^\/api\/watches\/([0-9a-fA-F-]{36})$/.exec(url.pathname);
     if (watchMatch) {
       const watch = this.authorizeWatch(request, watchMatch[1]);
       if (request.method === 'GET') {
@@ -184,7 +183,7 @@ export class CaseApiServer {
     }
 
     const channelMatch =
-      /^\/api\/v3\/watches\/([0-9a-fA-F-]{36})\/channels\/(web_push)$/.exec(
+      /^\/api\/watches\/([0-9a-fA-F-]{36})\/channels\/(web_push)$/.exec(
         url.pathname,
       );
     if (channelMatch) {
@@ -218,7 +217,7 @@ export class CaseApiServer {
     }
 
     const telegramMatch =
-      /^\/api\/v3\/watches\/([0-9a-fA-F-]{36})\/channels\/telegram-link$/.exec(
+      /^\/api\/watches\/([0-9a-fA-F-]{36})\/channels\/telegram-link$/.exec(
         url.pathname,
       );
     if (request.method === 'POST' && telegramMatch) {
@@ -246,7 +245,7 @@ export class CaseApiServer {
     }
 
     const testMatch =
-      /^\/api\/v3\/watches\/([0-9a-fA-F-]{36})\/channels\/test$/.exec(
+      /^\/api\/watches\/([0-9a-fA-F-]{36})\/channels\/test$/.exec(
         url.pathname,
       );
     if (request.method === 'POST' && testMatch) {

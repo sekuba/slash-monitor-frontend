@@ -7,7 +7,7 @@ import {
     urlForWatchlist,
 } from './navigation';
 
-describe('v3 navigation', () => {
+describe('navigation', () => {
     it('parses the view, network, public watchlist, and exact case', () => {
         expect(parseAppSearch('')).toEqual({
             view: 'monitor',

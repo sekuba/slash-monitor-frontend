@@ -2,7 +2,6 @@
 
 set -Eeuo pipefail
 
-readonly old_service='slashmon-offense-collector.service'
 readonly release_root='/opt/slashmon/releases'
 readonly system_node='/usr/local/bin/node'
 
@@ -24,8 +23,6 @@ It never stops, rewrites, or deletes the production service or its state.
 Production --fresh permanently deletes:
   /var/lib/slashmon
   /var/lib/private/slashmon
-  /var/lib/slashmon-offense-collector
-  /var/lib/private/slashmon-offense-collector
   /var/backups/slashmon
 
 Testing --fresh permanently deletes:
@@ -167,20 +164,13 @@ while IFS= read -r line; do
     key="${BASH_REMATCH[1]}"
     value="${BASH_REMATCH[2]}"
     case "$key" in
-      COLLECTOR_CORS_ORIGIN) key='BACKEND_CORS_ORIGIN' ;;
-      COLLECTOR_BIND_HOST) key='BACKEND_BIND_HOST' ;;
-      COLLECTOR_PORT) key='BACKEND_PORT' ;;
-      API_TRUST_LOOPBACK_PROXY) key='BACKEND_TRUST_PROXY' ;;
-      COLLECTOR_LOG_LEVEL) key='BACKEND_LOG_LEVEL' ;;
-    esac
-    case "$key" in
       SLASHMON_NETWORK|SLASHMON_PUBLIC_URL|BACKEND_CORS_ORIGIN|\
       AZTEC_NODE_URL|AZTEC_NODE_API_KEY|AZTEC_ADMIN_URL|AZTEC_ADMIN_API_KEY|\
       AZTEC_SENTINEL_POLL_INTERVAL_MS|AZTEC_SENTINEL_LOOKBACK_EPOCHS|\
       AZTEC_SENTINEL_EPOCH_END_BUFFER_SLOTS|\
       AZTEC_SENTINEL_VALIDATOR_CONCURRENCY|AZTEC_SENTINEL_VALIDATOR_MAX_RESPONSE_BYTES|\
       L1_RPC_URL|L1_REGISTRY_ADDRESS|L1_SLASH_LOG_START_BLOCK|\
-      L1_SLASH_LOG_LOOKBACK_BLOCKS|\
+      L1_SLASH_LOG_LOOKBACK_BLOCKS|L1_SLASH_LOG_PROVIDER_TIMEOUT_MS|\
       TELEGRAM_BOT_TOKEN|TELEGRAM_BOT_USERNAME|\
       VAPID_SUBJECT|VAPID_PUBLIC_KEY|VAPID_PRIVATE_KEY|\
       BACKEND_BIND_HOST|BACKEND_PORT|BACKEND_TRUST_PROXY|BACKEND_LOG_LEVEL|\
@@ -192,10 +182,6 @@ while IFS= read -r line; do
     esac
   fi
 done < <(sudo cat -- "$environment_file")
-
-settings[SLASHMON_NETWORK]="${settings[SLASHMON_NETWORK]:-mainnet}"
-settings[BACKEND_TRUST_PROXY]="${settings[BACKEND_TRUST_PROXY]:-false}"
-settings[BACKEND_LOG_LEVEL]="${settings[BACKEND_LOG_LEVEL]:-info}"
 
 required_settings=(
   SLASHMON_PUBLIC_URL
@@ -225,7 +211,7 @@ if [[ "$target" == 'testing' ]] && sudo test -f /etc/slashmon-backend.env; then
       --env-file=/etc/slashmon-backend.env \
       --input-type=module \
       --eval "
-        const value = process.env.BACKEND_PORT ?? process.env.COLLECTOR_PORT ?? '8790';
+        const value = process.env.BACKEND_PORT ?? '8790';
         if (!/^[0-9]+$/.test(value)) process.exit(2);
         process.stdout.write(String(Number(value)));
       "
@@ -267,6 +253,7 @@ environment_order=(
   L1_REGISTRY_ADDRESS
   L1_SLASH_LOG_START_BLOCK
   L1_SLASH_LOG_LOOKBACK_BLOCKS
+  L1_SLASH_LOG_PROVIDER_TIMEOUT_MS
   TELEGRAM_BOT_TOKEN
   TELEGRAM_BOT_USERNAME
   VAPID_SUBJECT
@@ -282,7 +269,7 @@ environment_order=(
   BACKEND_LOG_LEVEL
 )
 for key in "${environment_order[@]}"; do
-  if [[ -n "${settings[$key]+present}" ]]; then
+  if [[ -n "${settings[$key]:-}" ]]; then
     printf '%s=%s\n' "$key" "${settings[$key]}" >> "$environment_tmp"
   fi
 done
@@ -368,19 +355,12 @@ if [[ "$mode" == '--upgrade' || "$mode" == '--reset-db' ]]; then
   fi
 else
   echo "Permanently removing slashveto.me $target state..."
-  if [[ "$target" == 'production' ]] && sudo systemctl cat "$old_service" >/dev/null 2>&1; then
-    sudo systemctl stop "$old_service"
-    sudo systemctl disable "$old_service" >/dev/null 2>&1 || true
-  fi
 fi
 
 sudo install -o root -g root -m 0600 "$environment_tmp" "$environment_file"
 sudo install -m 0644 \
   "$release_path/$service_source" \
   "/etc/systemd/system/$new_service"
-if [[ "$mode" == '--fresh' && "$target" == 'production' ]]; then
-  sudo rm -f -- "/etc/systemd/system/$old_service"
-fi
 sudo systemctl daemon-reload
 
 if [[ "$mode" == '--fresh' ]]; then
@@ -394,8 +374,6 @@ if [[ "$mode" == '--fresh' ]]; then
     state_paths=(
       /var/lib/slashmon
       /var/lib/private/slashmon
-      /var/lib/slashmon-offense-collector
-      /var/lib/private/slashmon-offense-collector
       "$backup_root"
     )
   fi
