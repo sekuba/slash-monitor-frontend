@@ -11,6 +11,7 @@ import {
 } from './case-fixtures.mjs';
 
 test('API exposes current cases and capability-authenticated watches only', async (t) => {
+  const apiLogs = [];
   const repository = new CaseRepository(':memory:');
   repository.bindRuntimeIdentity({
     network: 'mainnet',
@@ -31,7 +32,14 @@ test('API exposes current cases and capability-authenticated watches only', asyn
     corsOrigin: 'https://slashveto.example',
     network: 'mainnet',
     maxSequencers: 2,
-    logger: silentLogger,
+    logger: {
+      debug(message, data) {
+        apiLogs.push({ level: 'debug', message, data });
+      },
+      error(message, data) {
+        apiLogs.push({ level: 'error', message, data });
+      },
+    },
     now: () => 1_700_000_201_000,
   });
   const address = await api.listen();
@@ -88,6 +96,17 @@ test('API exposes current cases and capability-authenticated watches only', asyn
   const versionedApi = await json(base, '/api/v3/network');
   assert.equal(versionedApi.response.status, 404);
   assert.equal(versionedApi.body.error.code, 'not_found');
+  assert.deepEqual(apiLogs.at(-1), {
+    level: 'debug',
+    message: 'API request rejected',
+    data: {
+      method: 'GET',
+      path: '/api/v3/network',
+      status: 404,
+      code: 'not_found',
+      error: 'Route not found',
+    },
+  });
 });
 
 test('API links an encoded case id without an event-feed lookup', async (t) => {

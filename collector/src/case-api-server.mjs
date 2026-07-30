@@ -11,6 +11,7 @@ import {
   readBearerToken,
   safeHashMatches,
 } from './security.mjs';
+import { errorMessage } from './logger.mjs';
 
 const API_PREFIX = '/api';
 
@@ -54,11 +55,19 @@ export class CaseApiServer {
     this.rateLimiter = new MutationRateLimiter(rateLimitWindowMs, rateLimitMaxMutations);
     this.server = http.createServer((request, response) => {
       void this.handle(request, response).catch((error) => {
-        this.logger?.error?.('API request failed', {
+        const status = errorStatus(error);
+        const details = {
           method: request.method,
           path: request.url,
-          error: String(error?.message ?? error),
-        });
+          status,
+          code: error?.code ?? 'internal_error',
+          error: errorMessage(error),
+        };
+        if (status >= 500) {
+          this.logger?.error?.('API request failed', details);
+        } else {
+          this.logger?.debug?.('API request rejected', details);
+        }
         this.sendError(response, error);
       });
     });
@@ -374,10 +383,7 @@ export class CaseApiServer {
   }
 
   sendError(response, error) {
-    const status = Number(error?.status);
-    const safeStatus = Number.isInteger(status) && status >= 400 && status < 600
-      ? status
-      : 500;
+    const safeStatus = errorStatus(error);
     if (error?.retryAfterMs) {
       response.setHeader('retry-after', String(Math.ceil(error.retryAfterMs / 1_000)));
     }
@@ -390,6 +396,13 @@ export class CaseApiServer {
       },
     });
   }
+}
+
+function errorStatus(error) {
+  const status = Number(error?.status);
+  return Number.isInteger(status) && status >= 400 && status < 600
+    ? status
+    : 500;
 }
 
 function publicWatch(watch, repository) {
