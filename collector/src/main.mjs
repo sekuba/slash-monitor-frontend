@@ -20,6 +20,9 @@ async function main() {
   const config = loadConfig();
   const logger = new Logger(config.logLevel);
   const repository = new CaseRepository(config.databasePath);
+  if (repository.pruneResult?.pruned > 0) {
+    logger.info('Pruned superseded L1 round observations', repository.pruneResult);
+  }
   try {
     repository.bindRuntimeIdentity({
       network: config.network,

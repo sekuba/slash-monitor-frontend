@@ -129,7 +129,6 @@ export function transitionFor(
 
 export function summarizeNetwork(
     cases: readonly SlashingCase[],
-    generatedAt = new Date().toISOString(),
 ): NetworkSummary {
     let stakeAtRisk = 0n;
     for (const item of cases) {
@@ -138,7 +137,6 @@ export function summarizeNetwork(
         }
     }
     return {
-        generatedAt,
         activeCases: cases.filter((item) => item.state.active).length,
         precursors: cases.filter((item) => item.state.stage === 'precursor').length,
         nodeOffenses: cases.filter((item) =>

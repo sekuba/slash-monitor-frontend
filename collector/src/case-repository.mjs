@@ -63,10 +63,48 @@ export class CaseRepository {
       this.db.exec('PRAGMA foreign_keys = ON');
       this.db.exec('PRAGMA busy_timeout = 5000');
       this.initializeSchema();
+      this.pruneResult = this.pruneSupersededRoundObservations();
     } catch (error) {
       this.db.close();
       throw error;
     }
+  }
+
+  // Databases written before superseded l1_round rows were deleted on
+  // reconcile still carry every historical vote-state progression. Remove the
+  // rows whose canonical replacement for the same round exists in the same
+  // case, and rebuild the affected case projections. Idempotent: after the
+  // first run there is nothing left to match.
+  pruneSupersededRoundObservations() {
+    return this.transaction(() => {
+      const rows = this.db.prepare(`
+        SELECT id, observation_json AS observationJson
+        FROM observations AS superseded
+        WHERE source = 'ethereum_l1' AND kind = 'l1_round' AND canonical = 0
+          AND COALESCE(
+            json_extract(observation_json, '$.data.historicalExecution'), 0
+          ) != 1
+          AND EXISTS (
+            SELECT 1 FROM observations AS replacement
+            WHERE replacement.canonical = 1
+              AND replacement.kind = 'l1_round'
+              AND replacement.network = superseded.network
+              AND replacement.lineage_id = superseded.lineage_id
+              AND replacement.sequencer = superseded.sequencer
+              AND replacement.target_epoch = superseded.target_epoch
+              AND replacement.round = superseded.round
+          )
+      `).all();
+      const affected = new Set();
+      for (const row of rows) {
+        this.db.prepare('DELETE FROM observations WHERE id = ?').run(row.id);
+        affected.add(caseIdFor(parseJson(row.observationJson, null)));
+      }
+      const projection = affected.size > 0
+        ? this.reprojectCases([...affected], { notify: false })
+        : { changed: 0 };
+      return { pruned: rows.length, casesChanged: projection.changed };
+    });
   }
 
   initializeSchema() {
@@ -493,6 +531,11 @@ export class CaseRepository {
         SELECT case_json AS caseJson FROM cases WHERE id = ?
       `).get(caseId);
       const previous = previousRow ? parseJson(previousRow.caseJson, null) : null;
+      // Deleting a superseded round row can remove a case's earliest
+      // observation; the moment the case was first seen must survive that.
+      if (previous && previous.firstObservedAt < current.firstObservedAt) {
+        current.firstObservedAt = previous.firstObservedAt;
+      }
       const currentJson = JSON.stringify(current);
       if (previousRow?.caseJson === currentJson) continue;
       this.db.prepare(`
@@ -590,10 +633,12 @@ export class CaseRepository {
     };
   }
 
+  // The network feed deliberately omits the protocol snapshot and source
+  // health: both change every poll and live in /api/status, while this
+  // response only changes when a case does — which keeps its ETag stable.
   getNetworkSummary(selectedNetwork) {
     const cases = this.listCases({ network: selectedNetwork });
     return {
-      protocol: this.getProtocolSnapshot(),
       summary: summarizeNetwork(cases),
       cases,
     };
@@ -989,14 +1034,25 @@ export class CaseRepository {
     });
   }
 
+  // A fresh snapshot supersedes the stored vote-state row of every covered
+  // round it re-reports with different data. Superseded rows are deleted:
+  // they are poll-cadence progressions of the same round, not independent
+  // chain evidence, and retaining them made cases grow without bound. A row
+  // whose target vanished from a covered round is different — that evidence
+  // was removed on L1, so it is kept as a non-canonical correction.
+  // Historical execution rows come from Slashed logs and are only ever
+  // invalidated by the reorg path, never replaced by a newer snapshot.
   reconcileL1RoundObservations(snapshot, current) {
     const seen = new Set(current.map((item) => item.id));
+    const replaced = new Set(current.map((item) =>
+      `${item.lineageId}:${item.round}:${item.sequencer}:${item.targetEpoch}`));
     const coverage = new Set((snapshot.stacks ?? []).flatMap((stack) =>
       (stack.rounds ?? []).map((round) =>
         `${address(stack.proposerAddress, 'SlashingProposer')}:${unsignedString(round.round, 'round')}`)));
     if (coverage.size === 0) return [];
     const rows = this.db.prepare(`
-      SELECT id, lineage_id AS lineageId, round, observation_json AS observationJson
+      SELECT id, lineage_id AS lineageId, round, sequencer,
+        target_epoch AS targetEpoch, observation_json AS observationJson
       FROM observations
       WHERE source = 'ethereum_l1' AND kind = 'l1_round' AND canonical = 1
     `).all();
@@ -1004,13 +1060,19 @@ export class CaseRepository {
     for (const row of rows) {
       if (!coverage.has(`${row.lineageId}:${row.round}`) || seen.has(row.id)) continue;
       const observation = parseJson(row.observationJson, null);
-      observation.provenance.canonical = false;
-      observation.provenance.invalidatedAt = toIso(
-        snapshot.blockTimestamp ?? snapshot.observedAt,
-      );
-      this.db.prepare(`
-        UPDATE observations SET canonical = 0, observation_json = ? WHERE id = ?
-      `).run(JSON.stringify(observation), row.id);
+      if (observation?.data?.historicalExecution) continue;
+      const key = `${row.lineageId}:${row.round}:${row.sequencer}:${row.targetEpoch}`;
+      if (replaced.has(key)) {
+        this.db.prepare('DELETE FROM observations WHERE id = ?').run(row.id);
+      } else {
+        observation.provenance.canonical = false;
+        observation.provenance.invalidatedAt = toIso(
+          snapshot.blockTimestamp ?? snapshot.observedAt,
+        );
+        this.db.prepare(`
+          UPDATE observations SET canonical = 0, observation_json = ? WHERE id = ?
+        `).run(JSON.stringify(observation), row.id);
+      }
       affected.add(caseIdFor(observation));
     }
     return [...affected];

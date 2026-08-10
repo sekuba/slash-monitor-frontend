@@ -8,7 +8,6 @@ describe('NetworkHealth', () => {
             <NetworkHealth
                 protocol={null}
                 summary={{
-                    generatedAt: '2026-07-29T00:00:00.000Z',
                     activeCases: 7,
                     precursors: 1,
                     nodeOffenses: 2,

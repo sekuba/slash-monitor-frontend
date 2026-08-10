@@ -34,7 +34,7 @@ export function BackendOverview({
     const monitor = useBackendMonitor(network);
     const liveProtocol = monitor.error
         ? null
-        : monitor.networkData?.protocol ?? null;
+        : monitor.status?.protocol ?? null;
     const watchedAddresses = linkedAddresses.length > 0
         ? linkedAddresses
         : monitor.watch?.addresses ?? [];
@@ -87,7 +87,7 @@ export function BackendOverview({
         );
     }
 
-    const protocol = monitor.networkData.protocol;
+    const protocol = monitor.status?.protocol ?? null;
     const watchedCases = monitor.networkData.cases.filter(
         (item) => watchedAddresses.includes(item.sequencer),
     );
@@ -192,7 +192,7 @@ export function BackendOverview({
                 onOpenProtocolGuide={onOpenProtocolGuide}
             />
 
-            <SourceStatus sources={monitor.networkData.sources} />
+            <SourceStatus sources={monitor.status?.sources ?? []} />
         </>
     );
 }

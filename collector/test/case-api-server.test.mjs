@@ -272,3 +272,66 @@ async function json(base, path, options) {
   const response = await fetch(`${base}${path}`, options);
   return { response, body: await response.json() };
 }
+
+test('network feed is compact, revalidatable, and gzip-encoded at the origin', async (t) => {
+  const repository = new CaseRepository(':memory:');
+  repository.bindRuntimeIdentity({
+    network: 'mainnet',
+    chainId: 1,
+    registryAddress: REGISTRY,
+  });
+  const rounds = ['11', '12', '13', '14'].map((round, index) =>
+    targetRound({
+      sequencer: index % 2 === 0 ? SEQUENCER_A : SEQUENCER_B,
+      targetEpoch: String(20 + index),
+      round,
+    }));
+  repository.recordSuccessfulL1Snapshot('mainnet', protocolSnapshot({ rounds }));
+  const api = new CaseApiServer({
+    repository,
+    host: '127.0.0.1',
+    port: 0,
+    corsOrigin: 'https://slashveto.example',
+    network: 'mainnet',
+    logger: silentLogger,
+  });
+  const address = await api.listen();
+  const base = `http://127.0.0.1:${address.port}`;
+  t.after(async () => {
+    await api.close();
+    repository.close();
+  });
+
+  const network = await json(base, '/api/network');
+  assert.deepEqual(Object.keys(network.body).sort(), ['cases', 'summary']);
+  assert.equal(network.body.cases.length, 4);
+  assert.equal(network.response.headers.get('cache-control'), 'no-cache');
+  assert.equal(network.response.headers.get('content-encoding'), 'gzip');
+  const etag = network.response.headers.get('etag');
+  assert.match(etag, /^W\/"/);
+
+  const revalidated = await fetch(`${base}/api/network`, {
+    headers: { 'if-none-match': etag },
+  });
+  assert.equal(revalidated.status, 304);
+  assert.equal(revalidated.headers.get('etag'), etag);
+  assert.equal(await revalidated.text(), '');
+
+  const grown = structuredClone(rounds);
+  grown[0].ballotCount = '3';
+  grown[0].actionDetails[0].voteCount = 3;
+  grown[0].actionDetails[0].support = 3;
+  grown[0].actionDetails[0].unitVoteCounts = [3, 0, 0];
+  repository.recordSuccessfulL1Snapshot('mainnet', protocolSnapshot({
+    block: 101,
+    rounds: grown,
+  }));
+  const changed = await fetch(`${base}/api/network`, {
+    headers: { 'if-none-match': etag },
+  });
+  assert.equal(changed.status, 200);
+  assert.notEqual(changed.headers.get('etag'), etag);
+
+  const status = await json(base, '/api/status');
+  assert.equal(status.response.headers.get('cache-control'), 'no-store');
+});

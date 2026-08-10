@@ -1,5 +1,6 @@
 import http from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { gzipSync } from 'node:zlib';
 
 import {
   createOpaqueToken,
@@ -89,7 +90,7 @@ export class CaseApiServer {
         } else {
           this.logger?.debug?.('API request rejected', details);
         }
-        this.sendError(response, error);
+        this.sendError(request, response, error);
       });
     });
   }
@@ -125,14 +126,14 @@ export class CaseApiServer {
     }
 
     if (request.method === 'GET' && url.pathname === '/live') {
-      return this.send(response, 200, { status: 'live' });
+      return this.send(request, response, 200, { status: 'live' });
     }
     if (request.method === 'GET' && url.pathname === '/health') {
       const status = this.status();
-      return this.send(response, status.status === 'healthy' ? 200 : 503, status);
+      return this.send(request, response, status.status === 'healthy' ? 200 : 503, status);
     }
     if (request.method === 'GET' && url.pathname === `${API_PREFIX}/config`) {
-      return this.send(response, 200, {
+      return this.send(request, response, 200, {
         network: this.network,
         maxSequencers: this.maxSequencers,
         notifications: {
@@ -147,29 +148,35 @@ export class CaseApiServer {
       });
     }
     if (request.method === 'GET' && url.pathname === `${API_PREFIX}/status`) {
-      return this.send(response, 200, this.status());
+      return this.send(request, response, 200, this.status());
     }
     if (request.method === 'GET' && url.pathname === `${API_PREFIX}/network`) {
-      return this.send(response, 200, {
-        ...this.repository.getNetworkSummary(this.network),
-        sources: this.status().sources,
-      });
+      return this.send(
+        request,
+        response,
+        200,
+        this.repository.getNetworkSummary(this.network),
+        { revalidate: true },
+      );
     }
 
     const sequencerMatch = /^\/api\/sequencers\/(0x[0-9a-fA-F]{40})$/.exec(
       url.pathname,
     );
     if (request.method === 'GET' && sequencerMatch) {
-      return this.send(response, 200, this.repository.getSequencerRecord(
-        sequencerMatch[1],
-        this.network,
-      ));
+      return this.send(
+        request,
+        response,
+        200,
+        this.repository.getSequencerRecord(sequencerMatch[1], this.network),
+        { revalidate: true },
+      );
     }
     const caseMatch = /^\/api\/cases\/([^/]+)$/.exec(url.pathname);
     if (request.method === 'GET' && caseMatch) {
       const item = this.repository.getCase(decodeURIComponent(caseMatch[1]));
       if (!item) throw new InputError('case_not_found', 'Slashing case not found', 404);
-      return this.send(response, 200, item);
+      return this.send(request, response, 200, item, { revalidate: true });
     }
 
     if (request.method === 'POST' && url.pathname === `${API_PREFIX}/watches`) {
@@ -186,7 +193,7 @@ export class CaseApiServer {
         addresses,
         now: this.now(),
       });
-      return this.send(response, 201, {
+      return this.send(request, response, 201, {
         watch: publicWatch(watch, this.repository),
         managementToken,
       });
@@ -196,7 +203,7 @@ export class CaseApiServer {
     if (watchMatch) {
       const watch = this.authorizeWatch(request, watchMatch[1]);
       if (request.method === 'GET') {
-        return this.send(response, 200, publicWatch(watch, this.repository));
+        return this.send(request, response, 200, publicWatch(watch, this.repository));
       }
       this.limitMutation(request);
       if (request.method === 'PATCH') {
@@ -208,7 +215,7 @@ export class CaseApiServer {
           addresses,
           now: this.now(),
         });
-        return this.send(response, 200, publicWatch(updated, this.repository));
+        return this.send(request, response, 200, publicWatch(updated, this.repository));
       }
       if (request.method === 'DELETE') {
         this.repository.deleteWatch(watch.id);
@@ -242,7 +249,7 @@ export class CaseApiServer {
           configJson: JSON.stringify(subscription),
           now: this.now(),
         });
-        return this.send(response, 200, publicWatch(updated, this.repository));
+        return this.send(request, response, 200, publicWatch(updated, this.repository));
       }
       if (request.method === 'DELETE') {
         this.repository.deleteEndpoint(watch.id, 'web_push');
@@ -274,7 +281,7 @@ export class CaseApiServer {
         expiresAt,
         now: this.now(),
       });
-      return this.send(response, 201, {
+      return this.send(request, response, 201, {
         url: `https://t.me/${this.telegramBotUsername}?start=${token}`,
         expiresAt: new Date(expiresAt).toISOString(),
       });
@@ -295,7 +302,7 @@ export class CaseApiServer {
           409,
         );
       }
-      return this.send(response, 202, { queued });
+      return this.send(request, response, 202, { queued });
     }
 
     throw new InputError('not_found', 'Route not found', 404);
@@ -421,25 +428,46 @@ export class CaseApiServer {
     response.setHeader('access-control-allow-origin', this.corsOrigin);
     response.setHeader('access-control-allow-methods', 'GET,POST,PATCH,PUT,DELETE,OPTIONS');
     response.setHeader('access-control-allow-headers', 'authorization,content-type');
-    response.setHeader('vary', 'Origin');
+    response.setHeader('vary', 'Origin, Accept-Encoding');
   }
 
-  send(response, status, value) {
+  // Public data endpoints send `cache-control: no-cache` plus a weak ETag so
+  // browsers revalidate every poll and receive a bodyless 304 while nothing
+  // changed. Private and mutating responses stay `no-store`. Bodies are
+  // gzipped at the origin: the network path to the CDN edge is metered.
+  send(request, response, status, value, { revalidate = false } = {}) {
     const body = JSON.stringify(value);
-    response.writeHead(status, {
+    const headers = {
       'content-type': 'application/json; charset=utf-8',
-      'cache-control': 'no-store',
-      'content-length': Buffer.byteLength(body),
-    });
-    response.end(body);
+      'cache-control': revalidate ? 'no-cache' : 'no-store',
+    };
+    if (revalidate && status === 200) {
+      const etag = `W/"${createHash('sha256').update(body).digest('base64url')}"`;
+      headers.etag = etag;
+      const ifNoneMatch = request.headers['if-none-match'];
+      if (typeof ifNoneMatch === 'string' && ifNoneMatch.includes(etag)) {
+        response.writeHead(304, headers);
+        response.end();
+        return;
+      }
+    }
+    const acceptsGzip = /(?:^|[,\s])gzip(?:$|[;,])/
+      .test(String(request.headers['accept-encoding'] ?? ''));
+    const payload = acceptsGzip && Buffer.byteLength(body) > 1_024
+      ? gzipSync(body)
+      : body;
+    if (payload !== body) headers['content-encoding'] = 'gzip';
+    headers['content-length'] = Buffer.byteLength(payload);
+    response.writeHead(status, headers);
+    response.end(payload);
   }
 
-  sendError(response, error) {
+  sendError(request, response, error) {
     const safeStatus = errorStatus(error);
     if (error?.retryAfterMs) {
       response.setHeader('retry-after', String(Math.ceil(error.retryAfterMs / 1_000)));
     }
-    this.send(response, safeStatus, {
+    this.send(request, response, safeStatus, {
       error: {
         code: error?.code ?? 'internal_error',
         message: safeStatus === 500

@@ -159,7 +159,6 @@ export interface SourceStatus {
 }
 
 export interface NetworkSummary {
-    generatedAt: string;
     watchedSequencers?: number;
     activeCases: number;
     precursors: number;

@@ -435,6 +435,110 @@ test('repository reopens only an exact database owned by slashveto.me', () => {
   }
 });
 
+test('superseded round snapshots replace stored evidence instead of accumulating', () => {
+  const repository = createRepository();
+  repository.recordSuccessfulL1Snapshot('mainnet', protocolSnapshot({
+    block: 100,
+    rounds: [targetRound({ sequencer: SEQUENCER, targetEpoch: '24' })],
+  }));
+  const initial = repository.listCases({ network: 'mainnet' })[0];
+
+  const grown = targetRound({ sequencer: SEQUENCER, targetEpoch: '24' });
+  grown.ballotCount = '3';
+  grown.actionDetails[0].voteCount = 3;
+  grown.actionDetails[0].support = 3;
+  grown.actionDetails[0].unitVoteCounts = [3, 0, 0];
+  repository.recordSuccessfulL1Snapshot('mainnet', protocolSnapshot({
+    block: 101,
+    rounds: [grown],
+  }));
+
+  const updated = repository.listCases({ network: 'mainnet' })[0];
+  const rounds = updated.observations.filter((item) => item.kind === 'l1_round');
+  assert.equal(rounds.length, 1);
+  assert.equal(rounds[0].data.support, 3);
+  assert.equal(rounds[0].provenance.canonical, true);
+  assert.equal(updated.firstObservedAt, initial.firstObservedAt);
+  assert.equal(
+    repository.db.prepare(
+      'SELECT COUNT(*) AS stale FROM observations WHERE canonical = 0',
+    ).get().stale,
+    0,
+  );
+  repository.close();
+});
+
+test('boot prune deletes legacy superseded rounds and keeps corrections', () => {
+  const repository = createRepository();
+  repository.recordSuccessfulL1Snapshot('mainnet', protocolSnapshot({
+    block: 100,
+    rounds: [targetRound({ sequencer: SEQUENCER, targetEpoch: '24' })],
+  }));
+  const current = repository.listCases({ network: 'mainnet' })[0];
+  const canonical = current.observations.find((item) => item.kind === 'l1_round');
+
+  // Recreate the pre-cleanup database layout: an older vote-state row for the
+  // same round that used to be kept as canonical = 0, plus a correction
+  // tombstone in another case with no canonical replacement.
+  const legacy = structuredClone(canonical);
+  legacy.id = 'legacy-superseded-round';
+  legacy.data.support = 1;
+  legacy.provenance.observedAt = '2023-11-14T20:00:00.000Z';
+  legacy.provenance.canonical = false;
+  legacy.provenance.invalidatedAt = canonical.provenance.observedAt;
+  const tombstone = structuredClone(legacy);
+  tombstone.id = 'legacy-reorged-round';
+  tombstone.targetEpoch = '25';
+  insertRawObservation(repository, legacy);
+  insertRawObservation(repository, tombstone);
+  const tombstoneCaseId = `case:mainnet:${PROPOSER}:${SEQUENCER}:25`;
+  repository.reprojectCases([current.id, tombstoneCaseId], { notify: false });
+  assert.equal(
+    repository.listCases({ network: 'mainnet' }).length,
+    2,
+  );
+
+  const result = repository.pruneSupersededRoundObservations();
+  assert.deepEqual(result, { pruned: 1, casesChanged: 1 });
+
+  const cases = repository.listCases({ network: 'mainnet' });
+  const pruned = cases.find((item) => item.id === current.id);
+  assert.equal(pruned.observations.length, 1);
+  assert.equal(pruned.observations[0].provenance.canonical, true);
+  assert.equal(pruned.firstObservedAt, '2023-11-14T20:00:00.000Z');
+  const correction = cases.find((item) => item.id === tombstoneCaseId);
+  assert.equal(correction.state.stage, 'reorged');
+  assert.equal(correction.observations.length, 1);
+  assert.equal(repository.pruneSupersededRoundObservations().pruned, 0);
+  repository.close();
+});
+
+function insertRawObservation(repository, observation) {
+  repository.db.prepare(`
+    INSERT INTO observations (
+      id, network, source, kind, sequencer, lineage_id, target_epoch,
+      slot, round, observed_at, block_number, block_hash, transaction_hash,
+      canonical, observation_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    observation.id,
+    observation.network,
+    observation.source,
+    observation.kind,
+    observation.sequencer,
+    observation.lineageId,
+    observation.targetEpoch,
+    observation.slot ?? null,
+    observation.round ?? null,
+    Date.parse(observation.provenance.observedAt),
+    observation.provenance.blockNumber ?? null,
+    observation.provenance.blockHash ?? null,
+    observation.provenance.transactionHash ?? null,
+    Number(observation.provenance.canonical),
+    JSON.stringify(observation),
+  );
+}
+
 function createRepository() {
   const repository = new CaseRepository(':memory:');
   repository.bindRuntimeIdentity({

@@ -26,10 +26,8 @@ export interface BackendStatus {
 }
 
 export interface NetworkCases {
-    protocol: ProtocolSnapshot | null;
     summary: NetworkSummary;
     cases: SlashingCase[];
-    sources: SourceStatus[];
 }
 
 export interface NotificationEndpoint {

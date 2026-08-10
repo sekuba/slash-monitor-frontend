@@ -45,7 +45,7 @@ The backend API is rooted at `/api`. `/live` reports process liveness and
 
 | Method | Route | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/config`, `/api/status`, `/api/network` | Capabilities, freshness, protocol state, and public cases |
+| `GET` | `/api/config`, `/api/status`, `/api/network` | Capabilities; freshness and protocol state; public cases (ETag-revalidatable) |
 | `GET` | `/api/sequencers/:address`, `/api/cases/:id` | Public sequencer and exact-case views |
 | `POST` | `/api/watches` | Create a private watch and return its management token once |
 | `GET/PATCH/DELETE` | `/api/watches/:id` | Bearer-authenticated watch management |

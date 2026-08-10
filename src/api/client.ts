@@ -139,7 +139,9 @@ export class BackendApiClient {
                 headers,
                 body: options.body ? JSON.stringify(options.body) : undefined,
                 signal,
-                cache: 'no-store',
+                // no-cache (not no-store) lets the browser revalidate with
+                // If-None-Match, so unchanged polls cost a bodyless 304.
+                cache: 'no-cache',
             });
             const text = await response.text();
             const payload: unknown = text ? parseJson(text) : null;
