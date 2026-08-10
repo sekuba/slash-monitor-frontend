@@ -32,7 +32,7 @@ export function CaseFeed({
 
     return (
         <section id="case-feed" className="mb-10 scroll-mt-4">
-            <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                     <h2 className="text-3xl font-black text-whisper-white">
                         Case feed

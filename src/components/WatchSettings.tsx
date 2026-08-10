@@ -22,6 +22,7 @@ export function WatchSettings({
         value: string;
     } | null>(null);
     const [validation, setValidation] = useState<string | null>(null);
+    const [expanded, setExpanded] = useState<boolean | null>(null);
     const savedAddresses = manager.watch?.addresses ?? [];
     const addresses = linkedAddresses.length > 0 ? linkedAddresses : savedAddresses;
     const watchVersion = [
@@ -38,9 +39,15 @@ export function WatchSettings({
     const shareUrl = addresses.length > 0 && typeof window !== 'undefined'
         ? urlForWatchlist(window.location.href, 'pingme', network, addresses).href
         : null;
+    const autoOpen = addresses.length === 0 ||
+        viewingDifferentSharedList ||
+        !manager.capabilityOriginSafe ||
+        Boolean(manager.error);
+    const isOpen = expanded ?? autoOpen;
 
     const submit = async (event: FormEvent) => {
         event.preventDefault();
+        setExpanded(true);
         const parsed = parseAddressList(value, config?.maxSequencers ?? 100);
         if (parsed.errors.length > 0 || parsed.addresses.length === 0) {
             setValidation(parsed.errors[0] ?? 'Enter at least one sequencer address.');
@@ -52,28 +59,23 @@ export function WatchSettings({
     };
 
     return (
-        <section className="mb-8 border-6 border-chartreuse bg-malachite p-5 shadow-brutal-chartreuse sm:p-7">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                    <h2 className="text-3xl font-black text-whisper-white">
-                        Sequencers to watch
-                    </h2>
-                    <p className="mt-2 max-w-3xl text-sm font-bold text-whisper-white/70">
-                        PINGME links each address’s node and L1 evidence into one timeline.
-                    </p>
-                </div>
+        <details
+            open={isOpen}
+            onToggle={(event) => {
+                const open = event.currentTarget.open;
+                if (open !== isOpen) setExpanded(open);
+            }}
+            className="group mb-8 border-6 border-chartreuse bg-malachite shadow-brutal-chartreuse"
+        >
+            <summary className="flex min-h-16 cursor-pointer list-none flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-7 [&::-webkit-details-marker]:hidden">
+                <h2 className="text-3xl font-black text-whisper-white">
+                    Sequencers to watch
+                </h2>
                 <div className="flex flex-wrap items-center gap-3">
-                    {shareUrl && (
-                        <div className="flex items-center gap-1">
-                            <ShareButton
-                                url={shareUrl}
-                                ariaLabel="Copy link to this PINGME watchlist"
-                                className="h-11 w-11 border-3 border-aqua"
-                            />
-                            <span className="text-xs font-black uppercase text-aqua">
-                                Share watchlist
-                            </span>
-                        </div>
+                    {addresses.length > 0 && (
+                        <span className="border-3 border-brand-black bg-chartreuse px-3 py-2 text-xs font-black uppercase text-brand-black">
+                            {addresses.length} watched
+                        </span>
                     )}
                     <span className={`w-fit border-3 border-brand-black px-3 py-2 text-xs font-black uppercase text-brand-black ${
                         viewingDifferentSharedList
@@ -88,8 +90,16 @@ export function WatchSettings({
                                 ? 'Alerts live'
                                 : 'Status only'}
                     </span>
+                    <span className="text-sm font-black uppercase text-chartreuse" aria-hidden="true">
+                        <span className="group-open:hidden">Open +</span>
+                        <span className="hidden group-open:inline">Close −</span>
+                    </span>
                 </div>
-            </div>
+            </summary>
+            <div className="px-5 pb-5 sm:px-7 sm:pb-7">
+            <p className="max-w-3xl text-sm font-bold text-whisper-white/70">
+                PINGME links each address’s node and L1 evidence into one timeline.
+            </p>
 
             {!manager.capabilityOriginSafe && (
                 <p className="mt-5 border-3 border-vermillion bg-oxblood p-3 text-sm font-bold text-vermillion">
@@ -163,6 +173,18 @@ export function WatchSettings({
                             Forget unavailable watch
                         </button>
                     )}
+                    {shareUrl && (
+                        <div className="flex items-center gap-1">
+                            <ShareButton
+                                url={shareUrl}
+                                ariaLabel="Copy link to this PINGME watchlist"
+                                className="h-11 w-11 border-3 border-aqua"
+                            />
+                            <span className="text-xs font-black uppercase text-aqua">
+                                Share watchlist
+                            </span>
+                        </div>
+                    )}
                 </div>
             </form>
 
@@ -228,7 +250,8 @@ export function WatchSettings({
                     </div>
                 </div>
             )}
-        </section>
+            </div>
+        </details>
     );
 }
 

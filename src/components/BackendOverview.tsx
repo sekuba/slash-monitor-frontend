@@ -5,6 +5,7 @@ import { CaseTimeline } from './CaseTimeline';
 import { NetworkHealth } from './NetworkHealth';
 import { SourceStatus } from './SourceStatus';
 import { WatchSettings } from './WatchSettings';
+import { WatchlistSection } from './WatchlistSection';
 import { useBackendMonitor } from '@/hooks/useBackendMonitor';
 import { useSequencerStates } from '@/hooks/useSequencerStates';
 import { selectCaseFeed } from '@/lib/caseFeed';
@@ -162,7 +163,13 @@ export function BackendOverview({
             />
 
             {watchedAddresses.length > 0 && (
-                <div className="mb-10 grid gap-8">
+                <WatchlistSection
+                    cases={watchedCases}
+                    sequencerCount={watchedAddresses.length}
+                    forceOpen={selectedCase !== null &&
+                        !selectedInFeed &&
+                        watchedAddresses.includes(selectedCase.sequencer)}
+                >
                     {watchedAddresses.map((address) => (
                         <AddressStatus
                             key={address}
@@ -181,7 +188,7 @@ export function BackendOverview({
                             onOpenProtocolGuide={onOpenProtocolGuide}
                         />
                     ))}
-                </div>
+                </WatchlistSection>
             )}
 
             <CaseFeed
