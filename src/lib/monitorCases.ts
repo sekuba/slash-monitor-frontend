@@ -3,8 +3,12 @@ import {
     type Observation,
     type ProtocolSnapshot,
     type SlashingCase,
-} from '../../shared/protocol/index.ts';
-import { isRoundProtectedByPause } from './pauseProtection';
+} from '@shared/protocol/index.ts';
+import {
+    calculateExecutableSlot,
+    calculateExpirySlot,
+    isRoundProtectedByPause,
+} from './slashingLifecycle';
 import type {
     ConfirmedExecution,
     ConfirmedSlash,
@@ -71,17 +75,20 @@ export function projectMonitorCases({
     const executionByRound = new Map(
         confirmedExecutions.map((execution) => [execution.round, execution]),
     );
-    const roundObservations: Observation[] = slashings.flatMap((round) =>
-        (round.targetDetails ?? []).map((target) => {
-            const roundEndSlot = (
-                (round.round + 1n) * BigInt(config.slashingRoundSize)
-            );
-            const executableSlot = round.slotWhenExecutable ??
-                (round.round + 1n + BigInt(config.executionDelayInRounds)) *
-                    BigInt(config.slashingRoundSize);
-            const expirySlot = round.slotWhenExpires ??
-                (round.round + 1n + BigInt(config.lifetimeInRounds)) *
-                    BigInt(config.slashingRoundSize);
+    const roundObservations: Observation[] = slashings.flatMap((round) => {
+        const roundEndSlot = (round.round + 1n) * BigInt(config.slashingRoundSize);
+        const executableSlot = round.slotWhenExecutable ??
+            calculateExecutableSlot(round.round, config);
+        const expirySlot = round.slotWhenExpires ??
+            calculateExpirySlot(round.round, config);
+        const isProtected = isRoundProtectedByPause(
+            round.round,
+            config,
+            state.isSlashingEnabled,
+            state.pauseStartedAtSlot,
+            state.pauseEndsAtSlot,
+        );
+        return (round.targetDetails ?? []).map((target) => {
             return {
                 id: [
                     'monitor',
@@ -126,13 +133,7 @@ export function projectMonitorCases({
                         : null,
                     stable: state.currentRound > round.round,
                     isExecutionPaused: !state.isSlashingEnabled && !round.isExecuted,
-                    isProtected: isRoundProtectedByPause(
-                        round.round,
-                        config,
-                        state.isSlashingEnabled,
-                        state.pauseStartedAtSlot,
-                        state.pauseEndsAtSlot,
-                    ),
+                    isProtected,
                     roundEndSlot: roundEndSlot.toString(),
                     executableSlot: executableSlot.toString(),
                     expirySlot: expirySlot.toString(),
@@ -141,7 +142,8 @@ export function projectMonitorCases({
                     expiryAt: slotAt(protocol, expirySlot),
                 },
             } satisfies Observation;
-        }));
+        });
+    });
     const executionObservations: Observation[] = confirmedExecutions.flatMap(
         (execution) => {
             const round = slashings.find((candidate) =>

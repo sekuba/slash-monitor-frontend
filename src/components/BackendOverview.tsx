@@ -1,17 +1,13 @@
 import { useEffect } from 'react';
-import { AddressStatus } from './AddressStatus';
-import { CaseFeed } from './CaseFeed';
-import { CaseTimeline } from './CaseTimeline';
+import { CaseSurface } from './CaseSurface';
 import { NetworkHealth } from './NetworkHealth';
 import { SourceStatus } from './SourceStatus';
 import { WatchSettings } from './WatchSettings';
-import { WatchlistSection } from './WatchlistSection';
 import { useBackendMonitor } from '@/hooks/useBackendMonitor';
 import { useSequencerStates } from '@/hooks/useSequencerStates';
-import { selectCaseFeed } from '@/lib/caseFeed';
 import type { MonitorNetwork } from '@/types/backendApi';
 import type { MonitorConfigInput } from '@/types/slashing';
-import type { ProtocolSnapshot } from '../../shared/protocol/index.ts';
+import type { ProtocolSnapshot } from '@shared/protocol/index.ts';
 
 export function BackendOverview({
     network,
@@ -89,21 +85,6 @@ export function BackendOverview({
     }
 
     const protocol = monitor.status?.protocol ?? null;
-    const watchedCases = monitor.networkData.cases.filter(
-        (item) => watchedAddresses.includes(item.sequencer),
-    );
-    const selectedCase = selectedCaseId
-        ? monitor.networkData.cases.find((item) => item.id === selectedCaseId) ?? null
-        : null;
-    const feedCaseIds = new Set(
-        Object.values(selectCaseFeed(monitor.networkData.cases))
-            .flat()
-            .map((item) => item.id),
-    );
-    const selectedInFeed = selectedCaseId ? feedCaseIds.has(selectedCaseId) : false;
-    const selectedIsVisible = selectedCase
-        ? watchedAddresses.includes(selectedCase.sequencer) || selectedInFeed
-        : false;
     const degraded = monitor.status?.status !== 'healthy' ||
         monitor.status.sources.some((source) => source.status !== 'healthy');
 
@@ -140,64 +121,22 @@ export function BackendOverview({
                 protocol={protocol}
             />
 
-            {selectedCase && !selectedIsVisible && (
-                <section className="mb-8">
-                    <p className="mb-3 text-xs font-black uppercase tracking-[0.16em] text-aqua">
-                        Shared case
-                    </p>
-                    <CaseTimeline
-                        item={selectedCase}
-                        protocol={protocol}
-                        selected
-                        showSequencer
-                        onOpenProtocolGuide={onOpenProtocolGuide}
-                    />
-                </section>
-            )}
-
-            <WatchSettings
+            <CaseSurface
                 network={network}
-                config={monitor.config}
-                linkedAddresses={linkedAddresses}
-                onWatchlistChange={onWatchlistChange}
-            />
-
-            {watchedAddresses.length > 0 && (
-                <WatchlistSection
-                    cases={watchedCases}
-                    sequencerCount={watchedAddresses.length}
-                    forceOpen={selectedCase !== null &&
-                        !selectedInFeed &&
-                        watchedAddresses.includes(selectedCase.sequencer)}
-                >
-                    {watchedAddresses.map((address) => (
-                        <AddressStatus
-                            key={address}
-                            address={address}
-                            network={network}
-                            cases={watchedCases.filter(
-                                (item) => item.sequencer === address.toLowerCase(),
-                            )}
-                            currentStake={
-                                sequencerStates.states.get(address.toLowerCase())
-                                    ?.effectiveBalance.toString() ?? null
-                            }
-                            currentStakeLoading={sequencerStates.isLoading}
-                            protocol={protocol}
-                            selectedCaseId={selectedInFeed ? null : selectedCaseId}
-                            onOpenProtocolGuide={onOpenProtocolGuide}
-                        />
-                    ))}
-                </WatchlistSection>
-            )}
-
-            <CaseFeed
                 cases={monitor.networkData.cases}
                 protocol={protocol}
+                watchedAddresses={watchedAddresses}
+                sequencerStates={sequencerStates}
                 selectedCaseId={selectedCaseId}
-                evidenceMode="backend"
                 onOpenProtocolGuide={onOpenProtocolGuide}
-            />
+            >
+                <WatchSettings
+                    network={network}
+                    config={monitor.config}
+                    linkedAddresses={linkedAddresses}
+                    onWatchlistChange={onWatchlistChange}
+                />
+            </CaseSurface>
 
             <SourceStatus sources={monitor.status?.sources ?? []} />
         </>

@@ -32,8 +32,9 @@ and action order, never by address and approximate time.
 
 ## Repository
 
-- `shared/protocol/` contains the pure case projection, tallying, transitions,
-  and notification wording shared by frontend and backend.
+- `shared/protocol/` contains the pure case projection, vote tallying, round
+  lifecycle, transitions, and notification wording shared by frontend and
+  backend.
 - `src/` contains the React PWA and independent browser L1 collector.
 - `collector/` contains the Node backend, SQLite repository, three evidence
   collectors, API, durable outbox, Telegram, and Web Push.

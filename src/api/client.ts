@@ -5,7 +5,6 @@ import type {
     CreatedWatch,
     ManagedWatch,
     NetworkCases,
-    SequencerCases,
     SlashingCase,
     TelegramLink,
 } from '@/types/backendApi';
@@ -41,12 +40,6 @@ export class BackendApiClient {
 
     getNetwork(signal?: AbortSignal): Promise<NetworkCases> {
         return this.request('/network', { signal }) as Promise<NetworkCases>;
-    }
-
-    getSequencer(sequencer: string, signal?: AbortSignal): Promise<SequencerCases> {
-        return this.request(`/sequencers/${encodeURIComponent(sequencer)}`, {
-            signal,
-        }) as Promise<SequencerCases>;
     }
 
     getCase(id: string, signal?: AbortSignal): Promise<SlashingCase> {
@@ -161,7 +154,7 @@ export class BackendApiClient {
             if (error instanceof DOMException && error.name === 'AbortError') {
                 throw new Error(options.signal?.aborted
                     ? 'slashveto.me API request was cancelled'
-                    : 'slashveto.me API did not respond in time');
+                    : 'slashveto.me API did not respond in time', { cause: error });
             }
             throw error;
         }

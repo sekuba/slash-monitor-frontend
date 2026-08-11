@@ -19,5 +19,11 @@ export function saveMonitorAddresses(
     network: MonitorNetwork,
     addresses: readonly string[],
 ): void {
-    localStorage.setItem(`${PREFIX}${network}`, JSON.stringify(addresses));
+    try {
+        localStorage.setItem(`${PREFIX}${network}`, JSON.stringify(addresses));
+    }
+    catch {
+        // Private browsing or storage quota: the filter still applies for this
+        // session even when it cannot persist.
+    }
 }

@@ -1,4 +1,4 @@
-import type { Network } from '../../shared/protocol/index.ts';
+import type { Network } from '@shared/protocol/index.ts';
 
 export function SequencerLink({
     address,

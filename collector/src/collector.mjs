@@ -1,6 +1,7 @@
 import { errorMessage } from './logger.mjs';
+import { PollingWorker } from './polling-worker.mjs';
 
-export class OffenseCollector {
+export class OffenseCollector extends PollingWorker {
   constructor({
     client,
     repository,
@@ -16,6 +17,7 @@ export class OffenseCollector {
     logger,
     now = Date.now,
   }) {
+    super();
     this.client = client;
     this.repository = repository;
     this.network = network;
@@ -32,30 +34,6 @@ export class OffenseCollector {
     this.withdrawAfterMissedPolls = withdrawAfterMissedPolls;
     this.logger = logger;
     this.now = now;
-    this.running = false;
-    this.loopPromise = undefined;
-    this.activeRequest = undefined;
-    this.pendingSleep = undefined;
-  }
-
-  start() {
-    if (this.running) {
-      return this.loopPromise;
-    }
-    this.running = true;
-    this.loopPromise = this.runLoop();
-    return this.loopPromise;
-  }
-
-  async stop() {
-    if (!this.running && !this.loopPromise) {
-      return;
-    }
-    this.running = false;
-    this.activeRequest?.abort();
-    this.pendingSleep?.resolve();
-    await this.loopPromise;
-    this.loopPromise = undefined;
   }
 
   async runOnce() {
@@ -72,8 +50,7 @@ export class OffenseCollector {
       );
     }
 
-    const controller = new AbortController();
-    this.activeRequest = controller;
+    const controller = this.trackRequest();
 
     let offenses;
     let nodeSyncStatus;
@@ -97,9 +74,7 @@ export class OffenseCollector {
       }
       return this.recordPollFailure(errorMessage(error), this.now());
     } finally {
-      if (this.activeRequest === controller) {
-        this.activeRequest = undefined;
-      }
+      this.releaseRequest(controller);
     }
 
     // Repository failures are process-fatal. Retrying a broken journal while still
@@ -142,43 +117,12 @@ export class OffenseCollector {
   }
 
   recordPollFailure(message, at) {
-    this.repository.recordFailure(message, at);
-    const state = this.repository.getSyncState();
-    this.logger.warn('Offense poll failed; retained the last successful snapshot', {
-      consecutiveFailures: state.consecutiveFailures,
-      error: message,
-    });
-    return { ok: false, error: message, consecutiveFailures: state.consecutiveFailures };
-  }
-
-  async runLoop() {
-    while (this.running) {
-      const result = await this.runOnce();
-      if (!this.running) {
-        break;
-      }
-      const failures = result.ok ? 0 : result.consecutiveFailures ?? 1;
-      const delay = failures === 0
-        ? this.pollIntervalMs
-        : Math.min(this.maxBackoffMs, this.pollIntervalMs * 2 ** Math.min(failures - 1, 16));
-      await this.sleep(delay);
-    }
-  }
-
-  sleep(delay) {
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        this.pendingSleep = undefined;
-        resolve();
-      }, delay);
-      this.pendingSleep = {
-        resolve: () => {
-          clearTimeout(timer);
-          this.pendingSleep = undefined;
-          resolve();
-        },
-      };
-    });
+    return this.pollFailure(
+      'aztec_node',
+      'Offense poll failed; retained the last successful snapshot',
+      message,
+      at,
+    );
   }
 }
 

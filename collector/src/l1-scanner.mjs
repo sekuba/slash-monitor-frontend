@@ -16,6 +16,16 @@ import {
   slasherAbi,
   slashingProposerAbi,
 } from './l1-abis.mjs';
+import {
+  decodeVoteTargets,
+  executableSlot,
+  expirySlot,
+  isRoundProtectedByPause,
+  matchVoteActions,
+  mergeVoteTargets,
+  roundStatus,
+  targetEpochs as roundTargetEpochs,
+} from '../../shared/protocol/index.ts';
 
 const MAX_RESOLVED_ROLLUPS = 256;
 const MAX_EPOCH_COMMITTEE_SIZE = 4_096;
@@ -89,27 +99,15 @@ export class L1Scanner {
    * already accepted by the normal L1 collector. The before/after hash checks
    * prevent a provider from mixing a replacement block into the result.
    */
-  async getEpochCommittee(checkpoint, signal) {
-    const errors = [];
-    for (let offset = 0; offset < this.rpcUrls.length; offset += 1) {
-      const providerIndex = (this.nextCommitteeProviderIndex + offset) % this.rpcUrls.length;
-      const timeoutSignal = AbortSignal.timeout(this.requestTimeoutMs);
-      const providerSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
-      const client = this.clientFactory(this.rpcUrls[providerIndex], providerSignal, providerIndex);
-      try {
-        const result = await this.getEpochCommitteeWithClient(client, checkpoint);
-        this.nextCommitteeProviderIndex = providerIndex;
-        return result;
-      } catch (error) {
-        if (signal?.aborted) throw error;
-        if (timeoutSignal.aborted) {
-          errors.push(`provider ${providerIndex + 1}: committee lookup timed out after ${this.requestTimeoutMs}ms`);
-          continue;
-        }
-        errors.push(`provider ${providerIndex + 1}: ${sanitizeRpcError(error)}`);
-      }
-    }
-    throw new Error(`Every configured L1 RPC failed the epoch committee lookup (${errors.join('; ')})`);
+  getEpochCommittee(checkpoint, signal) {
+    return this.withProviderFailover({
+      cursorField: 'nextCommitteeProviderIndex',
+      timeoutMs: this.requestTimeoutMs,
+      timeoutLabel: 'committee lookup timed out',
+      failureLabel: 'the epoch committee lookup',
+      signal,
+      attempt: (client) => this.getEpochCommitteeWithClient(client, checkpoint),
+    });
   }
 
   async getEpochCommitteeWithClient(client, checkpoint = {}) {
@@ -122,10 +120,7 @@ export class L1Scanner {
     const rollupAddress = getAddress(checkpoint.rollupAddress);
     requireNonZero(rollupAddress, 'committee Rollup');
 
-    const actualChainId = await client.getChainId();
-    if (actualChainId !== this.chainId) {
-      throw new Error(`chain id ${actualChainId}, expected ${this.chainId}`);
-    }
+    await this.assertExpectedChain(client);
     const pinnedBlock = await client.getBlock({ blockNumber });
     if (!pinnedBlock.hash || pinnedBlock.hash.toLowerCase() !== blockHash) {
       throw new Error(`confirmed L1 committee checkpoint ${blockNumber} is no longer canonical`);
@@ -172,29 +167,15 @@ export class L1Scanner {
     };
   }
 
-  async scan(previous = {}, signal) {
-    const errors = [];
-    for (let offset = 0; offset < this.rpcUrls.length; offset += 1) {
-      const providerIndex = (this.nextProviderIndex + offset) % this.rpcUrls.length;
-      const timeoutSignal = AbortSignal.timeout(this.snapshotTimeoutMs);
-      const providerSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
-      const client = this.clientFactory(this.rpcUrls[providerIndex], providerSignal, providerIndex);
-      try {
-        const snapshot = await this.scanWithClient(client, previous);
-        this.nextProviderIndex = providerIndex;
-        return snapshot;
-      } catch (error) {
-        if (signal?.aborted) {
-          throw error;
-        }
-        if (timeoutSignal.aborted) {
-          errors.push(`provider ${providerIndex + 1}: complete snapshot timed out after ${this.snapshotTimeoutMs}ms`);
-          continue;
-        }
-        errors.push(`provider ${providerIndex + 1}: ${sanitizeRpcError(error)}`);
-      }
-    }
-    throw new Error(`Every configured L1 RPC failed a complete snapshot (${errors.join('; ')})`);
+  scan(previous = {}, signal) {
+    return this.withProviderFailover({
+      cursorField: 'nextProviderIndex',
+      timeoutMs: this.snapshotTimeoutMs,
+      timeoutLabel: 'complete snapshot timed out',
+      failureLabel: 'a complete snapshot',
+      signal,
+      attempt: (client) => this.scanWithClient(client, previous),
+    });
   }
 
   /**
@@ -202,42 +183,59 @@ export class L1Scanner {
    * commit the returned checkpoint together with its events before asking for
    * the next chunk. That makes a crash repeat work instead of skipping it.
    */
-  async scanSlashLogChunk(previous = {}, signal) {
+  scanSlashLogChunk(previous = {}, signal) {
+    return this.withProviderFailover({
+      cursorField: 'nextLogProviderIndex',
+      timeoutMs: this.slashLogProviderTimeoutMs,
+      timeoutLabel: 'slash log chunk timed out',
+      failureLabel: 'a slash log chunk',
+      signal,
+      // When the collector's absolute backfill budget wins the race, do not
+      // let the same hanging primary consume every future run; start with the
+      // next configured RPC when collection resumes.
+      rotateOnAbort: true,
+      attempt: (client) => this.scanSlashLogChunkWithClient(client, previous),
+    });
+  }
+
+  // Tries every configured RPC once, starting at the remembered rotation
+  // cursor, with a per-provider timeout. The first success pins the cursor.
+  async withProviderFailover({
+    cursorField,
+    timeoutMs,
+    timeoutLabel,
+    failureLabel,
+    signal,
+    rotateOnAbort = false,
+    attempt,
+  }) {
     const errors = [];
     for (let offset = 0; offset < this.rpcUrls.length; offset += 1) {
-      const providerIndex = (this.nextLogProviderIndex + offset) % this.rpcUrls.length;
-      const timeoutSignal = AbortSignal.timeout(this.slashLogProviderTimeoutMs);
+      const providerIndex = (this[cursorField] + offset) % this.rpcUrls.length;
+      const timeoutSignal = AbortSignal.timeout(timeoutMs);
       const providerSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
       const client = this.clientFactory(this.rpcUrls[providerIndex], providerSignal, providerIndex);
       try {
-        const chunk = await this.scanSlashLogChunkWithClient(client, previous);
-        this.nextLogProviderIndex = providerIndex;
-        return chunk;
+        const result = await attempt(client);
+        this[cursorField] = providerIndex;
+        return result;
       } catch (error) {
         if (signal?.aborted) {
-          // The collector's absolute backfill budget won the race. Do not let
-          // the same hanging primary consume every future run; start with the
-          // next configured RPC when collection resumes.
-          this.nextLogProviderIndex = (providerIndex + 1) % this.rpcUrls.length;
+          if (rotateOnAbort) this[cursorField] = (providerIndex + 1) % this.rpcUrls.length;
           throw error;
         }
         if (timeoutSignal.aborted) {
-          errors.push(
-            `provider ${providerIndex + 1}: slash log chunk timed out after ${this.slashLogProviderTimeoutMs}ms`,
-          );
+          errors.push(`provider ${providerIndex + 1}: ${timeoutLabel} after ${timeoutMs}ms`);
           continue;
         }
         errors.push(`provider ${providerIndex + 1}: ${sanitizeRpcError(error)}`);
       }
     }
-    throw new Error(`Every configured L1 RPC failed a slash log chunk (${errors.join('; ')})`);
+    throw new Error(`Every configured L1 RPC failed ${failureLabel} (${errors.join('; ')})`);
   }
 
   async scanSlashLogChunkWithClient(client, previous = {}) {
-    const actualChainId = await client.getChainId();
-    if (actualChainId !== this.chainId) {
-      throw new Error(`chain id ${actualChainId}, expected ${this.chainId}`);
-    }
+    await this.assertExpectedChain(client);
 
     const head = await client.getBlock({ blockTag: 'latest' });
     if (head.number === null || !head.hash) throw new Error('latest L1 block has no number or hash');
@@ -409,10 +407,7 @@ export class L1Scanner {
   }
 
   async scanWithClient(client, previous = {}) {
-    const actualChainId = await client.getChainId();
-    if (actualChainId !== this.chainId) {
-      throw new Error(`chain id ${actualChainId}, expected ${this.chainId}`);
-    }
+    await this.assertExpectedChain(client);
 
     const head = await client.getBlock({ blockTag: 'latest' });
     if (head.number === null || !head.hash) {
@@ -672,6 +667,13 @@ export class L1Scanner {
     };
   }
 
+  async assertExpectedChain(client) {
+    const actualChainId = await client.getChainId();
+    if (actualChainId !== this.chainId) {
+      throw new Error(`chain id ${actualChainId}, expected ${this.chainId}`);
+    }
+  }
+
   assertFreshTimestamp(timestamp) {
     const blockMs = Number(timestamp) * 1_000;
     const now = this.now();
@@ -720,13 +722,10 @@ async function scanRound(client, input) {
   let actionDetails = [];
   let payloadAddress = null;
   let isVetoed = false;
-  const targetEpochs = [];
-  if (round >= config.slashOffsetInRounds) {
-    const startEpoch = (round - config.slashOffsetInRounds) * config.roundSizeInEpochs;
-    for (let offset = 0n; offset < config.roundSizeInEpochs; offset += 1n) {
-      targetEpochs.push((startEpoch + offset).toString());
-    }
-  }
+  const targetEpochs = roundTargetEpochs(round, {
+    slashOffsetRounds: config.slashOffsetInRounds,
+    roundSizeEpochs: config.roundSizeInEpochs,
+  }).map((epoch) => epoch.toString());
   let escapeHatchEpochs = targetEpochs.map(() => false);
 
   if (isExecuted || ballotCount > 0n) {
@@ -756,9 +755,9 @@ async function scanRound(client, input) {
         previousCount,
         ballotCount,
       );
-      earlyTargets = mergeEarlyTargets(
+      earlyTargets = mergeVoteTargets(
         previousCount > 0n ? previousRound.earlyTargets ?? [] : [],
-        decodeEarlyTargets(encodedVotes, committees, config.committeeSize),
+        decodeVoteTargets(encodedVotes, committees, config.committeeSize),
       );
     }
   }
@@ -768,7 +767,7 @@ async function scanRound(client, input) {
       sequencer: getAddress(action.validator).toLowerCase(),
       amount: action.slashAmount.toString(),
     }));
-    actionDetails = matchActionsToTargets(
+    actionDetails = matchVoteActions(
       actions,
       earlyTargets,
       config.quorum,
@@ -788,30 +787,31 @@ async function scanRound(client, input) {
     }
   }
 
-  const executableSlot = (round + 1n + config.executionDelayInRounds) * config.roundSize;
-  const expirySlot = (round + 1n + config.lifetimeInRounds) * config.roundSize;
-  const proposerStatus = calculateStatus({
+  const timing = {
+    roundSizeSlots: config.roundSize,
+    executionDelayRounds: config.executionDelayInRounds,
+    lifetimeRounds: config.lifetimeInRounds,
+  };
+  const roundExecutableSlot = executableSlot(round, timing);
+  const roundExpirySlot = expirySlot(round, timing);
+  const proposerStatus = roundStatus({
     round,
     currentRound,
     currentSlot,
     isExecuted,
     hasActions: actions.length > 0,
-    executableSlot,
-    lifetimeInRounds: config.lifetimeInRounds,
-    executionDelayInRounds: config.executionDelayInRounds,
-  });
+  }, timing);
   const status = role === 'pending' && !isExecuted && ['newly-executable', 'executable'].includes(proposerStatus)
     ? 'pending-activation'
     : proposerStatus;
   const isExecutionPaused = !isSlashingEnabled && !isExecuted;
   const isProtected = !isExecuted && isRoundProtectedByPause({
     round,
-    slashOffsetInRounds: config.slashOffsetInRounds,
-    expirySlot,
+    slashOffsetRounds: config.slashOffsetInRounds,
     isSlashingEnabled,
     pauseStartedAtSlot,
     pauseEndsAtSlot,
-  });
+  }, timing);
 
   return {
     round: round.toString(),
@@ -832,8 +832,8 @@ async function scanRound(client, input) {
     })),
     payloadAddress,
     isVetoed,
-    executableSlot: executableSlot.toString(),
-    expirySlot: expirySlot.toString(),
+    executableSlot: roundExecutableSlot.toString(),
+    expirySlot: roundExpirySlot.toString(),
     targetEpochs,
     escapeHatchEpochs,
     isAuthorized: role !== 'pending',
@@ -864,111 +864,6 @@ async function readVotes(client, proposerAddress, blockNumber, round, startIndex
   return votes;
 }
 
-export function mergeEarlyTargets(previousTargets, addedTargets) {
-  const merged = new Map();
-  for (const target of [...previousTargets, ...addedTargets]) {
-    const sequencer = String(target.sequencer).toLowerCase();
-    const epochIndex = Number(target.epochIndex);
-    const committeeIndex = Number(target.committeeIndex);
-    const key = `${epochIndex}:${committeeIndex}:${sequencer}`;
-    const current = merged.get(key) ?? {
-      sequencer,
-      epochIndex,
-      committeeIndex,
-      voteCount: 0,
-      maxSlashUnits: 0,
-      unitVoteCounts: [0, 0, 0],
-    };
-    current.voteCount += Number(target.voteCount ?? 0);
-    current.maxSlashUnits = Math.max(current.maxSlashUnits, Number(target.maxSlashUnits ?? 0));
-    for (let index = 0; index < 3; index += 1) {
-      current.unitVoteCounts[index] += Number(target.unitVoteCounts?.[index] ?? 0);
-    }
-    merged.set(key, current);
-  }
-  return [...merged.values()].sort((a, b) =>
-    a.epochIndex - b.epochIndex ||
-    a.committeeIndex - b.committeeIndex ||
-    a.sequencer.localeCompare(b.sequencer));
-}
-
-export function decodeEarlyTargets(encodedVotes, committees, committeeSizeInput) {
-  const committeeSize = Number(committeeSizeInput);
-  if (!Number.isSafeInteger(committeeSize) || committeeSize <= 0) return [];
-  const tallies = new Map();
-  for (const encoded of encodedVotes) {
-    if (typeof encoded !== 'string' || !/^0x[0-9a-fA-F]*$/.test(encoded)) continue;
-    const bytes = Buffer.from(encoded.slice(2), 'hex');
-    const validatorCount = committees.length * committeeSize;
-    for (let index = 0; index < validatorCount; index += 1) {
-      const byte = bytes[Math.floor(index / 4)] ?? 0;
-      const units = (byte >> ((index % 4) * 2)) & 0b11;
-      if (units === 0) continue;
-      const epochIndex = Math.floor(index / committeeSize);
-      const committeeIndex = index % committeeSize;
-      const rawAddress = committees[epochIndex]?.[committeeIndex];
-      if (!rawAddress) continue;
-      const sequencer = getAddress(rawAddress).toLowerCase();
-      const key = `${epochIndex}:${committeeIndex}:${sequencer}`;
-      const tally = tallies.get(key) ?? {
-        sequencer,
-        epochIndex,
-        committeeIndex,
-        voteCount: 0,
-        maxSlashUnits: 0,
-        unitVoteCounts: [0, 0, 0],
-      };
-      tally.voteCount += 1;
-      tally.maxSlashUnits = Math.max(tally.maxSlashUnits, units);
-      tally.unitVoteCounts[units - 1] += 1;
-      tallies.set(key, tally);
-    }
-  }
-  return [...tallies.values()].sort((a, b) =>
-    a.epochIndex - b.epochIndex ||
-    a.committeeIndex - b.committeeIndex ||
-    a.sequencer.localeCompare(b.sequencer));
-}
-
-export function matchActionsToTargets(
-  actions,
-  targets,
-  quorumInput,
-  escapeHatchEpochs = [],
-) {
-  const quorum = Number(quorumInput);
-  if (!Number.isSafeInteger(quorum) || quorum < 1) return [];
-  const qualified = targets.flatMap((target) => {
-    if (escapeHatchEpochs[target.epochIndex]) return [];
-    let cumulative = 0;
-    let units = 0;
-    for (let index = 2; index >= 0; index -= 1) {
-      cumulative += Number(target.unitVoteCounts?.[index] ?? 0);
-      if (cumulative >= quorum) {
-        units = index + 1;
-        break;
-      }
-    }
-    return units === 0 ? [] : [{
-      ...target,
-      support: cumulative,
-      slashUnits: units,
-    }];
-  });
-  if (qualified.length !== actions.length) {
-    throw new Error(
-      `local vote decoding produced ${qualified.length} actions, contract returned ${actions.length}`,
-    );
-  }
-  return qualified.map((target, index) => {
-    const action = actions[index];
-    if (target.sequencer !== action.sequencer) {
-      throw new Error('local vote decoding disagrees with the contract tally order');
-    }
-    return { ...target, amount: action.amount };
-  });
-}
-
 async function readEscapeHatchEpochs(
   client,
   rollupAddress,
@@ -996,31 +891,6 @@ async function readEscapeHatchEpochs(
     );
     return Boolean(isOpen);
   }));
-}
-
-export function calculateStatus(input) {
-  if (input.isExecuted) return 'executed';
-  if (input.currentRound > input.round + input.lifetimeInRounds) return 'expired';
-  if (!input.hasActions) return 'below-quorum';
-  const isPastDelay = input.currentRound > input.round + input.executionDelayInRounds;
-  if (isPastDelay && input.currentSlot >= input.executableSlot) {
-    return input.currentRound === input.round + input.executionDelayInRounds + 1n
-      ? 'newly-executable'
-      : 'executable';
-  }
-  return 'quorum-reached';
-}
-
-export function isRoundProtectedByPause(input) {
-  if (
-    input.isSlashingEnabled ||
-    input.pauseStartedAtSlot === null ||
-    input.pauseEndsAtSlot === null ||
-    input.round < input.slashOffsetInRounds
-  ) {
-    return false;
-  }
-  return input.expirySlot > input.pauseStartedAtSlot && input.expirySlot <= input.pauseEndsAtSlot;
 }
 
 async function read(client, address, abi, functionName, blockNumber, args = []) {
@@ -1249,15 +1119,11 @@ async function reconstructExecutedRound(client, {
     0n,
     BigInt(ballotCount),
   );
-  const targets = decodeEarlyTargets(encodedVotes, committees, committeeSize);
-  const targetEpochs = [];
-  if (round >= BigInt(slashOffsetInRounds)) {
-    const startEpoch =
-      (round - BigInt(slashOffsetInRounds)) * BigInt(roundSizeInEpochs);
-    for (let offset = 0n; offset < BigInt(roundSizeInEpochs); offset += 1n) {
-      targetEpochs.push((startEpoch + offset).toString());
-    }
-  }
+  const targets = decodeVoteTargets(encodedVotes, committees, committeeSize);
+  const targetEpochs = roundTargetEpochs(round, {
+    slashOffsetRounds: slashOffsetInRounds,
+    roundSizeEpochs: roundSizeInEpochs,
+  }).map((epoch) => epoch.toString());
   const escapeHatchEpochs = await readEscapeHatchEpochs(
     client,
     rollupAddress,
@@ -1282,7 +1148,7 @@ async function reconstructExecutedRound(client, {
       `historical tally returned ${actions.length}`,
     );
   }
-  const actionDetails = matchActionsToTargets(
+  const actionDetails = matchVoteActions(
     actions,
     targets,
     quorum,

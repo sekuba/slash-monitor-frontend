@@ -19,7 +19,6 @@ interface State {
     watchError: string | null;
     isLoading: boolean;
     error: string | null;
-    lastReceivedAt: number | null;
 }
 
 const initialState: State = {
@@ -30,7 +29,6 @@ const initialState: State = {
     watchError: null,
     isLoading: true,
     error: null,
-    lastReceivedAt: null,
 };
 
 export function useBackendMonitor(network: MonitorNetwork) {
@@ -85,7 +83,6 @@ export function useBackendMonitor(network: MonitorNetwork) {
                 watchError: watchResult.error,
                 isLoading: false,
                 error: null,
-                lastReceivedAt: Date.now(),
             });
         }
         catch (error) {
@@ -100,7 +97,6 @@ export function useBackendMonitor(network: MonitorNetwork) {
                 error: error instanceof Error
                     ? error.message
                     : 'Unable to reach the slashveto.me backend',
-                lastReceivedAt: null,
             });
         }
         finally {
@@ -127,5 +123,5 @@ export function useBackendMonitor(network: MonitorNetwork) {
         };
     }, [refresh]);
 
-    return { ...state, credentials, refresh };
+    return { ...state, refresh };
 }

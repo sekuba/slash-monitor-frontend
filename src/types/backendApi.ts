@@ -54,12 +54,6 @@ export interface CreatedWatch {
     managementToken: string;
 }
 
-export interface SequencerCases {
-    sequencer: string;
-    protocol: ProtocolSnapshot | null;
-    cases: SlashingCase[];
-}
-
 export interface TelegramLink {
     url: string;
     expiresAt: string;

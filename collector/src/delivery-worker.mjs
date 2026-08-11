@@ -1,17 +1,15 @@
 import { createHash } from 'node:crypto';
 
 import { DeliveryError } from './channels.mjs';
-import {
-  CRITICAL_DELIVERY_LIFETIME_MS,
-  WARNING_DELIVERY_LIFETIME_MS,
-  deliveryLifetimeMs,
-} from './delivery-policy.mjs';
 import { errorMessage } from './logger.mjs';
+import { PollingWorker } from './polling-worker.mjs';
 
-export { CRITICAL_DELIVERY_LIFETIME_MS, WARNING_DELIVERY_LIFETIME_MS };
+export const CRITICAL_DELIVERY_LIFETIME_MS = 7 * 24 * 60 * 60_000;
+export const WARNING_DELIVERY_LIFETIME_MS = 24 * 60 * 60_000;
+
 const KNOWN_CHANNEL_KINDS = new Set(['telegram', 'web_push']);
 
-export class DeliveryWorker {
+export class DeliveryWorker extends PollingWorker {
   constructor({
     repository,
     channels,
@@ -25,6 +23,7 @@ export class DeliveryWorker {
     logger,
     now = Date.now,
   }) {
+    super();
     if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
       throw new Error('Delivery concurrency must be a positive safe integer');
     }
@@ -48,28 +47,11 @@ export class DeliveryWorker {
     this.maintenanceIntervalMs = maintenanceIntervalMs;
     this.logger = logger;
     this.now = now;
-    this.running = false;
-    this.loopPromise = undefined;
-    this.activeControllers = new Set();
-    this.pendingSleep = undefined;
     this.nextMaintenanceAt = 0;
   }
 
-  start() {
-    if (this.running) return this.loopPromise;
-    this.running = true;
+  onStart() {
     this.repository.recoverStuckDeliveries(this.now() - this.leaseMs);
-    this.loopPromise = this.runLoop();
-    return this.loopPromise;
-  }
-
-  async stop() {
-    if (!this.running && !this.loopPromise) return;
-    this.running = false;
-    for (const controller of this.activeControllers) controller.abort();
-    this.pendingSleep?.resolve();
-    await this.loopPromise;
-    this.loopPromise = undefined;
   }
 
   async runOnce() {
@@ -101,8 +83,6 @@ export class DeliveryWorker {
     this.nextMaintenanceAt = now + this.maintenanceIntervalMs;
     try {
       const result = this.repository.pruneNotificationData({ now });
-      const verificationChecks = this.repository.enqueueUnverifiedWebPushChecks?.(now) ?? 0;
-      if (verificationChecks > 0) result.verificationChecks = verificationChecks;
       if (Object.values(result).some((count) => count > 0)) {
         this.logger.debug('Pruned expired notification journal data', result);
       }
@@ -140,10 +120,9 @@ export class DeliveryWorker {
       return 'failed';
     }
 
-    const controller = new AbortController();
+    const controller = this.trackRequest();
     const timeoutSignal = AbortSignal.timeout(this.requestTimeoutMs);
     const signal = AbortSignal.any([controller.signal, timeoutSignal]);
-    this.activeControllers.add(controller);
     try {
       const result = await channel.send(delivery, signal);
       const completedAt = this.now();
@@ -162,7 +141,7 @@ export class DeliveryWorker {
       }
       return this.handleFailure(delivery, error);
     } finally {
-      this.activeControllers.delete(controller);
+      this.releaseRequest(controller);
     }
   }
 
@@ -171,9 +150,17 @@ export class DeliveryWorker {
     const attempts = Number(delivery.attempts ?? 1);
     const failedAt = this.now();
     const retryDeadline = deliveryRetryDeadline(delivery);
+    const usefulLifetimeExpired = retryDeadline !== undefined && failedAt >= retryDeadline;
+    const attemptsExhausted = retryDeadline === undefined && attempts >= this.maxAttempts;
+    const requestedRetryAt = failedAt + (
+      error instanceof DeliveryError && error.retryAfterMs
+        ? error.retryAfterMs
+        : retryDelayMs(attempts, delivery.id)
+    );
+    const retryAt = retryDeadline === undefined
+      ? requestedRetryAt
+      : Math.min(requestedRetryAt, retryDeadline);
     if (error instanceof DeliveryError && error.scope === 'channel') {
-      const usefulLifetimeExpired = retryDeadline !== undefined && failedAt >= retryDeadline;
-      const attemptsExhausted = retryDeadline === undefined && attempts >= this.maxAttempts;
       if (usefulLifetimeExpired || attemptsExhausted) {
         this.repository.failDeliveryForChannelFailure(
           delivery.id,
@@ -189,14 +176,6 @@ export class DeliveryWorker {
         });
         return 'failed';
       }
-      const requestedRetryAt = failedAt + (
-        error.retryAfterMs
-          ? error.retryAfterMs
-          : retryDelayMs(attempts, delivery.id)
-      );
-      const retryAt = retryDeadline === undefined
-        ? requestedRetryAt
-        : Math.min(requestedRetryAt, retryDeadline);
       // Channel credentials are shared by every destination. Keep urgent
       // alerts durable beyond the normal attempt ceiling and surface the
       // outage through channel health without mutating this endpoint.
@@ -216,8 +195,6 @@ export class DeliveryWorker {
       });
       return 'retried';
     }
-    const usefulLifetimeExpired = retryDeadline !== undefined && failedAt >= retryDeadline;
-    const attemptsExhausted = retryDeadline === undefined && attempts >= this.maxAttempts;
     if ((error instanceof DeliveryError && error.permanent) || usefulLifetimeExpired || attemptsExhausted) {
       if (error instanceof DeliveryError && error.permanent) {
         this.repository.failDeliveryAndDisableEndpoint(
@@ -238,14 +215,6 @@ export class DeliveryWorker {
       return 'failed';
     }
 
-    const requestedRetryAt = failedAt + (
-      error instanceof DeliveryError && error.retryAfterMs
-        ? error.retryAfterMs
-        : retryDelayMs(attempts, delivery.id)
-    );
-    const retryAt = retryDeadline === undefined
-      ? requestedRetryAt
-      : Math.min(requestedRetryAt, retryDeadline);
     this.repository.retryDelivery(delivery.id, message, retryAt, failedAt);
     this.logger.warn('Notification delivery will retry', {
       deliveryId: delivery.id,
@@ -268,21 +237,6 @@ export class DeliveryWorker {
     }
   }
 
-  sleep(delay) {
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        this.pendingSleep = undefined;
-        resolve();
-      }, delay);
-      this.pendingSleep = {
-        resolve: () => {
-          clearTimeout(timer);
-          this.pendingSleep = undefined;
-          resolve();
-        },
-      };
-    });
-  }
 }
 
 export function retryDelayMs(attempts, id = '') {
@@ -293,9 +247,16 @@ export function retryDelayMs(attempts, id = '') {
 
 export function deliveryRetryDeadline(delivery) {
   const lifetimeMs = deliveryLifetimeMs(delivery.event?.severity);
+
   if (lifetimeMs === undefined) return undefined;
   const observedAt = Number(delivery.event?.observedAt);
   if (!Number.isSafeInteger(observedAt) || observedAt < 0) return undefined;
   const deadline = observedAt + lifetimeMs;
   return Number.isSafeInteger(deadline) ? deadline : undefined;
+}
+
+function deliveryLifetimeMs(severity) {
+  if (severity === 'critical') return CRITICAL_DELIVERY_LIFETIME_MS;
+  if (severity === 'warning') return WARNING_DELIVERY_LIFETIME_MS;
+  return undefined;
 }

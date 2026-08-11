@@ -1,4 +1,5 @@
-import { decodeFunctionResult, encodeFunctionData, type Address, type PublicClient } from 'viem';
+import { decodeFunctionResult, encodeFunctionData, type Abi, type Address, type PublicClient } from 'viem';
+import { toErrorMessage } from './errors';
 
 export const multicall3Abi = [
     {
@@ -35,12 +36,12 @@ const MAX_CALLDATA_BYTES_PER_BATCH = 96_000;
 
 export interface Call {
     target: Address;
-    abi: any;
+    abi: Abi;
     functionName: string;
-    args?: any[];
+    args?: readonly unknown[];
 }
 
-export type MulticallResult<T = any> =
+export type MulticallResult<T = unknown> =
     | {
         success: true;
         data: T;
@@ -182,10 +183,6 @@ function describeCall(call: Call): string {
     return `${call.functionName}${argsInfo} on ${call.target}`;
 }
 
-function toErrorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : 'Unknown error';
-}
-
-export function createCall(target: Address, abi: any, functionName: string, args?: any[]): Call {
+export function createCall(target: Address, abi: Abi, functionName: string, args?: readonly unknown[]): Call {
     return { target, abi, functionName, args };
 }

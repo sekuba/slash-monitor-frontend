@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { Observation, SlashingCase } from '../../shared/protocol/index.ts';
+import type { Observation, SlashingCase } from '@shared/protocol/index.ts';
 import { EvidenceDetails } from './EvidenceDetails';
 
 const SEQUENCER = '0x1111111111111111111111111111111111111111';

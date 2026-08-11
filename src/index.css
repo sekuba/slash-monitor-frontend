@@ -13,8 +13,6 @@
   --color-oxblood: #2e0700;
 
   --shadow-brutal: 6px 6px 0px #1a1400;
-  --shadow-brutal-lg: 10px 10px 0px #1a1400;
-  --shadow-brutal-xl: 15px 15px 0px #1a1400;
   --shadow-brutal-aqua: 6px 6px 0px #2bfae9;
   --shadow-brutal-chartreuse: 6px 6px 0px #d4ff28;
   --shadow-brutal-vermillion: 6px 6px 0px #ff1a1a;
@@ -31,8 +29,8 @@
   font-weight: 600;
 
   color-scheme: dark;
-  color: #F2EEE1;
-  background-color: #001f18;
+  color: var(--color-whisper-white);
+  background-color: var(--color-malachite);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -44,7 +42,12 @@ body {
   margin: 0;
   min-height: 100vh;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-  background: linear-gradient(135deg, #001f18 0%, #00122e 50%, #2e0026 100%);
+  background: linear-gradient(
+    135deg,
+    var(--color-malachite) 0%,
+    var(--color-lapis) 50%,
+    var(--color-aubergine) 100%
+  );
   background-attachment: fixed;
   overflow-x: hidden;
 }
@@ -164,20 +167,11 @@ h1, h2, h3, h4, h5, h6 {
     font-size: 0.875rem;
   }
 
-  .brutal-button--icon,
-  .brutal-button--icon-sm {
+  .brutal-button--icon {
     flex: none;
     padding: 0;
-  }
-
-  .brutal-button--icon {
     width: 3rem;
     min-height: 3rem;
-  }
-
-  .brutal-button--icon-sm {
-    width: 2.75rem;
-    min-height: 2.75rem;
   }
 
   /* Pulse only the keyline and hard shadow of an active timeline stage. */
@@ -203,28 +197,6 @@ h1, h2, h3, h4, h5, h6 {
 :focus-visible {
   outline: 3px solid var(--color-aqua) !important;
   outline-offset: 3px !important;
-}
-
-/* Hard shadows, no blur */
-.shadow-sm,
-.shadow,
-.shadow-md,
-.shadow-lg,
-.shadow-xl {
-  box-shadow: none;
-}
-
-/* Hide text visually but keep it in the DOM for search/assistive tech */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {

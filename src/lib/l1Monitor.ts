@@ -24,6 +24,7 @@ import { escapeHatchAbi } from './contracts/escapeHatchAbi';
 import { assertFreshL1Head, deploymentsMatch, resolveDeploymentWithClient } from './deployment';
 import { createCall, multicall, type MulticallResult } from './multicall';
 import { createPublicRpcTransport } from './rpc';
+import { toErrorMessage } from './errors';
 
 const roundExecutedEvent = parseAbiItem(
     'event RoundExecuted(uint256 indexed round, uint256 slashCount)',
@@ -249,7 +250,7 @@ export class L1Monitor {
 
             return {
                 success: true,
-                data: mapSlashActions(result.data as any[]),
+                data: mapSlashActions(result.data as Array<{ validator: Address; slashAmount: bigint }>),
             };
         });
     }
@@ -803,18 +804,18 @@ export class L1Monitor {
     }
 }
 
-function requireResult<T>(result: MulticallResult<T>, label: string): T {
+function requireResult<T>(result: MulticallResult, label: string): T {
     if (!result.success) {
         throw new Error(`${label} failed: ${result.error.message}`);
     }
 
-    return result.data;
+    return result.data as T;
 }
 
-function mapSlashActions(actions: any[]): SlashAction[] {
+function mapSlashActions(actions: Array<{ validator: Address; slashAmount: bigint }>): SlashAction[] {
     return actions.map((action) => ({
-        validator: action.validator as Address,
-        slashAmount: action.slashAmount as bigint,
+        validator: action.validator,
+        slashAmount: action.slashAmount,
     }));
 }
 
@@ -872,10 +873,6 @@ function minBigInt(left: bigint, right: bigint): bigint {
 
 function maxBigInt(left: bigint, right: bigint): bigint {
     return left > right ? left : right;
-}
-
-function toErrorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : 'Unknown RPC error';
 }
 
 export function decodeExactReceiptSlashes(

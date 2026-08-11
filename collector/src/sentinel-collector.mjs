@@ -1,9 +1,10 @@
 import { readCanonicalRollupAddress, validateNodeIdentity } from './collector.mjs';
 import { errorMessage } from './logger.mjs';
+import { PollingWorker } from './polling-worker.mjs';
 
 const SENTINEL_SLOT_PROCESSING_LAG = 2;
 
-export class SentinelCollector {
+export class SentinelCollector extends PollingWorker {
   constructor({
     client,
     committeeScanner,
@@ -20,6 +21,7 @@ export class SentinelCollector {
     logger,
     now = Date.now,
   }) {
+    super();
     this.client = client;
     this.committeeScanner = committeeScanner;
     this.repository = repository;
@@ -40,26 +42,6 @@ export class SentinelCollector {
     this.maxStallMs = maxStallMs;
     this.logger = logger;
     this.now = now;
-    this.running = false;
-    this.loopPromise = undefined;
-    this.activeRequest = undefined;
-    this.pendingSleep = undefined;
-  }
-
-  start() {
-    if (this.running) return this.loopPromise;
-    this.running = true;
-    this.loopPromise = this.runLoop();
-    return this.loopPromise;
-  }
-
-  async stop() {
-    if (!this.running && !this.loopPromise) return;
-    this.running = false;
-    this.activeRequest?.abort();
-    this.pendingSleep?.resolve();
-    await this.loopPromise;
-    this.loopPromise = undefined;
   }
 
   async runOnce() {
@@ -98,8 +80,7 @@ export class SentinelCollector {
       return this.recordPollFailure(errorMessage(error), attemptedAt);
     }
 
-    const controller = new AbortController();
-    this.activeRequest = controller;
+    const controller = this.trackRequest();
     try {
       const priorState = this.repository.getSourceState('aztec_sentinel');
       const prior = priorState?.metadata ?? {};
@@ -236,7 +217,7 @@ export class SentinelCollector {
       controller.abort();
       return this.recordPollFailure(errorMessage(error), this.now());
     } finally {
-      if (this.activeRequest === controller) this.activeRequest = undefined;
+      this.releaseRequest(controller);
     }
   }
 
@@ -296,41 +277,12 @@ export class SentinelCollector {
   }
 
   recordPollFailure(message, at) {
-    this.repository.recordSourceFailure('aztec_sentinel', message, at);
-    const state = this.repository.getSourceState('aztec_sentinel');
-    this.logger.warn('Aztec sentinel poll failed; retained the durable epoch index', {
-      consecutiveFailures: state.consecutiveFailures,
-      error: message,
-    });
-    return { ok: false, error: message, consecutiveFailures: state.consecutiveFailures };
-  }
-
-  async runLoop() {
-    while (this.running) {
-      const result = await this.runOnce();
-      if (!this.running) break;
-      const failures = result.ok ? 0 : result.consecutiveFailures ?? 1;
-      const delay = failures === 0
-        ? this.pollIntervalMs
-        : Math.min(this.maxBackoffMs, this.pollIntervalMs * 2 ** Math.min(failures - 1, 16));
-      await this.sleep(delay);
-    }
-  }
-
-  sleep(delay) {
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        this.pendingSleep = undefined;
-        resolve();
-      }, delay);
-      this.pendingSleep = {
-        resolve: () => {
-          clearTimeout(timer);
-          this.pendingSleep = undefined;
-          resolve();
-        },
-      };
-    });
+    return this.pollFailure(
+      'aztec_sentinel',
+      'Aztec sentinel poll failed; retained the durable epoch index',
+      message,
+      at,
+    );
   }
 }
 

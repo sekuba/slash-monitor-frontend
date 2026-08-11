@@ -1,7 +1,7 @@
 import { createHash, ECDH, randomBytes, timingSafeEqual } from 'node:crypto';
 import { isIP } from 'node:net';
 
-export const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
+const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+={0,2}$/;
 const PUSH_HOSTS = [

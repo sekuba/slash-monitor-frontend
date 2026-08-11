@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { CaseRepository } from '../src/case-repository.mjs';
 import { OffenseCollector, validateNodeIdentity } from '../src/collector.mjs';
 import { parseOffenseSnapshot } from '../src/offenses.mjs';
 import { OFFENSE_A, silentLogger } from './helpers.mjs';
-import { REGISTRY, ROLLUP, protocolSnapshot } from './case-fixtures.mjs';
+import { REGISTRY, ROLLUP, createRepository, protocolSnapshot } from './case-fixtures.mjs';
 
 test('node identity comparison is case-insensitive but rejects a different Rollup', () => {
   assert.doesNotThrow(() => validateNodeIdentity({
@@ -104,16 +103,6 @@ test('collector retains a case through failure and advances absence only after r
   assert.equal(repository.listCases({ network: 'mainnet' })[0].state.stage, 'awaiting_round');
   repository.close();
 });
-
-function createRepository() {
-  const repository = new CaseRepository(':memory:');
-  repository.bindRuntimeIdentity({
-    network: 'mainnet',
-    chainId: 1,
-    registryAddress: REGISTRY,
-  });
-  return repository;
-}
 
 function offenseState(repository, id) {
   const row = repository.db.prepare(`

@@ -3,7 +3,7 @@ import {
     decodeVoteTargets,
     matchVoteActions,
     type VoteTarget,
-} from '../../shared/protocol/index.ts';
+} from '@shared/protocol/index.ts';
 import type {
     DetectedSlashing,
     MonitorIssue,
@@ -14,6 +14,7 @@ import type {
     SlashingTargetDetail,
 } from '@/types/slashing';
 import { L1Monitor } from './l1Monitor';
+import { toErrorMessage } from './errors';
 import {
     buildRoundsToCheck,
     calculateExecutableSlot,
@@ -172,7 +173,7 @@ export class SlashingDetector {
                 }
             }
             catch (error) {
-                const message = `Unable to decode exact vote targets: ${toMessage(error)}`;
+                const message = `Unable to decode exact vote targets: ${toErrorMessage(error)}`;
                 simpleRounds.push(this.buildPartialDetection(
                     candidate.base,
                     currentRound,
@@ -230,25 +231,26 @@ export class SlashingDetector {
                     voteTargetKey(target),
                     { ...target, actionIndex },
                 ]));
+                const targetEpochs = this.getTargetEpochs(candidate.round);
                 payloadCandidates.push({
                     ...candidate,
                     slashActions: tallyResult.data,
-                    targetDetails: candidate.targets.map((target) => ({
-                        ...target,
-                        ...actionTargets.get(voteTargetKey(target)),
-                        sequencer: target.sequencer as Address,
-                        targetEpoch: this.getTargetEpochs(candidate.round)[target.epochIndex],
-                        amount: actionTargets.has(voteTargetKey(target))
-                            ? BigInt(actionTargets.get(voteTargetKey(target))!.amount)
-                            : undefined,
-                        support: actionTargets.get(voteTargetKey(target))?.support ??
-                            target.voteCount,
-                        escaped: Boolean(candidate.escapeHatchEpochs[target.epochIndex]),
-                    })),
+                    targetDetails: candidate.targets.map((target) => {
+                        const action = actionTargets.get(voteTargetKey(target));
+                        return {
+                            ...target,
+                            ...action,
+                            sequencer: target.sequencer as Address,
+                            targetEpoch: targetEpochs[target.epochIndex],
+                            amount: action ? BigInt(action.amount) : undefined,
+                            support: action?.support ?? target.voteCount,
+                            escaped: Boolean(candidate.escapeHatchEpochs[target.epochIndex]),
+                        };
+                    }),
                 });
             }
             catch (error) {
-                const message = `Unable to link tally actions to exact epochs: ${toMessage(error)}`;
+                const message = `Unable to link tally actions to exact epochs: ${toErrorMessage(error)}`;
                 simpleRounds.push(this.buildPartialDetection(
                     candidate.base,
                     currentRound,
@@ -326,12 +328,7 @@ export class SlashingDetector {
             targetDetails: details.targetDetails,
             payloadAddress: details.payloadAddress,
             isVetoed: details.isVetoed,
-            slotWhenExecutable: this.calculateExecutableSlot(base.round),
-            slotWhenExpires: this.calculateExpirySlot(base.round),
-            secondsUntilExecutable: this.calculateSecondsUntilSlot(this.calculateExecutableSlot(base.round), currentSlot),
-            secondsUntilExpires: this.calculateSecondsUntilSlot(this.calculateExpirySlot(base.round), currentSlot),
-            lastUpdatedTimestamp: Date.now(),
-            targetEpochs: this.getTargetEpochs(base.round),
+            ...this.lifecycleFields(base.round, currentSlot),
             totalSlashAmount,
             affectedValidatorCount,
         };
@@ -357,12 +354,7 @@ export class SlashingDetector {
             issues: [issue],
             committees,
             slashActions,
-            slotWhenExecutable: this.calculateExecutableSlot(base.round),
-            slotWhenExpires: this.calculateExpirySlot(base.round),
-            secondsUntilExecutable: this.calculateSecondsUntilSlot(this.calculateExecutableSlot(base.round), currentSlot),
-            secondsUntilExpires: this.calculateSecondsUntilSlot(this.calculateExpirySlot(base.round), currentSlot),
-            lastUpdatedTimestamp: Date.now(),
-            targetEpochs: this.getTargetEpochs(base.round),
+            ...this.lifecycleFields(base.round, currentSlot),
             totalSlashAmount,
             affectedValidatorCount,
         };
@@ -376,29 +368,18 @@ export class SlashingDetector {
         currentRound: bigint,
         currentSlot: bigint,
     ): DetectedSlashing {
-        const targetEpochs = this.getTargetEpochs(base.round);
+        const fields = this.lifecycleFields(base.round, currentSlot);
         return {
             ...base,
             committees,
-            targetEpochs,
+            ...fields,
             targetDetails: targets.map((target) => ({
                 ...target,
                 sequencer: target.sequencer as Address,
-                targetEpoch: targetEpochs[target.epochIndex],
+                targetEpoch: fields.targetEpochs[target.epochIndex],
                 support: target.voteCount,
                 escaped: Boolean(escapeHatchEpochs[target.epochIndex]),
             })),
-            slotWhenExecutable: this.calculateExecutableSlot(base.round),
-            slotWhenExpires: this.calculateExpirySlot(base.round),
-            secondsUntilExecutable: this.calculateSecondsUntilSlot(
-                this.calculateExecutableSlot(base.round),
-                currentSlot,
-            ),
-            secondsUntilExpires: this.calculateSecondsUntilSlot(
-                this.calculateExpirySlot(base.round),
-                currentSlot,
-            ),
-            lastUpdatedTimestamp: Date.now(),
             status: this.calculateRoundStatus(
                 base.round,
                 currentRound,
@@ -409,6 +390,21 @@ export class SlashingDetector {
             issues: escapeHatchEpochs.some(Boolean)
                 ? ['Targets in an open escape-hatch epoch are excluded from the contract tally.']
                 : undefined,
+        };
+    }
+
+    // The timing facts every detection shape carries regardless of how much
+    // round detail could be loaded.
+    private lifecycleFields(round: bigint, currentSlot: bigint) {
+        const slotWhenExecutable = this.calculateExecutableSlot(round);
+        const slotWhenExpires = this.calculateExpirySlot(round);
+        return {
+            slotWhenExecutable,
+            slotWhenExpires,
+            secondsUntilExecutable: this.calculateSecondsUntilSlot(slotWhenExecutable, currentSlot),
+            secondsUntilExpires: this.calculateSecondsUntilSlot(slotWhenExpires, currentSlot),
+            lastUpdatedTimestamp: Date.now(),
+            targetEpochs: this.getTargetEpochs(round),
         };
     }
 
@@ -436,10 +432,6 @@ export class SlashingDetector {
             round,
         };
     }
-}
-
-function toMessage(error: unknown): string {
-    return error instanceof Error ? error.message : 'Unknown error';
 }
 
 function voteTargetKey(target: Pick<

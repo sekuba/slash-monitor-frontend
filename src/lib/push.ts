@@ -16,23 +16,9 @@ export type PushCapability =
     | 'install-required'
     | 'unsupported';
 
-export type WebPushReconciliationResult =
-    | 'unchanged'
-    | 'refreshed'
-    | 'created'
-    | 'replaced'
-    | 'not-connected'
-    | 'permission-required'
-    | 'unavailable';
-
 interface WebPushEnrollmentOptions {
     replaceExisting?: boolean;
     requestPermission?: boolean;
-}
-
-interface BackendWebPushState {
-    connected: boolean;
-    enabled: boolean;
 }
 
 export async function inspectPushCapability(): Promise<PushCapability> {
@@ -102,69 +88,7 @@ export async function requestWebPushPermission(): Promise<void> {
     }
 }
 
-/**
- * Repairs a channel that the backend still owns but can no longer deliver to.
- * This deliberately runs in the foreground: the management capability never
- * crosses into the service worker or a pushsubscriptionchange event.
- */
-export async function reconcileWebPushSubscription(
-    applicationServerKey: string,
-    backend: BackendWebPushState,
-    upload: (subscription: WebPushSubscriptionJson) => Promise<void>,
-    lastUploadedEndpoint: string | null,
-): Promise<WebPushReconciliationResult> {
-    if (!backend.connected) {
-        return 'not-connected';
-    }
-
-    const capability = await inspectPushCapability();
-    if (capability === 'unsupported' || capability === 'install-required' || capability === 'permission-denied') {
-        return 'unavailable';
-    }
-    // Reconciliation must never create a surprise permission prompt. The user
-    // can still reconnect explicitly with the UI when permission is undecided.
-    if (Notification.permission !== 'granted') {
-        return 'permission-required';
-    }
-
-    const existing = await getExistingPushSubscription();
-    const keyMatch = existing
-        ? pushSubscriptionUsesApplicationServerKey(existing, applicationServerKey)
-        : null;
-    const expired = existing?.expirationTime !== null &&
-        existing?.expirationTime !== undefined &&
-        existing.expirationTime <= Date.now();
-    const needsReplacement = Boolean(existing) && (!backend.enabled || keyMatch === false || expired);
-    const needsCreation = existing === null;
-
-    if (!needsReplacement && !needsCreation) {
-        if (lastUploadedEndpoint === existing.endpoint) {
-            return 'unchanged';
-        }
-        await upload(serializePushSubscription(existing));
-        return 'refreshed';
-    }
-
-    const enrolled = await enrollInWebPush(applicationServerKey, {
-        replaceExisting: needsReplacement,
-        requestPermission: false,
-    });
-    try {
-        await upload(enrolled.json);
-    }
-    catch (error) {
-        // Do not strand a fresh local subscription that the backend does not
-        // know about. With no local subscription, the next foreground pass can
-        // retry safely even if the old backend endpoint still looks enabled.
-        if (enrolled.created) {
-            await enrolled.subscription.unsubscribe().catch(() => false);
-        }
-        throw error;
-    }
-    return needsReplacement ? 'replaced' : 'created';
-}
-
-export async function getExistingPushSubscription(): Promise<PushSubscription | null> {
+async function getExistingPushSubscription(): Promise<PushSubscription | null> {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
         return null;
     }

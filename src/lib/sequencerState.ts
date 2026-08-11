@@ -3,7 +3,7 @@ import {
     type Address,
     type PublicClient,
 } from 'viem';
-import type { ProtocolSnapshot } from '../../shared/protocol/index.ts';
+import type { ProtocolSnapshot } from '@shared/protocol/index.ts';
 import { rollupAbi } from './contracts/rollupAbi';
 import { createCall, multicall } from './multicall';
 

@@ -89,8 +89,9 @@ empty schema and backfill from the configured anchor; only `--reset-db` retains
 a verified copy of the previous database.
 
 Stop and disable any differently named backend that still owns port 8790 before
-`--fresh`. The deployer manages only `slashmon-backend.service` and refuses to
-start when another process is listening.
+`--fresh`. The deployer manages only `slashmon-backend.service` and
+`slashmon-backend-testing.service`, and refuses to start when another process
+is listening.
 
 The backend creates its current schema only in an empty database. It has no
 schema migrations or compatibility API. `--upgrade` is valid only while the

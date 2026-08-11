@@ -1,4 +1,4 @@
-import { formatAztec } from '../../shared/protocol/format.ts';
+import { formatAztec } from '@shared/protocol/index.ts';
 import { PROTOCOL_TONES } from '@/lib/protocolTones';
 import type { NetworkSummary, ProtocolSnapshot } from '@/types/backendApi';
 

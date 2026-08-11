@@ -8,7 +8,6 @@ import type {
     MonitorAudit,
     MonitorSnapshot,
     ResolvedMonitorConfig,
-    SlashingStats,
 } from '@/types/slashing';
 
 interface SlashingMonitorStore extends CurrentChainState {
@@ -20,7 +19,6 @@ interface SlashingMonitorStore extends CurrentChainState {
     confirmedExecutions: ConfirmedExecution[];
     confirmedSlashes: ConfirmedSlash[];
     executionScan: ExecutionHistoryScan;
-    stats: SlashingStats;
     audit: MonitorAudit;
     initialize: (config: ResolvedMonitorConfig, state: CurrentChainState) => void;
     setIsScanning: (scanning: boolean) => void;
@@ -29,16 +27,6 @@ interface SlashingMonitorStore extends CurrentChainState {
     setMonitorFailure: (message: string, fatal?: boolean) => void;
     resetMonitor: () => void;
 }
-
-const initialStats: SlashingStats = {
-    currentRound: 0n,
-    totalRoundsMonitored: 0,
-    activeSlashings: 0,
-    vetoedPayloads: 0,
-    executedRounds: 0,
-    totalValidatorsSlashed: 0,
-    totalSlashAmount: 0n,
-};
 
 const initialAudit: MonitorAudit = {
     status: 'ok',
@@ -82,7 +70,6 @@ export const useSlashingStore = create<SlashingMonitorStore>((set) => ({
     confirmedExecutions: [],
     confirmedSlashes: [],
     executionScan: initialExecutionScan,
-    stats: initialStats,
     audit: initialAudit,
     initialize: (config, state) => set({
         config,
@@ -92,10 +79,6 @@ export const useSlashingStore = create<SlashingMonitorStore>((set) => ({
         confirmedExecutions: [],
         confirmedSlashes: [],
         executionScan: initialExecutionScan,
-        stats: {
-            ...initialStats,
-            currentRound: state.currentRound,
-        },
         ...state,
     }),
     setIsScanning: (isScanning) => set({ isScanning }),
@@ -126,7 +109,6 @@ export const useSlashingStore = create<SlashingMonitorStore>((set) => ({
         confirmedExecutions: [],
         confirmedSlashes: [],
         executionScan: initialExecutionScan,
-        stats: initialStats,
         audit: initialAudit,
     }),
 }));

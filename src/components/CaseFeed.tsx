@@ -4,7 +4,7 @@ import {
     stageLabel,
     type ProtocolSnapshot,
     type SlashingCase,
-} from '../../shared/protocol/index.ts';
+} from '@shared/protocol/index.ts';
 import {
     groupCasesByPayload,
     selectCaseFeed,
@@ -21,7 +21,6 @@ export function CaseFeed({
     cases: SlashingCase[];
     protocol: ProtocolSnapshot | null;
     selectedCaseId: string | null;
-    evidenceMode: 'l1' | 'backend';
     onOpenProtocolGuide: (protocol: ProtocolSnapshot | null) => void;
 }) {
     const feed = selectCaseFeed(cases);

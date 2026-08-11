@@ -4,8 +4,8 @@ import {
     type Network,
     type ProtocolSnapshot,
     type SlashingCase,
-} from '../../shared/protocol/index.ts';
-import { formatAztec } from '../../shared/protocol/format.ts';
+} from '@shared/protocol/index.ts';
+import { formatAztec } from '@shared/protocol/index.ts';
 import { CaseTimeline } from './CaseTimeline';
 import { CopyButton } from './CopyButton';
 import { SequencerLink } from './SequencerLink';

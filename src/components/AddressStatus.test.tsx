@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { SlashingCase } from '../../shared/protocol/index.ts';
+import type { SlashingCase } from '@shared/protocol/index.ts';
 import { AddressStatus, summarizeSequencer } from './AddressStatus';
 
 describe('AddressStatus', () => {

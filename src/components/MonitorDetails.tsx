@@ -14,18 +14,18 @@ interface MonitorDetailsProps {
 export function MonitorDetails({ configInput, network, onResetRpc, onToggleNetwork, onUpdateRpc }: MonitorDetailsProps) {
     const [rpcUrl, setRpcUrl] = useState('');
     const [notice, setNotice] = useState<string | null>(null);
-    const {
-        config,
-        isInitialized,
-        l1BlockNumber,
-        l1Timestamp,
-        currentRound,
-        currentSlot,
-        currentEpoch,
-        isSlashingEnabled,
-        slashingDisabledUntil,
-    } = useSlashingStore();
-    const override = getRpcOverride(configInput.chainId);
+    const config = useSlashingStore((store) => store.config);
+    const isInitialized = useSlashingStore((store) => store.isInitialized);
+    const l1BlockNumber = useSlashingStore((store) => store.l1BlockNumber);
+    const l1Timestamp = useSlashingStore((store) => store.l1Timestamp);
+    const currentRound = useSlashingStore((store) => store.currentRound);
+    const currentSlot = useSlashingStore((store) => store.currentSlot);
+    const currentEpoch = useSlashingStore((store) => store.currentEpoch);
+    const isSlashingEnabled = useSlashingStore((store) => store.isSlashingEnabled);
+    const slashingDisabledUntil = useSlashingStore((store) => store.slashingDisabledUntil);
+    // The override only changes through the update/reset actions below, so
+    // event-driven refreshes replace a localStorage read on every render.
+    const [override, setOverride] = useState(() => getRpcOverride(configInput.chainId));
     const unavailable = 'Not initialized';
     const isMainnet = network === 'mainnet';
 
@@ -38,6 +38,7 @@ export function MonitorDetails({ configInput, network, onResetRpc, onToggleNetwo
         catch (error) {
             setNotice(error instanceof Error ? error.message : 'Unable to save RPC URL');
         }
+        setOverride(getRpcOverride(configInput.chainId));
     };
 
     const resetRpc = () => {
@@ -49,6 +50,7 @@ export function MonitorDetails({ configInput, network, onResetRpc, onToggleNetwo
         catch (error) {
             setNotice(error instanceof Error ? error.message : 'Unable to clear RPC URL');
         }
+        setOverride(getRpcOverride(configInput.chainId));
     };
 
     return (

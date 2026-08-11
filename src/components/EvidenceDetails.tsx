@@ -2,8 +2,8 @@ import type {
     Observation,
     ProtocolSnapshot,
     SlashingCase,
-} from '../../shared/protocol/index.ts';
-import { formatAztec } from '../../shared/protocol/format.ts';
+} from '@shared/protocol/index.ts';
+import { formatAztec } from '@shared/protocol/index.ts';
 import { CopyButton } from './CopyButton';
 
 export function EvidenceDetails({

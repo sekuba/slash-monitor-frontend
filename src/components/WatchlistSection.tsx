@@ -1,19 +1,13 @@
 import { useState, type ReactNode } from 'react';
 import {
+    URGENCY_RANK,
     formatAztec,
     type CaseUrgency,
     type SlashingCase,
-} from '../../shared/protocol/index.ts';
+} from '@shared/protocol/index.ts';
 import { summarizeSequencer } from './AddressStatus';
 
 const STORAGE_KEY = 'slashmon:watchlist-collapsed';
-
-const URGENCY_RANK: Record<CaseUrgency, number> = {
-    normal: 0,
-    info: 1,
-    warning: 2,
-    critical: 3,
-};
 
 export function WatchlistSection({
     cases,

@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     decodeBase64Url,
+    enrollInWebPush,
     pushSubscriptionUsesApplicationServerKey,
-    reconcileWebPushSubscription,
     requestWebPushPermission,
 } from './push';
 
@@ -12,7 +12,7 @@ afterEach(() => {
     vi.unstubAllGlobals();
 });
 
-describe('decodeBase64Url', () => {
+describe('web push enrollment', () => {
     it('decodes an unpadded VAPID-style base64url key', () => {
         expect(Array.from(decodeBase64Url(VAPID_KEY))).toEqual([1, 2, 3, 250, 255]);
     });
@@ -36,122 +36,54 @@ describe('decodeBase64Url', () => {
         expect(browser.getRegistration).not.toHaveBeenCalled();
     });
 
-    it('retires a backend-disabled subscription before uploading a fresh endpoint', async () => {
+    it('reuses an existing subscription created with the expected VAPID key', async () => {
         const browser = installPushBrowser(fakeSubscription(
-            'https://push.example/gone',
+            'https://push.example/current',
             decodeBase64Url(VAPID_KEY),
         ));
-        const upload = vi.fn(async () => undefined);
 
-        await expect(reconcileWebPushSubscription(
-            VAPID_KEY,
-            { connected: true, enabled: false },
-            upload,
-            'https://push.example/gone',
-        )).resolves.toBe('replaced');
+        const enrolled = await enrollInWebPush(VAPID_KEY);
 
-        expect(browser.retiredEndpoints).toEqual(['https://push.example/gone']);
-        expect(browser.subscribe).toHaveBeenCalledOnce();
-        expect(upload).toHaveBeenCalledWith(expect.objectContaining({
-            endpoint: 'https://push.example/fresh-1',
-        }));
+        expect(enrolled.created).toBe(false);
+        expect(enrolled.json.endpoint).toBe('https://push.example/current');
+        expect(browser.subscribe).not.toHaveBeenCalled();
+        expect(browser.retiredEndpoints).toEqual([]);
     });
 
-    it('replaces a subscription created with a different VAPID key', async () => {
+    it('retires a subscription created with a different VAPID key before subscribing', async () => {
         const browser = installPushBrowser(fakeSubscription(
             'https://push.example/wrong-key',
             new Uint8Array([9, 9, 9]),
         ));
-        const upload = vi.fn(async () => undefined);
 
-        await expect(reconcileWebPushSubscription(
-            VAPID_KEY,
-            { connected: true, enabled: true },
-            upload,
-            'https://push.example/wrong-key',
-        )).resolves.toBe('replaced');
+        const enrolled = await enrollInWebPush(VAPID_KEY);
 
+        expect(enrolled.created).toBe(true);
+        expect(enrolled.json.endpoint).toBe('https://push.example/fresh-1');
         expect(browser.retiredEndpoints).toEqual(['https://push.example/wrong-key']);
-        expect(upload).toHaveBeenCalledWith(expect.objectContaining({
-            endpoint: 'https://push.example/fresh-1',
-        }));
+        expect(browser.subscribe).toHaveBeenCalledOnce();
     });
 
-    it('refreshes a rotated browser endpoint once without replacing it', async () => {
+    it('replaces an existing subscription on request', async () => {
         const browser = installPushBrowser(fakeSubscription(
-            'https://push.example/rotated',
+            'https://push.example/stale',
             decodeBase64Url(VAPID_KEY),
         ));
-        const upload = vi.fn(async () => undefined);
 
-        await expect(reconcileWebPushSubscription(
-            VAPID_KEY,
-            { connected: true, enabled: true },
-            upload,
-            'https://push.example/previous',
-        )).resolves.toBe('refreshed');
+        const enrolled = await enrollInWebPush(VAPID_KEY, { replaceExisting: true });
 
-        expect(browser.retiredEndpoints).toEqual([]);
-        expect(browser.subscribe).not.toHaveBeenCalled();
-        expect(upload).toHaveBeenCalledWith(expect.objectContaining({
-            endpoint: 'https://push.example/rotated',
-        }));
-
-        upload.mockClear();
-        await expect(reconcileWebPushSubscription(
-            VAPID_KEY,
-            { connected: true, enabled: true },
-            upload,
-            'https://push.example/rotated',
-        )).resolves.toBe('unchanged');
-        expect(upload).not.toHaveBeenCalled();
+        expect(enrolled.created).toBe(true);
+        expect(browser.retiredEndpoints).toEqual(['https://push.example/stale']);
+        expect(enrolled.json.endpoint).toBe('https://push.example/fresh-1');
     });
 
-    it('removes a fresh local subscription when its backend upload fails', async () => {
-        const browser = installPushBrowser(null);
-        const upload = vi.fn(async () => {
-            throw new Error('backend offline');
-        });
-
-        await expect(reconcileWebPushSubscription(
-            VAPID_KEY,
-            { connected: true, enabled: true },
-            upload,
-            null,
-        )).rejects.toThrow('backend offline');
-
-        expect(browser.retiredEndpoints).toEqual(['https://push.example/fresh-1']);
-    });
-
-    it('does not auto-connect a channel the user never connected', async () => {
-        const browser = installPushBrowser(null);
-        const upload = vi.fn(async () => undefined);
-
-        await expect(reconcileWebPushSubscription(
-            VAPID_KEY,
-            { connected: false, enabled: false },
-            upload,
-            null,
-        )).resolves.toBe('not-connected');
-
-        expect(browser.subscribe).not.toHaveBeenCalled();
-        expect(upload).not.toHaveBeenCalled();
-    });
-
-    it('does not show a permission prompt during foreground repair', async () => {
+    it('refuses enrollment without an explicit permission grant when prompts are disabled', async () => {
         const browser = installPushBrowser(null, 'default');
-        const upload = vi.fn(async () => undefined);
 
-        await expect(reconcileWebPushSubscription(
-            VAPID_KEY,
-            { connected: true, enabled: false },
-            upload,
-            null,
-        )).resolves.toBe('permission-required');
-
+        await expect(enrollInWebPush(VAPID_KEY, { requestPermission: false }))
+            .rejects.toThrow(/permission must be granted/);
         expect(browser.requestPermission).not.toHaveBeenCalled();
         expect(browser.subscribe).not.toHaveBeenCalled();
-        expect(upload).not.toHaveBeenCalled();
     });
 });
 

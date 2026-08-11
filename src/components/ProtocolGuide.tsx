@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { PROTOCOL_TONES } from '@/lib/protocolTones';
-import type { ProtocolSnapshot } from '../../shared/protocol/index.ts';
+import type { ProtocolSnapshot } from '@shared/protocol/index.ts';
 
 const STAGES = [
     {

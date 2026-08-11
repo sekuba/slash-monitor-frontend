@@ -50,7 +50,7 @@ jobs:
 
       - name: Require HTTPS endpoints for the PWA
         env:
-          PUBLIC_API_ORIGIN: https://api.slashveto.me
+          PUBLIC_API_ORIGIN: ${{ vars.VITE_API_BASE_URL || 'https://api.slashveto.me' }}
           MAINNET_L1_RPC_URL: ${{ vars.VITE_L1_RPC_URL }}
           TESTNET_L1_RPC_URL: ${{ vars.VITE_TESTNET_L1_RPC_URL }}
         run: |
@@ -64,17 +64,14 @@ jobs:
             fi
           }
 
-          if [[ -z "$PUBLIC_API_ORIGIN" || "$PUBLIC_API_ORIGIN" != https://* || "$PUBLIC_API_ORIGIN" == *,* ]]; then
-            echo "VITE_API_BASE_URL must be one public HTTPS API origin."
-            exit 1
-          fi
+          require_https_url VITE_API_BASE_URL "$PUBLIC_API_ORIGIN"
           require_https_url VITE_L1_RPC_URL "$MAINNET_L1_RPC_URL"
           require_https_url VITE_TESTNET_L1_RPC_URL "$TESTNET_L1_RPC_URL"
 
       - name: Lint, test, syntax-check, and build
         run: pnpm check
         env:
-          VITE_API_BASE_URL: https://api.slashveto.me
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL || 'https://api.slashveto.me' }}
           VITE_BASE_PATH: ${{ vars.VITE_BASE_PATH || '/' }}
           VITE_L1_RPC_URL: ${{ vars.VITE_L1_RPC_URL }}
           VITE_REGISTRY_ADDRESS: ${{ vars.VITE_REGISTRY_ADDRESS }}

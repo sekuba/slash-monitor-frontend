@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { CaseRepository } from '../src/case-repository.mjs';
 import { SentinelCollector } from '../src/sentinel-collector.mjs';
 import { SEQUENCER_A, silentLogger } from './helpers.mjs';
-import { REGISTRY, protocolSnapshot } from './case-fixtures.mjs';
+import { REGISTRY, createRepository, protocolSnapshot } from './case-fixtures.mjs';
 
 test('sentinel reports an unavailable canonical L1 dependency', async () => {
   const repository = createRepository();
@@ -73,16 +72,6 @@ test('sentinel rejects node aggregates that disagree with exact duty history', (
   }), /history disagrees/);
   repository.close();
 });
-
-function createRepository() {
-  const repository = new CaseRepository(':memory:');
-  repository.bindRuntimeIdentity({
-    network: 'mainnet',
-    chainId: 1,
-    registryAddress: REGISTRY,
-  });
-  return repository;
-}
 
 function epoch(value) {
   const fromSlot = value * 10;

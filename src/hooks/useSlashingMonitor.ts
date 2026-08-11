@@ -4,6 +4,7 @@ import { resolveDeployment } from '@/lib/deployment';
 import { L1Monitor } from '@/lib/l1Monitor';
 import { SlashingDetector } from '@/lib/slashingDetector';
 import { useSlashingStore } from '@/store/slashingStore';
+import { toErrorMessage } from '@/lib/errors';
 import type {
     ConfirmedExecution,
     ConfirmedSlash,
@@ -14,7 +15,6 @@ import type {
     MonitorConfigInput,
     MonitorIssue,
     MonitorSnapshot,
-    SlashingStats,
 } from '@/types/slashing';
 
 class StaleMonitorRunError extends Error {}
@@ -29,13 +29,11 @@ export function useSlashingMonitor(
     config: MonitorConfigInput,
     active = true,
 ) {
-    const {
-        initialize,
-        setIsScanning,
-        applySnapshot,
-        setInitializationError,
-        setMonitorFailure,
-    } = useSlashingStore();
+    const initialize = useSlashingStore((store) => store.initialize);
+    const setIsScanning = useSlashingStore((store) => store.setIsScanning);
+    const applySnapshot = useSlashingStore((store) => store.applySnapshot);
+    const setInitializationError = useSlashingStore((store) => store.setInitializationError);
+    const setMonitorFailure = useSlashingStore((store) => store.setMonitorFailure);
     const l1MonitorRef = useRef<L1Monitor | null>(null);
     const detectorRef = useRef<SlashingDetector | null>(null);
     const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -130,6 +128,19 @@ export function useSlashingMonitor(
             }
 
             let published = false;
+            const publish = (audit: MonitorAudit) => {
+                assertCurrentRun(generation, runGenerationRef.current);
+                applySnapshot(buildSnapshot(
+                    currentState,
+                    detectedSlashings,
+                    confirmedExecutions,
+                    confirmedSlashes,
+                    executionScan,
+                    audit,
+                ));
+                published = true;
+                completed = audit.status !== 'stale' && audit.status !== 'fatal';
+            };
             if (detectionSucceeded) {
                 let batchStartedAt = Date.now();
                 let rpcCalls = 0;
@@ -147,20 +158,10 @@ export function useSlashingMonitor(
                             status: 'paused',
                             lastError: toErrorMessage(error),
                         };
-                        const audit = buildAudit(
+                        publish(buildAudit(
                             [...issues, executionScanIssue(executionScan)],
                             previousStoreState.audit.lastSuccessfulAt,
-                        );
-                        assertCurrentRun(generation, runGenerationRef.current);
-                        applySnapshot(buildSnapshot(
-                            currentState,
-                            detectedSlashings,
-                            confirmedExecutions,
-                            confirmedSlashes,
-                            executionScan,
-                            audit,
                         ));
-                        published = true;
                         completed = true;
                         break;
                     }
@@ -171,22 +172,10 @@ export function useSlashingMonitor(
                     const scanIssues = executionScan.status === 'paused'
                         ? [executionScanIssue(executionScan)]
                         : [];
-                    const audit = buildAudit(
+                    publish(buildAudit(
                         [...issues, ...scanIssues],
                         previousStoreState.audit.lastSuccessfulAt,
-                    );
-                    assertCurrentRun(generation, runGenerationRef.current);
-                    applySnapshot(buildSnapshot(
-                        currentState,
-                        detectedSlashings,
-                        confirmedExecutions,
-                        confirmedSlashes,
-                        executionScan,
-                        audit,
                     ));
-                    published = true;
-                    completed = audit.status !== 'stale' &&
-                        audit.status !== 'fatal';
                     if (!result.canContinue) {
                         break;
                     }
@@ -209,21 +198,10 @@ export function useSlashingMonitor(
             }
 
             if (!published) {
-                const audit = buildAudit(
+                publish(buildAudit(
                     issues,
                     previousStoreState.audit.lastSuccessfulAt,
-                );
-                assertCurrentRun(generation, runGenerationRef.current);
-                applySnapshot(buildSnapshot(
-                    currentState,
-                    detectedSlashings,
-                    confirmedExecutions,
-                    confirmedSlashes,
-                    executionScan,
-                    audit,
                 ));
-                completed = audit.status !== 'stale' &&
-                    audit.status !== 'fatal';
             }
 
         }
@@ -354,37 +332,7 @@ function buildSnapshot(
         confirmedExecutions,
         confirmedSlashes,
         executionScan,
-        stats: buildStats(currentState, detectedSlashings, confirmedSlashes),
         audit,
-    };
-}
-
-function buildStats(
-    currentState: CurrentChainState,
-    detectedSlashings: DetectedSlashing[],
-    confirmedSlashes: ConfirmedSlash[],
-): SlashingStats {
-    const activeSlashings = detectedSlashings.filter((slashing) =>
-        !slashing.isExecuted &&
-        !slashing.isVetoed &&
-        slashing.round !== currentState.currentRound &&
-        slashing.slashActions &&
-        slashing.slashActions.length > 0 &&
-        !['expired'].includes(slashing.status)).length;
-
-    return {
-        currentRound: currentState.currentRound,
-        totalRoundsMonitored: detectedSlashings.length,
-        activeSlashings,
-        vetoedPayloads: detectedSlashings.filter((slashing) => slashing.isVetoed).length,
-        executedRounds: detectedSlashings.filter((slashing) => slashing.isExecuted).length,
-        totalValidatorsSlashed: new Set(
-            confirmedSlashes.map((slash) => slash.sequencer.toLowerCase()),
-        ).size,
-        totalSlashAmount: confirmedSlashes.reduce(
-            (sum, slash) => sum + slash.amount,
-            0n,
-        ),
     };
 }
 
@@ -422,7 +370,7 @@ function buildAudit(issues: MonitorIssue[], previousLastSuccessfulAt: number | n
         status: hasError ? 'stale' : issues.length === 0 ? 'ok' : 'partial',
         issues,
         updatedAt: now,
-        lastSuccessfulAt: hasError || issues.length > 0 ? previousLastSuccessfulAt : now,
+        lastSuccessfulAt: issues.length > 0 ? previousLastSuccessfulAt : now,
     };
 }
 
@@ -456,10 +404,6 @@ function buildDeploymentIssues(config: ReturnType<typeof useSlashingStore.getSta
     }
 
     return issues;
-}
-
-function toErrorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : 'Unknown error';
 }
 
 function assertCurrentRun(expected: number, actual: number): void {

@@ -21,8 +21,9 @@ export interface ActionTarget extends VoteTarget {
 export function decodeVoteTargets(
     encodedVotes: readonly string[],
     committees: readonly (readonly string[])[],
-    committeeSize: number,
+    committeeSizeInput: number | bigint,
 ): VoteTarget[] {
+    const committeeSize = Number(committeeSizeInput);
     if (!Number.isSafeInteger(committeeSize) || committeeSize < 1) return [];
     const tallies = new Map<string, VoteTarget>();
     for (const encoded of encodedVotes) {
@@ -58,12 +59,47 @@ export function decodeVoteTargets(
         left.sequencer.localeCompare(right.sequencer));
 }
 
+// Merges incremental ballot decodes for the same round. Inputs may have been
+// persisted as JSON, so counters are re-coerced defensively.
+export function mergeVoteTargets(
+    previousTargets: readonly VoteTarget[],
+    addedTargets: readonly VoteTarget[],
+): VoteTarget[] {
+    const merged = new Map<string, VoteTarget>();
+    for (const target of [...previousTargets, ...addedTargets]) {
+        const sequencer = String(target.sequencer).toLowerCase();
+        const epochIndex = Number(target.epochIndex);
+        const committeeIndex = Number(target.committeeIndex);
+        const key = `${epochIndex}:${committeeIndex}:${sequencer}`;
+        const current = merged.get(key) ?? {
+            sequencer,
+            epochIndex,
+            committeeIndex,
+            voteCount: 0,
+            maxSlashUnits: 0,
+            unitVoteCounts: [0, 0, 0] as [number, number, number],
+        };
+        current.voteCount += Number(target.voteCount ?? 0);
+        current.maxSlashUnits = Math.max(current.maxSlashUnits, Number(target.maxSlashUnits ?? 0));
+        for (let index = 0; index < 3; index += 1) {
+            current.unitVoteCounts[index] += Number(target.unitVoteCounts?.[index] ?? 0);
+        }
+        merged.set(key, current);
+    }
+    return [...merged.values()].sort((left, right) =>
+        left.epochIndex - right.epochIndex ||
+        left.committeeIndex - right.committeeIndex ||
+        left.sequencer.localeCompare(right.sequencer));
+}
+
 export function matchVoteActions(
     actions: readonly VoteAction[],
     targets: readonly VoteTarget[],
-    quorum: number,
+    quorumInput: number | bigint,
     escapeHatchEpochs: readonly boolean[] = [],
 ): ActionTarget[] {
+    const quorum = Number(quorumInput);
+    if (!Number.isSafeInteger(quorum) || quorum < 1) return [];
     const qualified = targets.flatMap((target) => {
         if (escapeHatchEpochs[target.epochIndex]) return [];
         let cumulative = 0;

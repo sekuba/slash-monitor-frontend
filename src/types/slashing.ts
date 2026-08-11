@@ -57,12 +57,6 @@ export interface SlashAction {
     slashAmount: bigint;
 }
 
-export interface TargetedSequencer {
-    address: Address;
-    appearances: number;
-    rounds: bigint[];
-}
-
 export interface RoundInfo {
     round: bigint;
     ballotCount: bigint;
@@ -139,16 +133,6 @@ export interface ExecutionHistoryScan {
     lastError: string | null;
 }
 
-export interface SlashingStats {
-    currentRound: bigint;
-    totalRoundsMonitored: number;
-    activeSlashings: number;
-    vetoedPayloads: number;
-    executedRounds: number;
-    totalValidatorsSlashed: number;
-    totalSlashAmount: bigint;
-}
-
 export interface MonitorIssue {
     source: 'l1-rpc' | 'deployment';
     scope: 'deployment' | 'chain-state' | 'rounds' | 'round-details' | 'execution-history';
@@ -169,6 +153,5 @@ export interface MonitorSnapshot extends CurrentChainState {
     confirmedExecutions: ConfirmedExecution[];
     confirmedSlashes: ConfirmedSlash[];
     executionScan: ExecutionHistoryScan;
-    stats: SlashingStats;
     audit: MonitorAudit;
 }

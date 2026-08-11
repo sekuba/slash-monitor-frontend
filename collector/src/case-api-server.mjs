@@ -110,6 +110,8 @@ export class CaseApiServer {
     if (!this.server.listening) return Promise.resolve();
     return new Promise((resolve, reject) => {
       this.server.close((error) => error ? reject(error) : resolve());
+      // Keep-alive sockets otherwise hold close() open until they idle out.
+      this.server.closeIdleConnections();
     });
   }
 
@@ -215,6 +217,7 @@ export class CaseApiServer {
           addresses,
           now: this.now(),
         });
+        if (!updated) throw new InputError('watch_not_found', 'Watch not found', 404);
         return this.send(request, response, 200, publicWatch(updated, this.repository));
       }
       if (request.method === 'DELETE') {

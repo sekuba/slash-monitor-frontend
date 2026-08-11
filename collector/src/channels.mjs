@@ -24,13 +24,11 @@ export class DeliveryError extends Error {
 export class WebPushChannel {
   constructor({
     vapid,
-    publicUrl,
     timeoutMs = 15_000,
     sendNotification = webpush.sendNotification.bind(webpush),
     now = Date.now,
   }) {
     this.vapid = vapid;
-    this.publicUrl = publicUrl;
     this.timeoutMs = timeoutMs;
     this.sendNotification = sendNotification;
     this.now = now;

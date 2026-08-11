@@ -201,7 +201,6 @@ export function useNotificationSubscription(
         sendTest,
         deleteWatch,
         forgetUnavailableWatch,
-        refresh,
     };
 }
 

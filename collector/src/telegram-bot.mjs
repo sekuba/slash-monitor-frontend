@@ -1,11 +1,11 @@
 import { hashToken } from './security.mjs';
 import { errorMessage } from './logger.mjs';
+import { PollingWorker } from './polling-worker.mjs';
 
-export class TelegramBot {
+export class TelegramBot extends PollingWorker {
   constructor({
     client,
     repository,
-    network,
     expectedUsername,
     pollTimeoutSeconds = 25,
     commandReplyCooldownMs = 2_000,
@@ -13,44 +13,23 @@ export class TelegramBot {
     logger,
     now = Date.now,
   }) {
+    super();
     this.client = client;
     this.repository = repository;
-    this.network = network;
     this.expectedUsername = expectedUsername;
     this.pollTimeoutSeconds = pollTimeoutSeconds;
     this.logger = logger;
     this.now = now;
-    this.running = false;
-    this.loopPromise = undefined;
-    this.activeController = undefined;
-    this.pendingSleep = undefined;
     this.commandReplyCooldownMs = commandReplyCooldownMs;
     this.commandReplyDeadlines = new Map();
     this.onReadinessChange = onReadinessChange;
-  }
-
-  start() {
-    if (this.running) return this.loopPromise;
-    this.running = true;
-    this.loopPromise = this.runLoop();
-    return this.loopPromise;
-  }
-
-  async stop() {
-    if (!this.running && !this.loopPromise) return;
-    this.running = false;
-    this.activeController?.abort();
-    this.pendingSleep?.resolve();
-    await this.loopPromise;
-    this.loopPromise = undefined;
   }
 
   async runLoop() {
     await this.removeWebhookWithRetry();
     let failures = 0;
     while (this.running) {
-      const controller = new AbortController();
-      this.activeController = controller;
+      const controller = this.trackRequest();
       this.repository.recordSourceAttempt('telegram', this.now());
       try {
         const offset = this.repository.getTelegramOffset();
@@ -77,7 +56,7 @@ export class TelegramBot {
         this.logger.warn('Telegram long poll failed', { consecutiveFailures: failures, error: message });
         await this.sleep(Math.min(60_000, 1_000 * 2 ** Math.min(failures - 1, 6)));
       } finally {
-        if (this.activeController === controller) this.activeController = undefined;
+        this.releaseRequest(controller);
       }
     }
   }
@@ -86,8 +65,7 @@ export class TelegramBot {
     let failures = 0;
     let identityValidated = false;
     while (this.running) {
-      const controller = new AbortController();
-      this.activeController = controller;
+      const controller = this.trackRequest();
       try {
         if (!identityValidated) {
           const bot = await this.client.getMe(controller.signal);
@@ -119,7 +97,7 @@ export class TelegramBot {
         });
         await this.sleep(Math.min(60_000, 1_000 * 2 ** Math.min(failures - 1, 6)));
       } finally {
-        if (this.activeController === controller) this.activeController = undefined;
+        this.releaseRequest(controller);
       }
     }
   }
@@ -159,7 +137,7 @@ export class TelegramBot {
         const changed = this.repository.setTelegramEndpointEnabled(chatId, true, this.now());
         response = changed ? 'Alerts resumed.' : undefined;
       } else if (command === '/delete') {
-        const changed = this.repository.deleteTelegramEndpoint(chatId, this.now());
+        const changed = this.repository.deleteTelegramEndpoint(chatId);
         response = changed ? 'Telegram disconnected. No chat endpoint was retained.' : undefined;
       } else if (command === '/test') {
         response = '🛰️ Test received. slashveto.me can reach this chat.';
@@ -223,21 +201,6 @@ export class TelegramBot {
     return true;
   }
 
-  sleep(delay) {
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        this.pendingSleep = undefined;
-        resolve();
-      }, delay);
-      this.pendingSleep = {
-        resolve: () => {
-          clearTimeout(timer);
-          this.pendingSleep = undefined;
-          resolve();
-        },
-      };
-    });
-  }
 }
 
 class TelegramIdentityError extends Error {}

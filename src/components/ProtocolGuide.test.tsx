@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { ProtocolSnapshot } from '../../shared/protocol/index.ts';
+import type { ProtocolSnapshot } from '@shared/protocol/index.ts';
 import { formatDuration, ProtocolGuide } from './ProtocolGuide';
 
 describe('ProtocolGuide', () => {

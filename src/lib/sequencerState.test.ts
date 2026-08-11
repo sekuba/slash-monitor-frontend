@@ -5,7 +5,7 @@ import {
     zeroAddress,
     type PublicClient,
 } from 'viem';
-import type { ProtocolSnapshot } from '../../shared/protocol/index.ts';
+import type { ProtocolSnapshot } from '@shared/protocol/index.ts';
 import { rollupAbi } from './contracts/rollupAbi';
 import { readSequencerStates } from './sequencerState';
 

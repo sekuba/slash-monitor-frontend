@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ProtocolSnapshot, SlashingCase } from '../../shared/protocol/index.ts';
+import type { ProtocolSnapshot, SlashingCase } from '@shared/protocol/index.ts';
 import { currentRoundProgress } from '@/components/CaseFeed';
 import { groupCasesByPayload, selectCaseFeed } from './caseFeed';
 

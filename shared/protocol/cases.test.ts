@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
     projectAddressStatus,
     projectCases,
-    transitionFor,
 } from './cases.ts';
+import { transitionFor } from './transitions.ts';
 import type { Observation, ProtocolSnapshot } from './types.ts';
 
 const sequencer = '0x1111111111111111111111111111111111111111';

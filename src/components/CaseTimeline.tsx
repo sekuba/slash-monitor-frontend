@@ -3,7 +3,7 @@ import {
     stageLabel,
     type ProtocolSnapshot,
     type SlashingCase,
-} from '../../shared/protocol/index.ts';
+} from '@shared/protocol/index.ts';
 import { EvidenceDetails } from './EvidenceDetails';
 import { urlForCase } from '@/lib/navigation';
 import { ProtocolPath } from './ProtocolPath';

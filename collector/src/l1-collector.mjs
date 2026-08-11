@@ -1,6 +1,7 @@
 import { errorMessage } from './logger.mjs';
+import { PollingWorker } from './polling-worker.mjs';
 
-export class L1Collector {
+export class L1Collector extends PollingWorker {
   constructor({
     scanner,
     repository,
@@ -12,6 +13,7 @@ export class L1Collector {
     logger,
     now = Date.now,
   }) {
+    super();
     this.scanner = scanner;
     this.repository = repository;
     this.network = network;
@@ -21,26 +23,6 @@ export class L1Collector {
     this.maxSlashLogRunMs = maxSlashLogRunMs;
     this.logger = logger;
     this.now = now;
-    this.running = false;
-    this.loopPromise = undefined;
-    this.activeRequest = undefined;
-    this.pendingSleep = undefined;
-  }
-
-  start() {
-    if (this.running) return this.loopPromise;
-    this.running = true;
-    this.loopPromise = this.runLoop();
-    return this.loopPromise;
-  }
-
-  async stop() {
-    if (!this.running && !this.loopPromise) return;
-    this.running = false;
-    this.activeRequest?.abort();
-    this.pendingSleep?.resolve();
-    await this.loopPromise;
-    this.loopPromise = undefined;
   }
 
   async runOnce() {
@@ -53,8 +35,7 @@ export class L1Collector {
   async runSnapshotOnce() {
     const attemptedAt = this.now();
     this.repository.recordSourceAttempt('l1', attemptedAt);
-    const controller = new AbortController();
-    this.activeRequest = controller;
+    const controller = this.trackRequest();
     let snapshot;
     try {
       const previous = this.repository.getSourceState('l1') ?? {};
@@ -70,7 +51,7 @@ export class L1Collector {
       });
       return { ok: false, error: message, consecutiveFailures: state.consecutiveFailures };
     } finally {
-      if (this.activeRequest === controller) this.activeRequest = undefined;
+      this.releaseRequest(controller);
     }
 
     const previousFailures = this.repository.getSourceState('l1')?.consecutiveFailures ?? 0;
@@ -101,10 +82,9 @@ export class L1Collector {
       return { ok: false, disabled: true };
     }
     this.repository.recordSourceAttempt('l1_slash_logs', this.now());
-    const controller = new AbortController();
+    const controller = this.trackRequest();
     const deadlineSignal = AbortSignal.timeout(this.maxSlashLogRunMs);
     const requestSignal = AbortSignal.any([controller.signal, deadlineSignal]);
-    this.activeRequest = controller;
     const previousFailures = this.repository.getSourceState('l1_slash_logs')?.consecutiveFailures ?? 0;
     const totals = { chunks: 0, inserted: 0, queued: 0, corrections: 0 };
     try {
@@ -140,7 +120,7 @@ export class L1Collector {
       });
       return { ok: false, error: message, consecutiveFailures: state.consecutiveFailures, ...totals };
     } finally {
-      if (this.activeRequest === controller) this.activeRequest = undefined;
+      this.releaseRequest(controller);
     }
 
     if (previousFailures > 0) {
@@ -152,33 +132,5 @@ export class L1Collector {
       this.logger.debug('Confirmed Slashed log checkpoint advanced', totals);
     }
     return { ok: true, yielded: Boolean(totals.hasMore), ...totals };
-  }
-
-  async runLoop() {
-    while (this.running) {
-      const result = await this.runOnce();
-      if (!this.running) break;
-      const failures = result.ok ? 0 : result.consecutiveFailures ?? 1;
-      const delay = failures === 0
-        ? this.pollIntervalMs
-        : Math.min(this.maxBackoffMs, this.pollIntervalMs * 2 ** Math.min(failures - 1, 16));
-      await this.sleep(delay);
-    }
-  }
-
-  sleep(delay) {
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        this.pendingSleep = undefined;
-        resolve();
-      }, delay);
-      this.pendingSleep = {
-        resolve: () => {
-          clearTimeout(timer);
-          this.pendingSleep = undefined;
-          resolve();
-        },
-      };
-    });
   }
 }

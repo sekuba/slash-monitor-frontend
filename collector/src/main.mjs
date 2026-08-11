@@ -106,7 +106,6 @@ async function main() {
   if (config.vapid) {
     channels.web_push = new WebPushChannel({
       vapid: config.vapid,
-      publicUrl: config.publicUrl,
       timeoutMs: config.deliveryRequestTimeoutMs,
     });
   }
@@ -130,7 +129,6 @@ async function main() {
     telegramBot = new TelegramBot({
       client: telegramClient,
       repository,
-      network: config.network,
       expectedUsername: config.telegram.username,
       pollTimeoutSeconds: config.telegram.pollTimeoutSeconds,
       onReadinessChange: (ready) => { telegramReady = ready; },
@@ -205,6 +203,7 @@ async function main() {
 
   process.once('SIGINT', () => void shutdown('SIGINT'));
   process.once('SIGTERM', () => void shutdown('SIGTERM'));
+  process.on('unhandledRejection', (error) => void fail('unhandled-rejection', error));
 
   try {
     await api.listen();

@@ -72,7 +72,6 @@ test('TelegramBot silently rejects malformed and consumed links so strangers can
 test('TelegramBot persists the update offset after a durable command even if its reply fails', async () => {
   const calls = [];
   let offset = 17;
-  let bot;
   const logger = recordingLogger();
   const repository = {
     recordSourceAttempt(...args) {
@@ -120,7 +119,7 @@ test('TelegramBot persists the update offset after a durable command even if its
       throw new Error('reply transport failed');
     },
   };
-  bot = new TelegramBot({
+  const bot = new TelegramBot({
     repository,
     client,
     network: 'mainnet',

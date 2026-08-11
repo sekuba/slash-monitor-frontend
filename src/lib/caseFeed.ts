@@ -1,4 +1,4 @@
-import type { SlashingCase } from '../../shared/protocol/index.ts';
+import type { SlashingCase } from '@shared/protocol/index.ts';
 
 const EXECUTION_OUTCOMES = new Set([
     'executed',

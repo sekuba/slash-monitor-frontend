@@ -7,7 +7,7 @@ import test from 'node:test';
 
 import { CaseRepository } from '../src/case-repository.mjs';
 import { parseOffenseSnapshot } from '../src/offenses.mjs';
-import { protocolSnapshot, targetRound } from './case-fixtures.mjs';
+import { createRepository, protocolSnapshot, targetRound } from './case-fixtures.mjs';
 
 const REGISTRY = '0x1111111111111111111111111111111111111111';
 const ROLLUP = '0x2222222222222222222222222222222222222222';
@@ -537,16 +537,6 @@ function insertRawObservation(repository, observation) {
     Number(observation.provenance.canonical),
     JSON.stringify(observation),
   );
-}
-
-function createRepository() {
-  const repository = new CaseRepository(':memory:');
-  repository.bindRuntimeIdentity({
-    network: 'mainnet',
-    chainId: 1,
-    registryAddress: REGISTRY,
-  });
-  return repository;
 }
 
 function historicalContext({ targetEpoch, actionIndex, amount }) {

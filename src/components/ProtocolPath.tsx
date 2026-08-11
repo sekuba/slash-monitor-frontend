@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import type { CaseStage, SlashingCase } from '../../shared/protocol/index.ts';
+import type { CaseStage, SlashingCase } from '@shared/protocol/index.ts';
 import { PROTOCOL_TONES } from '@/lib/protocolTones';
 
 export const PROTOCOL_PATH: ReadonlyArray<{

@@ -15,7 +15,7 @@ import {
 import { clearRpcOverride, getRpcOverride, setRpcOverride } from './lib/rpcOverride';
 import { useSlashingStore } from './store/slashingStore';
 import type { MonitorConfigInput } from './types/slashing';
-import type { ProtocolSnapshot } from '../shared/protocol/index.ts';
+import type { ProtocolSnapshot } from '@shared/protocol/index.ts';
 
 const MAINNET_REGISTRY_ADDRESS = '0x35b22e09Ee0390539439E24f06Da43D83f90e298' as Address;
 const TESTNET_REGISTRY_ADDRESS = '0xA0BFb1B494FB49041e5c6e8c2C1BE09cD171c6Ba' as Address;
@@ -101,6 +101,9 @@ export function App() {
     const closeProtocolGuide = useCallback(() => {
         setProtocolGuide((current) => ({ ...current, isOpen: false }));
     }, []);
+    const openCurrentProtocolGuide = useCallback(() => {
+        openProtocolGuide(currentProtocol);
+    }, [currentProtocol, openProtocolGuide]);
     const updateCurrentProtocol = useCallback((next: ProtocolSnapshot | null) => {
         setCurrentProtocol((current) => {
             if (current === next) return current;
@@ -160,7 +163,7 @@ export function App() {
             <Header
                 activeView={location.view}
                 onNavigate={navigateTo}
-                onOpenProtocolGuide={() => openProtocolGuide(currentProtocol)}
+                onOpenProtocolGuide={openCurrentProtocolGuide}
             />
             {isScannerMounted && (
                 <ScannerRuntime

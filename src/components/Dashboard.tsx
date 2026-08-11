@@ -1,27 +1,20 @@
-import { useEffect, useState, type FormEvent } from 'react';
-import { AddressStatus } from './AddressStatus';
-import { CaseFeed } from './CaseFeed';
-import { CaseTimeline } from './CaseTimeline';
+import { useEffect, useMemo, useState } from 'react';
+import { CaseSurface } from './CaseSurface';
+import { ExecutionHistoryStatus } from './ExecutionHistoryStatus';
 import { MonitorDetails } from './MonitorDetails';
 import { NetworkHealth } from './NetworkHealth';
-import { ShareButton } from './ShareButton';
-import { WatchlistSection } from './WatchlistSection';
-import { parseAddressList, formatAddressList } from '@/lib/addresses';
+import { SequencerFilter } from './SequencerFilter';
 import {
     loadMonitorAddresses,
     saveMonitorAddresses,
 } from '@/lib/monitorAddressStorage';
 import { projectMonitorCases } from '@/lib/monitorCases';
-import { selectCaseFeed } from '@/lib/caseFeed';
 import { urlForWatchlist } from '@/lib/navigation';
-import { summarizeNetwork } from '../../shared/protocol/index.ts';
+import { summarizeNetwork } from '@shared/protocol/index.ts';
 import { useSlashingStore } from '@/store/slashingStore';
 import { useSequencerStates } from '@/hooks/useSequencerStates';
-import type {
-    ExecutionHistoryScan,
-    MonitorConfigInput,
-} from '@/types/slashing';
-import type { ProtocolSnapshot } from '../../shared/protocol/index.ts';
+import type { MonitorConfigInput } from '@/types/slashing';
+import type { ProtocolSnapshot } from '@shared/protocol/index.ts';
 
 interface DashboardProps {
     configInput: MonitorConfigInput;
@@ -53,13 +46,8 @@ export function Dashboard({
         linkedAddresses.length > 0
             ? linkedAddresses
             : loadMonitorAddresses(network));
-    const [addressText, setAddressText] = useState(() => formatAddressList(addresses));
-    const [addressError, setAddressError] = useState<string | null>(null);
-    const [filterExpanded, setFilterExpanded] = useState<boolean | null>(null);
-    const filterOpen = filterExpanded ??
-        (addresses.length === 0 || addressError !== null);
 
-    const projected = (() => {
+    const projected = useMemo(() => {
         if (!store.config || !store.isInitialized) return null;
         return projectMonitorCases({
             network,
@@ -70,7 +58,7 @@ export function Dashboard({
             confirmedSlashes: store.confirmedSlashes,
             executionScan: store.executionScan,
         });
-    })();
+    }, [network, store]);
     const sequencerStates = useSequencerStates({
         config: configInput,
         protocol: projected?.protocol ?? null,
@@ -81,16 +69,7 @@ export function Dashboard({
         onProtocolChange(projected?.protocol ?? null);
     }, [onProtocolChange, projected?.protocol]);
 
-    const saveAddresses = (event: FormEvent) => {
-        event.preventDefault();
-        const parsed = parseAddressList(addressText, 100);
-        if (parsed.errors.length > 0) {
-            setAddressError(parsed.errors[0]);
-            return;
-        }
-        const next = parsed.addresses.map((item) => item.toLowerCase());
-        setAddressError(null);
-        setFilterExpanded(null);
+    const saveAddresses = (next: string[]) => {
         setAddresses(next);
         saveMonitorAddresses(network, next);
         onWatchlistChange(next);
@@ -98,16 +77,6 @@ export function Dashboard({
     const watchlistUrl = addresses.length > 0 && typeof window !== 'undefined'
         ? urlForWatchlist(window.location.href, 'monitor', network, addresses).href
         : null;
-    const selectedCase = projected && selectedCaseId
-        ? projected.cases.find((item) => item.id === selectedCaseId) ?? null
-        : null;
-    const feedCaseIds = new Set(projected
-        ? Object.values(selectCaseFeed(projected.cases)).flat().map((item) => item.id)
-        : []);
-    const selectedInFeed = selectedCaseId ? feedCaseIds.has(selectedCaseId) : false;
-    const selectedInWatchlist = selectedCase
-        ? addresses.includes(selectedCase.sequencer)
-        : false;
 
     const controls = (
         <div className="mb-8">
@@ -181,175 +150,23 @@ export function Dashboard({
                 </div>
             )}
 
-            <details
-                open={filterOpen}
-                onToggle={(event) => {
-                    const open = event.currentTarget.open;
-                    if (open !== filterOpen) setFilterExpanded(open);
-                }}
-                className="group mb-8 border-6 border-chartreuse bg-malachite shadow-brutal-chartreuse"
-            >
-                <summary className="flex min-h-16 cursor-pointer list-none flex-wrap items-center justify-between gap-3 p-4 sm:p-5 [&::-webkit-details-marker]:hidden">
-                    <h1 className="text-3xl font-black text-whisper-white">
-                        Filter by Sequencer
-                    </h1>
-                    <div className="flex items-center gap-3">
-                        {addresses.length > 0 && (
-                            <span className="border-3 border-brand-black bg-chartreuse px-3 py-2 text-xs font-black uppercase text-brand-black">
-                                {addresses.length} watched
-                            </span>
-                        )}
-                        <span className="text-sm font-black uppercase text-chartreuse" aria-hidden="true">
-                            <span className="group-open:hidden">Open +</span>
-                            <span className="hidden group-open:inline">Close −</span>
-                        </span>
-                    </div>
-                </summary>
-                <div className="border-t-3 border-chartreuse/40 p-4 pt-3 sm:p-5 sm:pt-4">
-                    <p className="max-w-4xl text-sm font-bold text-whisper-white/75">
-                        This page uses the public RPC shown above. Switch to the pingme
-                        section to receive push notifications for slashings targeting your
-                        sequencers.
-                    </p>
-                    <form onSubmit={saveAddresses} className="mt-4">
-                        <label htmlFor="monitor-addresses" className="text-xs font-black uppercase text-chartreuse">
-                            Sequencer addresses
-                        </label>
-                        <textarea
-                            id="monitor-addresses"
-                            value={addressText}
-                            onChange={(event) => setAddressText(event.target.value)}
-                            rows={Math.max(2, Math.min(8, addressText.split('\n').length))}
-                            spellCheck={false}
-                            placeholder="0x..."
-                            className="mt-2 min-h-24 w-full resize-y border-5 border-aqua bg-brand-black p-3 font-mono text-sm font-black text-whisper-white shadow-brutal-aqua focus:border-chartreuse"
-                        />
-                        {addressError && (
-                            <p className="mt-3 text-sm font-bold text-vermillion" role="alert">
-                                {addressError}
-                            </p>
-                        )}
-                        <div className="mt-4 flex flex-wrap items-center gap-3">
-                            <button type="submit" className="brutal-button">Filter</button>
-                            {watchlistUrl && (
-                                <div className="flex items-center gap-1">
-                                    <ShareButton
-                                        url={watchlistUrl}
-                                        ariaLabel="Copy link to this Monitor watchlist"
-                                        className="h-11 w-11 border-3 border-aqua"
-                                    />
-                                    <span className="text-xs font-black uppercase text-aqua">
-                                        Share watchlist
-                                    </span>
-                                </div>
-                            )}
-                        </div>
-                    </form>
-                </div>
-            </details>
-
-            {projected && selectedCase && !selectedInFeed && !selectedInWatchlist && (
-                <section className="mb-8">
-                    <p className="mb-3 text-xs font-black uppercase tracking-[0.16em] text-aqua">
-                        Shared case
-                    </p>
-                    <CaseTimeline
-                        item={selectedCase}
-                        protocol={projected.protocol}
-                        selected
-                        showSequencer
-                        onOpenProtocolGuide={onOpenProtocolGuide}
-                    />
-                </section>
-            )}
-
-            {projected && addresses.length > 0 && (
-                <WatchlistSection
-                    cases={projected.cases.filter(
-                        (item) => addresses.includes(item.sequencer),
-                    )}
-                    sequencerCount={addresses.length}
-                    forceOpen={selectedInWatchlist && !selectedInFeed}
-                >
-                    {addresses.map((address) => (
-                        <AddressStatus
-                            key={address}
-                            address={address}
-                            network={network}
-                            cases={projected.cases.filter(
-                                (item) => item.sequencer === address,
-                            )}
-                            currentStake={
-                                sequencerStates.states.get(address.toLowerCase())
-                                    ?.effectiveBalance.toString() ?? null
-                            }
-                            currentStakeLoading={sequencerStates.isLoading}
-                            protocol={projected.protocol}
-                            selectedCaseId={selectedInFeed ? null : selectedCaseId}
-                            onOpenProtocolGuide={onOpenProtocolGuide}
-                        />
-                    ))}
-                </WatchlistSection>
-            )}
+            <SequencerFilter
+                addresses={addresses}
+                watchlistUrl={watchlistUrl}
+                onSave={saveAddresses}
+            />
 
             {projected && (
-                <CaseFeed
+                <CaseSurface
+                    network={network}
                     cases={projected.cases}
                     protocol={projected.protocol}
+                    watchedAddresses={addresses}
+                    sequencerStates={sequencerStates}
                     selectedCaseId={selectedCaseId}
-                    evidenceMode="l1"
                     onOpenProtocolGuide={onOpenProtocolGuide}
                 />
             )}
         </main>
-    );
-}
-
-function ExecutionHistoryStatus({ scan }: { scan: ExecutionHistoryScan }) {
-    const percentage = scan.totalBlocks === 0n
-        ? 100
-        : Math.min(
-            100,
-            Number(scan.scannedBlocks * 10_000n / scan.totalBlocks) / 100,
-        );
-    const paused = scan.status === 'paused';
-    return (
-        <section className={`mb-8 border-5 p-4 ${
-            paused
-                ? 'border-orchid bg-aubergine shadow-brutal-orchid'
-                : 'border-aqua bg-lapis shadow-brutal-aqua'
-        }`}>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className={`text-lg font-black ${
-                    paused ? 'text-orchid' : 'text-aqua'
-                }`}>
-                    {paused
-                        ? 'Execution history paused'
-                        : 'Scanning execution history'}
-                </h2>
-                <span className="font-mono text-xs font-black text-whisper-white/65">
-                    {scan.scannedBlocks.toString()} / {scan.totalBlocks.toString()} blocks
-                </span>
-            </div>
-            <div
-                role="progressbar"
-                aria-label="Execution history scan coverage"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={percentage}
-                className="mt-3 h-4 border-3 border-whisper-white/40 bg-brand-black"
-            >
-                <div
-                    className={`h-full ${
-                        paused ? 'bg-orchid' : 'bg-aqua'
-                    }`}
-                    style={{ width: `${percentage}%` }}
-                />
-            </div>
-            <p className="mt-2 text-xs font-bold text-whisper-white/65">
-                RPC chunk {scan.chunkSize.toString()} blocks
-                {paused ? ' · The next refresh will retry, or you can use another RPC.' : ''}
-            </p>
-        </section>
     );
 }

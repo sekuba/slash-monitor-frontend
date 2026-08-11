@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { CaseRepository } from '../src/case-repository.mjs';
 import { L1Collector } from '../src/l1-collector.mjs';
-import { SEQUENCER_A } from './helpers.mjs';
+import { SEQUENCER_A, silentLogger } from './helpers.mjs';
 import {
   PROPOSER,
   REGISTRY,
+  createRepository,
   hash,
   protocolSnapshot,
   targetRound,
@@ -110,16 +110,6 @@ test('log backfill yields so every poll starts with a fresh L1 snapshot', async 
   repository.close();
 });
 
-function createRepository() {
-  const repository = new CaseRepository(':memory:');
-  repository.bindRuntimeIdentity({
-    network: 'mainnet',
-    chainId: 1,
-    registryAddress: REGISTRY,
-  });
-  return repository;
-}
-
 function slashChunk({
   from,
   to,
@@ -164,4 +154,3 @@ function slashLog(block) {
   };
 }
 
-const silentLogger = { debug() {}, info() {}, warn() {}, error() {} };

@@ -126,9 +126,12 @@ export class AztecAdminClient {
       });
     } catch (error) {
       if (requestSignal.aborted && !signal?.aborted) {
-        throw new Error(`${request.label} request timed out after ${this.timeoutMs}ms`);
+        throw new Error(`${request.label} request timed out after ${this.timeoutMs}ms`, { cause: error });
       }
-      throw new Error(`${request.label} request failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `${request.label} request failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
     }
 
     const responseLimit = method === 'aztec_getValidatorStats'
@@ -172,8 +175,8 @@ export function parseNodeInfo(value) {
   }
   return {
     l1ChainId: parseChainId(value.l1ChainId),
-    registryAddress: parseIdentityAddress(contracts.registryAddress, 'registryAddress'),
-    rollupAddress: parseIdentityAddress(contracts.rollupAddress, 'rollupAddress'),
+    registryAddress: parseAddress(contracts.registryAddress, 'node info registryAddress'),
+    rollupAddress: parseAddress(contracts.rollupAddress, 'node info rollupAddress'),
   };
 }
 
@@ -335,13 +338,6 @@ function parseChainId(value) {
     throw new Error('Aztec node info l1ChainId must be a positive integer');
   }
   return parsed;
-}
-
-function parseIdentityAddress(value, name) {
-  if (typeof value !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(value) || /^0x0{40}$/i.test(value)) {
-    throw new Error(`Aztec node info ${name} must be a nonzero 20-byte hex address`);
-  }
-  return value.toLowerCase();
 }
 
 function parseAddress(value, label) {

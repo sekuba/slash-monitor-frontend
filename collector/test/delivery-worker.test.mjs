@@ -603,9 +603,5 @@ function fakeRepository(deliveries = []) {
     failDeliveryAndDisableEndpoint(...args) {
       this.calls.push(['fail-disable', ...args]);
     },
-    releaseDelivery(...args) {
-      this.calls.push(['release', ...args]);
-      return true;
-    },
   };
 }

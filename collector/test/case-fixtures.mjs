@@ -1,3 +1,5 @@
+import { CaseRepository } from '../src/case-repository.mjs';
+
 export const REGISTRY = '0x1111111111111111111111111111111111111111';
 export const ROLLUP = '0x2222222222222222222222222222222222222222';
 export const SLASHER = '0x3333333333333333333333333333333333333333';
@@ -91,4 +93,15 @@ export function targetRound({
 
 export function hash(value) {
   return `0x${Number(value).toString(16).padStart(64, '0')}`;
+}
+
+// One in-memory repository bound to the fixture identity, as most suites need.
+export function createRepository() {
+  const repository = new CaseRepository(':memory:');
+  repository.bindRuntimeIdentity({
+    network: 'mainnet',
+    chainId: 1,
+    registryAddress: REGISTRY,
+  });
+  return repository;
 }

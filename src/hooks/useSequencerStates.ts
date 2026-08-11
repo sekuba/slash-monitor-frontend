@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createPublicClient } from 'viem';
-import type { ProtocolSnapshot } from '../../shared/protocol/index.ts';
+import type { ProtocolSnapshot } from '@shared/protocol/index.ts';
 import { createPublicRpcTransport } from '@/lib/rpc';
 import {
     readSequencerStates,
@@ -8,14 +8,14 @@ import {
 } from '@/lib/sequencerState';
 import type { MonitorConfigInput } from '@/types/slashing';
 
-interface State {
+export interface SequencerStates {
     states: Map<string, SequencerState>;
     isLoading: boolean;
     error: string | null;
     scopeKey: string | null;
 }
 
-const EMPTY_STATE: State = {
+const EMPTY_STATE: SequencerStates = {
     states: new Map(),
     isLoading: false,
     error: null,
@@ -30,7 +30,7 @@ export function useSequencerStates({
     config: MonitorConfigInput;
     protocol: ProtocolSnapshot | null;
     addresses: readonly string[];
-}): State {
+}): SequencerStates {
     const normalizedAddresses = [...new Set(
         addresses.map((address) => address.toLowerCase()),
     )].sort();
@@ -44,7 +44,13 @@ export function useSequencerStates({
     const scopeKey = canRead
         ? `${chainId}:${rollupAddress?.toLowerCase()}:${addressKey}`
         : null;
-    const [state, setState] = useState<State>(EMPTY_STATE);
+    const [state, setState] = useState<SequencerStates>(EMPTY_STATE);
+    const loadingState = useMemo<SequencerStates>(() => ({
+        states: new Map(),
+        isLoading: true,
+        error: null,
+        scopeKey,
+    }), [scopeKey]);
 
     useEffect(() => {
         if (!canRead || !blockNumber || !blockHash || !rollupAddress || !scopeKey) return;
@@ -99,13 +105,6 @@ export function useSequencerStates({
     ]);
 
     if (!scopeKey) return EMPTY_STATE;
-    if (state.scopeKey !== scopeKey) {
-        return {
-            states: new Map(),
-            isLoading: true,
-            error: null,
-            scopeKey,
-        };
-    }
+    if (state.scopeKey !== scopeKey) return loadingState;
     return state;
 }

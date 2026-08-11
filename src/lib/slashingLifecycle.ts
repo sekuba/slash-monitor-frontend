@@ -1,3 +1,11 @@
+import {
+    executableSlot,
+    expirySlot,
+    isRoundProtectedByPause as sharedIsRoundProtectedByPause,
+    roundStatus,
+    targetEpochs,
+    type RoundTiming,
+} from '@shared/protocol/index.ts';
 import type { ResolvedMonitorConfig, RoundStatus, SlashAction } from '@/types/slashing';
 
 export type SlashingLifecycleConfig = Pick<
@@ -9,12 +17,20 @@ export type SlashingLifecycleConfig = Pick<
     | 'slashOffsetInRounds'
 >;
 
+function timing(config: SlashingLifecycleConfig): RoundTiming {
+    return {
+        roundSizeSlots: config.slashingRoundSize,
+        executionDelayRounds: config.executionDelayInRounds,
+        lifetimeRounds: config.lifetimeInRounds,
+    };
+}
+
 export function calculateExecutableSlot(round: bigint, config: SlashingLifecycleConfig): bigint {
-    return (round + 1n + BigInt(config.executionDelayInRounds)) * BigInt(config.slashingRoundSize);
+    return executableSlot(round, timing(config));
 }
 
 export function calculateExpirySlot(round: bigint, config: SlashingLifecycleConfig): bigint {
-    return (round + 1n + BigInt(config.lifetimeInRounds)) * BigInt(config.slashingRoundSize);
+    return expirySlot(round, timing(config));
 }
 
 export function calculateRoundStatus(
@@ -25,27 +41,29 @@ export function calculateRoundStatus(
     hasSlashActions: boolean,
     config: SlashingLifecycleConfig
 ): RoundStatus {
-    if (isExecuted) {
-        return 'executed';
-    }
+    return roundStatus({
+        round,
+        currentRound,
+        currentSlot,
+        isExecuted,
+        hasActions: hasSlashActions,
+    }, timing(config));
+}
 
-    if (currentRound > round + BigInt(config.lifetimeInRounds)) {
-        return 'expired';
-    }
-
-    if (!hasSlashActions) {
-        return 'below-quorum';
-    }
-
-    const isPastDelay = currentRound > round + BigInt(config.executionDelayInRounds);
-    const isAtExecutableSlot = currentSlot >= calculateExecutableSlot(round, config);
-    if (isPastDelay && isAtExecutableSlot) {
-        return currentRound === round + BigInt(config.executionDelayInRounds) + 1n
-            ? 'newly-executable'
-            : 'executable';
-    }
-
-    return 'quorum-reached';
+export function isRoundProtectedByPause(
+    round: bigint,
+    config: SlashingLifecycleConfig,
+    isSlashingEnabled: boolean,
+    pauseStartedAtSlot: bigint | null,
+    pauseEndsAtSlot: bigint | null
+): boolean {
+    return sharedIsRoundProtectedByPause({
+        round,
+        isSlashingEnabled,
+        pauseStartedAtSlot,
+        pauseEndsAtSlot,
+        slashOffsetRounds: config.slashOffsetInRounds,
+    }, timing(config));
 }
 
 export function buildRoundsToCheck(currentRound: bigint, config: SlashingLifecycleConfig): bigint[] {
@@ -62,18 +80,10 @@ export function buildRoundsToCheck(currentRound: bigint, config: SlashingLifecyc
 }
 
 export function getTargetEpochs(votingRound: bigint, config: SlashingLifecycleConfig): bigint[] {
-    const slashOffset = BigInt(config.slashOffsetInRounds);
-    if (votingRound < slashOffset) {
-        return [];
-    }
-
-    const roundSizeInEpochs = BigInt(config.slashingRoundSizeInEpochs);
-    const startEpoch = (votingRound - slashOffset) * roundSizeInEpochs;
-
-    return Array.from(
-        { length: config.slashingRoundSizeInEpochs },
-        (_, offset) => startEpoch + BigInt(offset)
-    );
+    return targetEpochs(votingRound, {
+        slashOffsetRounds: config.slashOffsetInRounds,
+        roundSizeEpochs: config.slashingRoundSizeInEpochs,
+    });
 }
 
 export function countUniqueValidators(actions: SlashAction[]): number {
